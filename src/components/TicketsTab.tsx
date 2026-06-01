@@ -87,6 +87,16 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
   const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'emergency' | 'unpaid'>('sick');
   const [reason, setReason] = useState('');
 
+  // Create payroll dispute states
+  const [disputedMonth, setDisputedMonth] = useState('');
+  const [disputedAmount, setDisputedAmount] = useState('');
+  const [payrollNotes, setPayrollNotes] = useState('');
+
+  // Create equipment issue states
+  const [equipmentType, setEquipmentType] = useState<'tool' | 'vehicle' | 'device' | 'other'>('device');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [equipmentNotes, setEquipmentNotes] = useState('');
+
   // Fetch leaves from database + merge offline queued items
   const fetchLeaves = async () => {
     setLeavesLoading(true);
@@ -375,6 +385,90 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       return;
     }
 
+    if (category === 'Payroll Dispute') {
+      if (!disputedMonth.trim() || !disputedAmount.trim() || !payrollNotes.trim()) {
+        Alert.alert('Validation Error', 'Please fill in all fields for the payroll dispute.');
+        return;
+      }
+      const amtNum = parseFloat(disputedAmount);
+      if (isNaN(amtNum) || amtNum <= 0) {
+        Alert.alert('Validation Error', 'Disputed amount must be a positive number.');
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        const payloadDesc = JSON.stringify({
+          disputed_month: disputedMonth.trim(),
+          disputed_amount: amtNum,
+          details: payrollNotes.trim()
+        });
+
+        const { error } = await supabase.from('tickets').insert({
+          employee_id: userId,
+          title: `Payroll Dispute - ${disputedMonth.trim()}`,
+          category: 'Payroll Dispute',
+          priority: 'medium',
+          description: payloadDesc,
+          status: 'open'
+        });
+
+        if (error) throw error;
+
+        Alert.alert('Success', 'Your payroll dispute request has been submitted.');
+        setDisputedMonth('');
+        setDisputedAmount('');
+        setPayrollNotes('');
+        setView('list');
+        setSubTab('tickets');
+        fetchTickets();
+      } catch (e: any) {
+        Alert.alert('Submission Failed', e.message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (category === 'Equipment Issue') {
+      if (!serialNumber.trim() || !equipmentNotes.trim()) {
+        Alert.alert('Validation Error', 'Please enter a serial number and details of the issue.');
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        const payloadDesc = JSON.stringify({
+          equipment_type: equipmentType,
+          serial_number: serialNumber.trim(),
+          details: equipmentNotes.trim()
+        });
+
+        const { error } = await supabase.from('tickets').insert({
+          employee_id: userId,
+          title: `Equipment Issue - ${equipmentType.toUpperCase()} (${serialNumber.trim()})`,
+          category: 'Equipment Issue',
+          priority: 'high',
+          description: payloadDesc,
+          status: 'open'
+        });
+
+        if (error) throw error;
+
+        Alert.alert('Success', 'Your equipment issue request has been submitted.');
+        setSerialNumber('');
+        setEquipmentNotes('');
+        setView('list');
+        setSubTab('tickets');
+        fetchTickets();
+      } catch (e: any) {
+        Alert.alert('Submission Failed', e.message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     if (!title.trim() || !description.trim()) {
       Alert.alert('Validation Error', 'Please enter a summary and details.');
       return;
@@ -637,6 +731,54 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
     }
   };
 
+  const getDisplayDescription = (desc: string) => {
+    if (!desc) return '';
+    if (desc.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(desc);
+        if (parsed.details) {
+          return parsed.details;
+        }
+        return Object.entries(parsed)
+          .map(([key, val]) => `${key.replace('_', ' ').toUpperCase()}: ${val}`)
+          .join(' | ');
+      } catch (e) {
+        return desc;
+      }
+    }
+    return desc;
+  };
+
+  const renderJsonDescription = (desc: string) => {
+    try {
+      const parsed = JSON.parse(desc);
+      return (
+        <View style={{ marginVertical: 8, gap: 6 }}>
+          {Object.entries(parsed).map(([key, val]) => {
+            if (key === 'details') return null;
+            const label = key.replace('_', ' ').toUpperCase();
+            return (
+              <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#f8fafc', borderColor: COLORS.border, borderWidth: 1, padding: 8, borderRadius: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMuted }}>{label}</Text>
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMain }}>
+                  {key.includes('amount') ? `₱${Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : String(val)}
+                </Text>
+              </View>
+            );
+          })}
+          {parsed.details && (
+            <View style={{ marginTop: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textMuted, textTransform: 'uppercase', marginBottom: 4 }}>Explanation</Text>
+              <Text style={styles.detailDescText}>{parsed.details}</Text>
+            </View>
+          )}
+        </View>
+      );
+    } catch (e) {
+      return <Text style={styles.detailDescText}>{desc}</Text>;
+    }
+  };
+
   return (
     <KeyboardAvoidingView 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
@@ -724,7 +866,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       </View>
 
                       <Text style={styles.ticketTitle} numberOfLines={1}>{ticket.title}</Text>
-                      <Text style={styles.ticketDesc} numberOfLines={2}>{ticket.description}</Text>
+                      <Text style={styles.ticketDesc} numberOfLines={2}>{getDisplayDescription(ticket.description)}</Text>
 
                       <View style={styles.cardFooter}>
                         <Text style={styles.footerTime}>
@@ -840,7 +982,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               })}
             </View>
 
-            {category === 'Leave Request' ? (
+            {category === 'Leave Request' && (
               <>
                 <Text style={styles.label}>Leave Classification</Text>
                 <View style={styles.categoriesGrid}>
@@ -921,7 +1063,90 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   onChangeText={setReason}
                 />
               </>
-            ) : (
+            )}
+
+            {category === 'Payroll Dispute' && (
+              <>
+                <Text style={styles.label}>Disputed Payslip Month</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. May 2026"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={disputedMonth}
+                  onChangeText={setDisputedMonth}
+                />
+
+                <Text style={styles.label}>Disputed Amount (₱)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 5000"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="numeric"
+                  value={disputedAmount}
+                  onChangeText={setDisputedAmount}
+                />
+
+                <Text style={styles.label}>Explanation of Discrepancy</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Please describe why this payslip is incorrect..."
+                  placeholderTextColor={COLORS.textMuted}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  value={payrollNotes}
+                  onChangeText={setPayrollNotes}
+                />
+              </>
+            )}
+
+            {category === 'Equipment Issue' && (
+              <>
+                <Text style={styles.label}>Equipment Type</Text>
+                <View style={styles.categoriesGrid}>
+                  {(['tool', 'vehicle', 'device', 'other'] as const).map((type) => {
+                    const active = equipmentType === type;
+                    return (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.categoryOption,
+                          active ? { borderColor: COLORS.rose, backgroundColor: COLORS.roseDim } : {}
+                        ]}
+                        onPress={() => setEquipmentType(type)}
+                      >
+                        <Text style={[styles.categoryOptionText, active ? { color: COLORS.rose, fontWeight: 'bold' } : {}]}>
+                          {type.toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.label}>Serial Number / Asset Tag</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. SN-10924-X"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={serialNumber}
+                  onChangeText={setSerialNumber}
+                />
+
+                <Text style={styles.label}>Issue Description</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Please explain the damage or performance issues..."
+                  placeholderTextColor={COLORS.textMuted}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  value={equipmentNotes}
+                  onChangeText={setEquipmentNotes}
+                />
+              </>
+            )}
+
+            {category !== 'Leave Request' && category !== 'Payroll Dispute' && category !== 'Equipment Issue' && (
               <>
                 <Text style={styles.label}>Priority Level</Text>
                 <View style={styles.priorityRow}>
@@ -1024,7 +1249,11 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   Priority: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{selectedTicket.priority.toUpperCase()}</Text>
                 </Text>
               </View>
-              <Text style={styles.detailDescText}>{selectedTicket.description}</Text>
+              {selectedTicket.description.trim().startsWith('{') ? (
+                renderJsonDescription(selectedTicket.description)
+              ) : (
+                <Text style={styles.detailDescText}>{selectedTicket.description}</Text>
+              )}
               <Text style={styles.detailDateText}>Filed on {formatDate(selectedTicket.created_at)}</Text>
             </View>
 
