@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
 import { TicketsTab } from '../components/TicketsTab';
+import { LeavesTab } from '../components/LeavesTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -101,7 +102,7 @@ export default function App() {
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets' | 'leaves'>('home');
   const geofence = useGeofence();
 
   // Opening splash transition states
@@ -545,6 +546,10 @@ export default function App() {
             <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} />
           )}
 
+          {activeTab === 'leaves' && (
+            <LeavesTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} />
+          )}
+
 
           {activeTab === 'profile' && (
             <ScrollView contentContainerStyle={styles.content}>
@@ -583,6 +588,11 @@ export default function App() {
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('tickets')}>
             <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
             <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>Support</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('leaves')}>
+            <Feather name="calendar" size={24} color={activeTab === 'leaves' ? COLORS.primary : COLORS.textMuted} />
+            <Text style={[styles.navText, { color: activeTab === 'leaves' ? COLORS.primary : COLORS.textMuted }]}>Leaves</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('payslip')}>

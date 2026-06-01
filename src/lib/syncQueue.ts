@@ -5,7 +5,7 @@ const QUEUE_KEY = 'OFFLINE_TRANSACTION_QUEUE';
 
 export interface QueueItem {
   id: string;
-  type: 'time_in' | 'time_out' | 'parts_checkout';
+  type: 'time_in' | 'time_out' | 'parts_checkout' | 'leave_request';
   payload: any;
   timestamp: string;
 }
@@ -77,6 +77,16 @@ export const syncQueue = {
               total_hours: item.payload.total_hours
             })
             .eq('id', item.payload.log_id);
+          error = err;
+        } else if (item.type === 'leave_request') {
+          const { error: err } = await supabase.from('leaves').insert({
+            technician_id: item.payload.technician_id,
+            start_date: item.payload.start_date,
+            end_date: item.payload.end_date,
+            leave_type: item.payload.leave_type,
+            reason: item.payload.reason,
+            status: 'pending'
+          });
           error = err;
         } else if (item.type === 'parts_checkout') {
           // 1. Double check current stock level from Supabase
