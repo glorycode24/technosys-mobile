@@ -73,6 +73,122 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
   const commentsScrollViewRef = useRef<ScrollView>(null);
 
+  // Sub-navigation sub-tab
+  const [subTab, setSubTab] = useState<'tickets' | 'leaves'>('tickets');
+
+  // Leaves states
+  const [leavesList, setLeavesList] = useState<any[]>([]);
+  const [leavesLoading, setLeavesLoading] = useState(false);
+  const [leavesRefreshing, setLeavesRefreshing] = useState(false);
+  
+  // Create leave request form states
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'emergency' | 'unpaid'>('sick');
+  const [reason, setReason] = useState('');
+
+  // Fetch leaves from database + merge offline queued items
+  const fetchLeaves = async () => {
+    setLeavesLoading(true);
+    try {
+      let dbLeaves = [];
+      try {
+        const fetchPromise = supabase
+          .from('leaves')
+          .select('*')
+          .eq('technician_id', userId)
+          .order('created_at', { ascending: false });
+
+        const { data, error } = await withTimeout(fetchPromise, 4000);
+        if (error) throw error;
+        dbLeaves = data || [];
+        // Save to cache
+        await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(dbLeaves));
+      } catch (networkErr: any) {
+        console.warn('Could not fetch leaves from DB, falling back to cache:', networkErr.message);
+        const cached = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
+        dbLeaves = cached ? JSON.parse(cached) : [];
+      }
+
+      // 2. Fetch offline queue items
+      const queue = await syncQueue.getQueue();
+      const offlineLeaves = queue
+        .filter(item => item.type === 'leave_request' && item.payload.technician_id === userId)
+        .map(item => ({
+          id: 'offline-' + item.id,
+          technician_id: userId,
+          start_date: item.payload.start_date,
+          end_date: item.payload.end_date,
+          leave_type: item.payload.leave_type,
+          reason: item.payload.reason,
+          status: 'sync_pending',
+          created_at: item.timestamp
+        }));
+
+      // Merge: Offline items go to the top
+      setLeavesList([...offlineLeaves, ...dbLeaves]);
+    } catch (err) {
+      console.error('Error fetching leaves:', err);
+    } finally {
+      setLeavesLoading(false);
+      setLeavesRefreshing(false);
+    }
+  };
+
+  const applyPreset = (daysAhead: number, duration: number) => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() + daysAhead);
+    
+    const end = new Date(start);
+    end.setDate(start.getDate() + duration - 1);
+
+    const format = (date: Date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    setStartDate(format(start));
+    setEndDate(format(end));
+  };
+
+  const getLeaveTypeDetails = (type: string) => {
+    switch (type) {
+      case 'sick':
+        return { label: 'Sick', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' };
+      case 'vacation':
+        return { label: 'Vacation', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+      case 'emergency':
+        return { label: 'Emergency', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
+      case 'unpaid':
+      default:
+        return { label: 'Unpaid', color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)' };
+    }
+  };
+
+  const getLeaveStatusDetails = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return { label: 'Approved', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+      case 'rejected':
+        return { label: 'Rejected', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' };
+      case 'sync_pending':
+        return { label: 'Sync Pending', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', isSync: true };
+      case 'pending':
+      default:
+        return { label: 'Pending', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
+    }
+  };
+
+  const calculateLeaveDuration = (startStr: string, endStr: string) => {
+    const s = new Date(startStr);
+    const e = new Date(endStr);
+    const diff = Math.abs(e.getTime() - s.getTime());
+    return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1;
+  };
+
   // Fetch technician's tickets (with cache fallback)
   const fetchTickets = async () => {
     setLoading(true);
@@ -160,7 +276,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
   useEffect(() => {
     fetchTickets();
-  }, []);
+    fetchLeaves();
+  }, [userId]);
 
   const handleSelectTicket = (ticket: any) => {
     setSelectedTicket(ticket);
@@ -170,6 +287,94 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
   };
 
   const handleCreateTicket = async () => {
+    if (category === 'Leave Request') {
+      if (!startDate || !endDate || !reason.trim()) {
+        Alert.alert('Incomplete Form', 'Please fill in all leave request fields.');
+        return;
+      }
+
+      // Basic format validation: YYYY-MM-DD
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        Alert.alert('Invalid Date Format', 'Dates must be formatted as YYYY-MM-DD.');
+        return;
+      }
+
+      // Logical date range check
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        Alert.alert('Invalid Dates', 'Please enter valid date values.');
+        return;
+      }
+
+      if (end < start) {
+        Alert.alert('Invalid Date Range', 'End Date must be on or after Start Date.');
+        return;
+      }
+
+      const payload = {
+        technician_id: userId,
+        start_date: startDate,
+        end_date: endDate,
+        leave_type: leaveType,
+        reason: reason.trim()
+      };
+
+      setSubmitting(true);
+      try {
+        const insertPromise = supabase.from('leaves').insert(payload);
+        const { error } = await withTimeout(insertPromise, 4000);
+
+        if (error) {
+          const errMessage = error.message || '';
+          const status = (error as any).status;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+
+          if (isNetworkError) {
+            // Add to offline sync queue
+            await syncQueue.addToQueue('leave_request', payload);
+            Alert.alert(
+              'Offline Mode Active',
+              'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+            );
+            setReason('');
+            setView('list');
+            setSubTab('leaves');
+            fetchLeaves();
+            return;
+          }
+          throw error;
+        }
+
+        Alert.alert('Success', 'Leave request filed successfully.');
+        setReason('');
+        setView('list');
+        setSubTab('leaves');
+        fetchLeaves();
+      } catch (err: any) {
+        const errMessage = err.message || '';
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+
+        if (isNetworkError) {
+          await syncQueue.addToQueue('leave_request', payload);
+          Alert.alert(
+            'Offline Mode Active',
+            'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+          );
+          setReason('');
+          setView('list');
+          setSubTab('leaves');
+          fetchLeaves();
+        } else {
+          Alert.alert('Submission Failed', err.message || 'Could not submit leave request.');
+        }
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     if (!title.trim() || !description.trim()) {
       Alert.alert('Validation Error', 'Please enter a summary and details.');
       return;
@@ -445,66 +650,159 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               <Text style={styles.title}>Service Desk</Text>
               <Text style={styles.subtitle}>File requests and chat with HR Support</Text>
             </View>
-            <TouchableOpacity style={styles.createButton} onPress={() => setView('create')}>
+            <TouchableOpacity 
+              style={styles.createButton} 
+              onPress={() => {
+                if (subTab === 'leaves') {
+                  setCategory('Leave Request');
+                }
+                setView('create');
+              }}
+            >
               <Feather name="plus" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
 
-          {loading && tickets.length === 0 ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={COLORS.primary} size="large" />
-            </View>
-          ) : tickets.length === 0 ? (
-            <ScrollView contentContainerStyle={styles.centeredScroll}>
-              <Feather name="inbox" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
-              <Text style={styles.emptyTitle}>No service tickets</Text>
-              <Text style={styles.emptyDesc}>Have a question about payroll, leaves, or equipment? Click the + button to file an HR request.</Text>
-            </ScrollView>
-          ) : (
-            <ScrollView contentContainerStyle={styles.listContent} refreshControl={
-              <RefreshControl refreshing={loading} onRefresh={fetchTickets} colors={[COLORS.primary]} />
-            }
+          {/* Segmented Control */}
+          <View style={styles.segmentedContainer}>
+            <TouchableOpacity 
+              style={[styles.segmentedButton, subTab === 'tickets' ? styles.segmentedActive : {}]}
+              onPress={() => setSubTab('tickets')}
             >
-              {tickets.map(ticket => {
-                const catTheme = getCategoryTheme(ticket.category);
-                return (
-                  <TouchableOpacity 
-                    key={ticket.id} 
-                    style={styles.ticketCard}
-                    onPress={() => handleSelectTicket(ticket)}
-                  >
-                    <View style={styles.cardHeader}>
-                      <View style={[styles.catBadge, { backgroundColor: catTheme.bg }]}>
-                        <Feather name={catTheme.icon as any} size={11} color={catTheme.text} style={{ marginRight: 4 }} />
-                        <Text style={[styles.catBadgeText, { color: catTheme.text }]}>{ticket.category}</Text>
+              <Feather name="message-square" size={14} color={subTab === 'tickets' ? '#fff' : COLORS.textMuted} style={{ marginRight: 6 }} />
+              <Text style={[styles.segmentedText, subTab === 'tickets' ? { color: '#fff', fontWeight: 'bold' } : {}]}>
+                Support Tickets
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.segmentedButton, subTab === 'leaves' ? styles.segmentedActive : {}]}
+              onPress={() => setSubTab('leaves')}
+            >
+              <Feather name="calendar" size={14} color={subTab === 'leaves' ? '#fff' : COLORS.textMuted} style={{ marginRight: 6 }} />
+              <Text style={[styles.segmentedText, subTab === 'leaves' ? { color: '#fff', fontWeight: 'bold' } : {}]}>
+                Leave Log
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {subTab === 'tickets' ? (
+            loading && tickets.length === 0 ? (
+              <View style={styles.centered}>
+                <ActivityIndicator color={COLORS.primary} size="large" />
+              </View>
+            ) : tickets.length === 0 ? (
+              <ScrollView contentContainerStyle={styles.centeredScroll}>
+                <Feather name="inbox" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
+                <Text style={styles.emptyTitle}>No service tickets</Text>
+                <Text style={styles.emptyDesc}>Have a question about payroll, leaves, or equipment? Click the + button to file an HR request.</Text>
+              </ScrollView>
+            ) : (
+              <ScrollView contentContainerStyle={styles.listContent} refreshControl={
+                <RefreshControl refreshing={loading} onRefresh={fetchTickets} colors={[COLORS.primary]} />
+              }
+              >
+                {tickets.map(ticket => {
+                  const catTheme = getCategoryTheme(ticket.category);
+                  return (
+                    <TouchableOpacity 
+                      key={ticket.id} 
+                      style={styles.ticketCard}
+                      onPress={() => handleSelectTicket(ticket)}
+                    >
+                      <View style={styles.cardHeader}>
+                        <View style={[styles.catBadge, { backgroundColor: catTheme.bg }]}>
+                          <Feather name={catTheme.icon as any} size={11} color={catTheme.text} style={{ marginRight: 4 }} />
+                          <Text style={[styles.catBadgeText, { color: catTheme.text }]}>{ticket.category}</Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <View style={[styles.statusDot, { backgroundColor: getStatusColor(ticket.status) }]} />
+                          <Text style={[styles.statusText, { color: getStatusColor(ticket.status) }]}>
+                            {ticket.status.replace('_', ' ')}
+                          </Text>
+                        </View>
                       </View>
 
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={[styles.statusDot, { backgroundColor: getStatusColor(ticket.status) }]} />
-                        <Text style={[styles.statusText, { color: getStatusColor(ticket.status) }]}>
-                          {ticket.status.replace('_', ' ')}
+                      <Text style={styles.ticketTitle} numberOfLines={1}>{ticket.title}</Text>
+                      <Text style={styles.ticketDesc} numberOfLines={2}>{ticket.description}</Text>
+
+                      <View style={styles.cardFooter}>
+                        <Text style={styles.footerTime}>
+                          <Feather name="clock" size={10} /> {formatDate(ticket.created_at)}
                         </Text>
+                        
+                        {ticket.assignee && (
+                          <Text style={styles.assigneeText}>
+                            <Feather name="user" size={10} /> {ticket.assignee.full_name}
+                          </Text>
+                        )}
                       </View>
-                    </View>
-
-                    <Text style={styles.ticketTitle} numberOfLines={1}>{ticket.title}</Text>
-                    <Text style={styles.ticketDesc} numberOfLines={2}>{ticket.description}</Text>
-
-                    <View style={styles.cardFooter}>
-                      <Text style={styles.footerTime}>
-                        <Feather name="clock" size={10} /> {formatDate(ticket.created_at)}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )
+          ) : (
+            leavesLoading && leavesList.length === 0 ? (
+              <View style={styles.centered}>
+                <ActivityIndicator color={COLORS.primary} size="large" />
+              </View>
+            ) : leavesList.length === 0 ? (
+              <ScrollView contentContainerStyle={styles.centeredScroll}>
+                <Feather name="calendar" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
+                <Text style={styles.emptyTitle}>No leave requests</Text>
+                <Text style={styles.emptyDesc}>Want to request leave or vacation days? Click the + button to submit a leave request.</Text>
+              </ScrollView>
+            ) : (
+              <ScrollView 
+                contentContainerStyle={styles.listContent} 
+                refreshControl={<RefreshControl refreshing={leavesRefreshing} onRefresh={() => { setLeavesRefreshing(true); fetchLeaves(); }} colors={[COLORS.primary]} />}
+              >
+                {leavesList.map((item) => {
+                  const typeDetails = getLeaveTypeDetails(item.leave_type);
+                  const statusDetails = getLeaveStatusDetails(item.status);
+                  const duration = calculateLeaveDuration(item.start_date, item.end_date);
+                  
+                  return (
+                    <View key={item.id} style={styles.ticketCard}>
+                      <View style={styles.cardHeader}>
+                        <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
+                          <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
+                          <Text style={[styles.catBadgeText, { color: typeDetails.color }]}>
+                            {typeDetails.label} Leave
+                          </Text>
+                        </View>
+                        <View style={[styles.catBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
+                          {statusDetails.isSync && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />}
+                          <Text style={[styles.catBadgeText, { color: statusDetails.color }]}>
+                            {statusDetails.label}
+                          </Text>
+                        </View>
+                      </View>
+                      
+                      <Text style={styles.ticketTitle}>
+                        🗓️ {item.start_date} to {item.end_date}
                       </Text>
                       
-                      {ticket.assignee && (
-                        <Text style={styles.assigneeText}>
-                          <Feather name="user" size={10} /> {ticket.assignee.full_name}
-                        </Text>
+                      <Text style={[styles.ticketDesc, { marginBottom: 8 }]}>
+                        Duration: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{duration} {duration === 1 ? 'day' : 'days'}</Text>
+                      </Text>
+
+                      <View style={{ backgroundColor: '#ffffff', borderColor: COLORS.border, borderWidth: 1, borderRadius: 8, padding: 10, marginTop: 4 }}>
+                        <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic' }}>"{item.reason}"</Text>
+                      </View>
+
+                      {item.status === 'sync_pending' && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                          <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
+                        </View>
                       )}
                     </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                  );
+                })}
+              </ScrollView>
+            )
           )}
         </View>
       )}
@@ -542,47 +840,132 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               })}
             </View>
 
-            <Text style={styles.label}>Priority Level</Text>
-            <View style={styles.priorityRow}>
-              {['low', 'medium', 'high', 'urgent'].map(p => {
-                const isActive = priority === p;
-                return (
-                  <TouchableOpacity
-                    key={p}
-                    style={[
-                      styles.priorityOption,
-                      isActive ? { backgroundColor: COLORS.primary, borderColor: COLORS.primary } : {}
-                    ]}
-                    onPress={() => setPriority(p)}
+            {category === 'Leave Request' ? (
+              <>
+                <Text style={styles.label}>Leave Classification</Text>
+                <View style={styles.categoriesGrid}>
+                  {(['sick', 'vacation', 'emergency', 'unpaid'] as const).map((type) => {
+                    const active = leaveType === type;
+                    const details = getLeaveTypeDetails(type);
+                    return (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.categoryOption,
+                          active ? { borderColor: details.color, backgroundColor: details.bg } : {}
+                        ]}
+                        onPress={() => setLeaveType(type)}
+                      >
+                        <Text style={[styles.categoryOptionText, active ? { color: details.color, fontWeight: 'bold' } : {}]}>
+                          {details.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.label}>Quick Presets</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  <TouchableOpacity 
+                    style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
+                    onPress={() => applyPreset(1, 1)}
                   >
-                    <Text style={[styles.priorityTextOption, isActive ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                      {p.toUpperCase()}
-                    </Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>Tomorrow</Text>
                   </TouchableOpacity>
-                );
-              })}
-            </View>
+                  <TouchableOpacity 
+                    style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
+                    onPress={() => applyPreset(1, 3)}
+                  >
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>3 Days (Next Week)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
+                    onPress={() => applyPreset(0, 1)}
+                  >
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>Today Only</Text>
+                  </TouchableOpacity>
+                </View>
 
-            <Text style={styles.label}>Summary / Title</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Brief summary of your request"
-              placeholderTextColor={COLORS.textMuted}
-              value={title}
-              onChangeText={setTitle}
-            />
+                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Start Date</Text>
+                    <TextInput
+                      style={[styles.input, { marginBottom: 0 }]}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={startDate}
+                      onChangeText={setStartDate}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>End Date</Text>
+                    <TextInput
+                      style={[styles.input, { marginBottom: 0 }]}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={endDate}
+                      onChangeText={setEndDate}
+                    />
+                  </View>
+                </View>
 
-            <Text style={styles.label}>Explain Details</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Provide all relevant details here..."
-              placeholderTextColor={COLORS.textMuted}
-              multiline
-              numberOfLines={6}
-              textAlignVertical="top"
-              value={description}
-              onChangeText={setDescription}
-            />
+                <Text style={styles.label}>Reason / Handover Notes</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Please describe the reason for your leave request..."
+                  placeholderTextColor={COLORS.textMuted}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  value={reason}
+                  onChangeText={setReason}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.label}>Priority Level</Text>
+                <View style={styles.priorityRow}>
+                  {['low', 'medium', 'high', 'urgent'].map(p => {
+                    const isActive = priority === p;
+                    return (
+                      <TouchableOpacity
+                        key={p}
+                        style={[
+                          styles.priorityOption,
+                          isActive ? { backgroundColor: COLORS.primary, borderColor: COLORS.primary } : {}
+                        ]}
+                        onPress={() => setPriority(p)}
+                      >
+                        <Text style={[styles.priorityTextOption, isActive ? { color: '#fff', fontWeight: 'bold' } : {}]}>
+                          {p.toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.label}>Summary / Title</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Brief summary of your request"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={title}
+                  onChangeText={setTitle}
+                />
+
+                <Text style={styles.label}>Explain Details</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Provide all relevant details here..."
+                  placeholderTextColor={COLORS.textMuted}
+                  multiline
+                  numberOfLines={6}
+                  textAlignVertical="top"
+                  value={description}
+                  onChangeText={setDescription}
+                />
+              </>
+            )}
 
             <TouchableOpacity 
               style={styles.submitButton}
@@ -873,5 +1256,10 @@ const styles = {
   composerInput: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: COLORS.textMain, maxHeight: 100 } as TextStyle,
   composerSendBtn: { backgroundColor: COLORS.primary, width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', flexShrink: 0 } as ViewStyle,
   
-  closedFooter: { flexDirection: 'row', padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.card, justifyContent: 'center', alignItems: 'center' } as ViewStyle
+  closedFooter: { flexDirection: 'row', padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.card, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
+  
+  segmentedContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginHorizontal: 24, marginBottom: 16 } as ViewStyle,
+  segmentedButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 } as ViewStyle,
+  segmentedActive: { backgroundColor: COLORS.primary } as ViewStyle,
+  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle
 };
