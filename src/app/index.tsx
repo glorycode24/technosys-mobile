@@ -7,6 +7,7 @@ import { TicketsTab } from '../components/TicketsTab';
 import { LeavesTab } from '../components/LeavesTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { withTimeout } from '../lib/timeout';
 
 
 // Clean White Professional Theme
@@ -194,29 +195,120 @@ export default function App() {
 
   const fetchDashboardData = async (userId: string) => {
     try {
-      const { data: prof } = await supabase.from('profiles').select('*').eq('id', userId).single();
-      if (prof) setProfile(prof);
-
-      const { data: scheds } = await supabase.from('schedules').select('*').eq('technician_id', userId).order('start_time', { ascending: true });
-      if (scheds) setSchedules(scheds);
-
-      const { data: pay } = await supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
-      if (pay) setPayslip(pay);
-
       const today = new Date().toISOString().split('T')[0];
-      const { data: logs } = await supabase.from('time_logs')
+      
+      const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
+      const fetchSchedulesPromise = supabase.from('schedules').select('*').eq('technician_id', userId).order('start_time', { ascending: true });
+      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
+      const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
         .gte('created_at', `${today}T00:00:00Z`)
         .order('created_at', { ascending: false });
+
+      const [profResult, schedsResult, payslipsResult, logsResult] = await withTimeout(
+        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise]),
+        4000
+      );
+
+      const isNetworkErr = (err: any) => {
+        if (!err) return false;
+        const msg = err.message || '';
+        return msg.includes('fetch') || msg.includes('Network') || msg.includes('timeout') || err.status === 0 || err.status >= 500;
+      };
+
+      if (profResult.error && isNetworkErr(profResult.error)) throw profResult.error;
+      if (schedsResult.error && isNetworkErr(schedsResult.error)) throw schedsResult.error;
+      if (payslipsResult.error && isNetworkErr(payslipsResult.error)) throw payslipsResult.error;
+      if (logsResult.error && isNetworkErr(logsResult.error)) throw logsResult.error;
+
+      const prof = profResult.data;
+      const scheds = schedsResult.data || [];
+      const pay = payslipsResult.data;
+      const logs = logsResult.data || [];
+
+      if (prof) setProfile(prof);
+      setSchedules(scheds);
+      setPayslip(pay);
+
+      // Apply offline queue overrides to time logs
+      const queue = await syncQueue.getQueue();
+      const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
       
-      if (logs && logs.length > 0) {
-        setActiveTimeLog(logs[0]);
-      } else {
-        setActiveTimeLog(null);
+      let finalActiveLog: any = null;
+      if (pendingTimeIn) {
+        finalActiveLog = {
+          id: 'offline-pending-' + pendingTimeIn.id,
+          technician_id: userId,
+          app_time_in: pendingTimeIn.payload.app_time_in,
+          app_time_out: pendingTimeIn.payload.app_time_out || null,
+          total_hours: pendingTimeIn.payload.total_hours || null,
+          latitude: pendingTimeIn.payload.latitude,
+          longitude: pendingTimeIn.payload.longitude,
+          geofence_status: 'inside',
+          is_offline_pending: true
+        };
+      } else if (logs.length > 0) {
+        finalActiveLog = { ...logs[0] };
+        const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
+        if (pendingTimeOut) {
+          finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
+          finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+        }
       }
+      setActiveTimeLog(finalActiveLog);
+
+      // Save to cache
+      const dashboardCache = {
+        profile: prof,
+        schedules: scheds,
+        payslip: pay,
+        logs: logs,
+        cachedAt: new Date().toISOString()
+      };
+      await AsyncStorage.setItem('CACHED_DASHBOARD_' + userId, JSON.stringify(dashboardCache));
     } catch (e: any) {
-      console.error("Dashboard load failed", e);
+      console.warn("Failed to load dashboard data from network, trying cache:", e.message);
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
+        if (cached) {
+          const dashboardCache = JSON.parse(cached);
+          if (dashboardCache.profile) setProfile(dashboardCache.profile);
+          setSchedules(dashboardCache.schedules || []);
+          setPayslip(dashboardCache.payslip);
+          
+          const cachedLogs = dashboardCache.logs || [];
+          
+          // Apply offline queue overrides to cached logs
+          const queue = await syncQueue.getQueue();
+          const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
+          
+          let finalActiveLog: any = null;
+          if (pendingTimeIn) {
+            finalActiveLog = {
+              id: 'offline-pending-' + pendingTimeIn.id,
+              technician_id: userId,
+              app_time_in: pendingTimeIn.payload.app_time_in,
+              app_time_out: pendingTimeIn.payload.app_time_out || null,
+              total_hours: pendingTimeIn.payload.total_hours || null,
+              latitude: pendingTimeIn.payload.latitude,
+              longitude: pendingTimeIn.payload.longitude,
+              geofence_status: 'inside',
+              is_offline_pending: true
+            };
+          } else if (cachedLogs.length > 0) {
+            finalActiveLog = { ...cachedLogs[0] };
+            const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
+            if (pendingTimeOut) {
+              finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
+              finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+            }
+          }
+          setActiveTimeLog(finalActiveLog);
+        }
+      } catch (cacheErr) {
+        console.error("Failed to read dashboard cache", cacheErr);
+      }
     }
   };
 

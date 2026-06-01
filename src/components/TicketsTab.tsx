@@ -8,6 +8,8 @@ import {
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { syncQueue } from '../lib/syncQueue';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { withTimeout } from '../lib/timeout';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -71,11 +73,11 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
   const commentsScrollViewRef = useRef<ScrollView>(null);
 
-  // Fetch technician's tickets
+  // Fetch technician's tickets (with cache fallback)
   const fetchTickets = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const fetchPromise = supabase
         .from('tickets')
         .select(`
           *,
@@ -84,10 +86,23 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         .eq('employee_id', userId)
         .order('created_at', { ascending: false });
 
+      const { data, error } = await withTimeout(fetchPromise, 4000);
+
       if (error) throw error;
       setTickets(data || []);
+      await AsyncStorage.setItem('CACHED_TICKETS_' + userId, JSON.stringify(data || []));
     } catch (e: any) {
-      Alert.alert('Error', 'Failed to load tickets: ' + e.message);
+      console.warn('Failed to load tickets from network, loading cached...', e.message);
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
+        if (cached) {
+          setTickets(JSON.parse(cached));
+        } else {
+          setTickets([]);
+        }
+      } catch (cacheErr) {
+        console.error('Failed to read tickets cache', cacheErr);
+      }
     } finally {
       setLoading(false);
     }
@@ -115,18 +130,31 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
     }
   };
 
-  // Fetch inventory details for checkout
+  // Fetch inventory details for checkout (with cache fallback)
   const fetchInventoryItems = async () => {
     try {
-      const { data, error } = await supabase
+      const fetchPromise = supabase
         .from('inventory_items')
         .select('*')
         .order('name', { ascending: true });
 
+      const { data, error } = await withTimeout(fetchPromise, 4000);
+
       if (error) throw error;
       setInventoryItems(data || []);
+      await AsyncStorage.setItem('CACHED_INVENTORY_ITEMS', JSON.stringify(data || []));
     } catch (e: any) {
-      console.error("Failed to load inventory items:", e);
+      console.warn("Failed to load inventory items from network, loading cached:", e.message);
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_INVENTORY_ITEMS');
+        if (cached) {
+          setInventoryItems(JSON.parse(cached));
+        } else {
+          setInventoryItems([]);
+        }
+      } catch (cacheErr) {
+        console.error("Failed to read inventory cache:", cacheErr);
+      }
     }
   };
 

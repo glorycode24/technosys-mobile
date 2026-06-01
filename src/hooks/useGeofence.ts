@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react';
 import * as Location from 'expo-location';
 import { getDistance } from 'geolib';
 import { supabase } from '../lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { withTimeout } from '../lib/timeout';
 
 interface GeofenceResult {
   status: 'idle' | 'checking' | 'inside' | 'outside' | 'error';
@@ -61,18 +63,33 @@ export function useGeofence() {
       const userLat = location.coords.latitude;
       const userLng = location.coords.longitude;
 
-      // 3. Fetch ALL active office locations from Supabase
-      const { data: offices, error: dbError } = await supabase
-        .from('office_locations')
-        .select('*')
-        .eq('is_active', true);
-
-      if (dbError) throw dbError;
-
-      if (!offices || offices.length === 0) {
-        const errorMsg = 'No active office locations configured. Contact your admin.';
-        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
-        return { status: 'error', error: errorMsg } as const;
+      // 3. Fetch ALL active office locations from Supabase (with cache fallback)
+      let offices: any[] = [];
+      try {
+        const fetchPromise = supabase
+          .from('office_locations')
+          .select('*')
+          .eq('is_active', true);
+        const { data, error: dbError } = await withTimeout(fetchPromise, 4000);
+        
+        if (dbError) throw dbError;
+        
+        if (data && data.length > 0) {
+          offices = data;
+          await AsyncStorage.setItem('CACHED_OFFICE_LOCATIONS', JSON.stringify(data));
+        } else {
+          throw new Error('No active office locations in database.');
+        }
+      } catch (err) {
+        console.warn('DB geofence fetch failed. Loading cached locations...', err);
+        const cached = await AsyncStorage.getItem('CACHED_OFFICE_LOCATIONS');
+        if (cached) {
+          offices = JSON.parse(cached);
+        } else {
+          const errorMsg = 'No office locations found in cache or database. Connect to network to download coordinates.';
+          setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+          return { status: 'error', error: errorMsg } as const;
+        }
       }
 
       // 4. Calculate distance to each and find if user is inside any

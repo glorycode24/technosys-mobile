@@ -3,6 +3,8 @@ import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, Alert,
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { syncQueue } from '../lib/syncQueue';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { withTimeout } from '../lib/timeout';
 
 // Matching theme constants from index.tsx
 const COLORS = {
@@ -38,17 +40,23 @@ export function LeavesTab({ userId, fullName }: LeavesTabProps) {
   // Fetch leaves from database + merge offline queued items
   const fetchLeaves = async () => {
     try {
-      // 1. Fetch DB leaves
-      const { data, error } = await supabase
-        .from('leaves')
-        .select('*')
-        .eq('technician_id', userId)
-        .order('created_at', { ascending: false });
+      let dbLeaves = [];
+      try {
+        const fetchPromise = supabase
+          .from('leaves')
+          .select('*')
+          .eq('technician_id', userId)
+          .order('created_at', { ascending: false });
 
-      let dbLeaves = data || [];
-      if (error) {
-        console.warn('Could not fetch leaves from DB (probably offline):', error.message);
-        dbLeaves = [];
+        const { data, error } = await withTimeout(fetchPromise, 4000);
+        if (error) throw error;
+        dbLeaves = data || [];
+        // Save to cache
+        await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(dbLeaves));
+      } catch (networkErr: any) {
+        console.warn('Could not fetch leaves from DB, falling back to cache:', networkErr.message);
+        const cached = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
+        dbLeaves = cached ? JSON.parse(cached) : [];
       }
 
       // 2. Fetch offline queue items
@@ -144,7 +152,8 @@ export function LeavesTab({ userId, fullName }: LeavesTabProps) {
     setSubmitting(true);
 
     try {
-      const { error } = await supabase.from('leaves').insert(payload);
+      const insertPromise = supabase.from('leaves').insert(payload);
+      const { error } = await withTimeout(insertPromise, 4000);
 
       if (error) {
         const errMessage = error.message || '';
@@ -170,7 +179,22 @@ export function LeavesTab({ userId, fullName }: LeavesTabProps) {
       setReason('');
       fetchLeaves();
     } catch (err: any) {
-      Alert.alert('Submission Failed', err.message || 'Could not submit leave request.');
+      const errMessage = err.message || '';
+      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+
+      if (isNetworkError) {
+        // Add to offline sync queue
+        await syncQueue.addToQueue('leave_request', payload);
+        Alert.alert(
+          'Offline Mode Active',
+          'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+        );
+        // Reset form
+        setReason('');
+        fetchLeaves();
+      } else {
+        Alert.alert('Submission Failed', err.message || 'Could not submit leave request.');
+      }
     } finally {
       setSubmitting(false);
     }
