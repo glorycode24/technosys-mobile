@@ -1,0 +1,155 @@
+import { useState, useCallback } from 'react';
+import * as Location from 'expo-location';
+import { getDistance } from 'geolib';
+import { supabase } from '../lib/supabase';
+
+interface GeofenceResult {
+  status: 'idle' | 'checking' | 'inside' | 'outside' | 'error';
+  distance: number | null; // meters from nearest office
+  latitude: number | null;
+  longitude: number | null;
+  matchingOfficeName: string | null;
+  error: string | null;
+  isMocked?: boolean;
+  gpsAccuracy?: number | null;
+}
+
+export function useGeofence() {
+  const [result, setResult] = useState<GeofenceResult>({
+    status: 'idle', 
+    distance: null, 
+    latitude: null, 
+    longitude: null, 
+    matchingOfficeName: null,
+    error: null,
+    isMocked: false,
+    gpsAccuracy: null
+  });
+
+  const checkLocation = useCallback(async () => {
+    setResult(prev => ({ ...prev, status: 'checking', error: null }));
+
+    try {
+      // 1. Request permission with try-catch
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        const errorMsg = 'Location permission denied. Please enable it in your phone settings.';
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
+      }
+
+      // 2. Get current position
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const isMocked = !!(location as any).mocked;
+      const gpsAccuracy = location.coords.accuracy;
+
+      if (isMocked) {
+        const errorMsg = 'Spoofing detected: Mock location provider active.';
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
+      }
+
+      if (gpsAccuracy && gpsAccuracy > 50) {
+        const errorMsg = `Poor GPS signal accuracy (${Math.round(gpsAccuracy)}m). Please step outside or find an open space.`;
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
+      }
+
+      const userLat = location.coords.latitude;
+      const userLng = location.coords.longitude;
+
+      // 3. Fetch ALL active office locations from Supabase
+      const { data: offices, error: dbError } = await supabase
+        .from('office_locations')
+        .select('*')
+        .eq('is_active', true);
+
+      if (dbError) throw dbError;
+
+      if (!offices || offices.length === 0) {
+        const errorMsg = 'No active office locations configured. Contact your admin.';
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
+      }
+
+      // 4. Calculate distance to each and find if user is inside any
+      let nearestOffice = null;
+      let nearestDistance = Infinity;
+      let isInsideAny = false;
+
+      for (const office of offices) {
+        const distanceMeters = getDistance(
+          { latitude: userLat, longitude: userLng },
+          { latitude: office.latitude, longitude: office.longitude }
+        );
+
+        if (distanceMeters <= office.radius_meters) {
+          isInsideAny = true;
+          nearestOffice = office;
+          nearestDistance = distanceMeters;
+          break; // Stop immediately since they are inside an allowed zone
+        }
+
+        if (distanceMeters < nearestDistance) {
+          nearestDistance = distanceMeters;
+          nearestOffice = office;
+        }
+      }
+
+      // 5. Build final result
+      if (isInsideAny && nearestOffice) {
+        const finalResult: GeofenceResult = {
+          status: 'inside',
+          distance: nearestDistance,
+          latitude: userLat,
+          longitude: userLng,
+          matchingOfficeName: nearestOffice.name,
+          error: null,
+          isMocked,
+          gpsAccuracy
+        };
+        setResult(finalResult);
+        return finalResult;
+      } else {
+        const nearestName = nearestOffice ? nearestOffice.name : 'Office';
+        const nearestRadius = nearestOffice ? nearestOffice.radius_meters : 50;
+        const errorMsg = `You are ${nearestDistance}m away from the nearest branch (${nearestName}). You must be within ${nearestRadius}m to clock in.`;
+        
+        const finalResult: GeofenceResult = {
+          status: 'outside',
+          distance: nearestDistance,
+          latitude: userLat,
+          longitude: userLng,
+          matchingOfficeName: null,
+          error: errorMsg,
+          isMocked,
+          gpsAccuracy
+        };
+        setResult(finalResult);
+        return finalResult;
+      }
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to check location.';
+      setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+      return { status: 'error', error: errorMsg } as const;
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setResult({ 
+      status: 'idle', 
+      distance: null, 
+      latitude: null, 
+      longitude: null, 
+      matchingOfficeName: null,
+      error: null,
+      isMocked: false,
+      gpsAccuracy: null
+    });
+  }, []);
+
+  return { ...result, checkLocation, reset };
+}
