@@ -930,8 +930,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                         Duration: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{duration} {duration === 1 ? 'day' : 'days'}</Text>
                       </Text>
 
-                      <View style={{ backgroundColor: '#ffffff', borderColor: COLORS.border, borderWidth: 1, borderRadius: 8, padding: 10, marginTop: 4 }}>
-                        <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic' }}>"{item.reason}"</Text>
+                      <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
+                        <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic', lineHeight: 18 }}>“{item.reason}”</Text>
                       </View>
 
                       {item.status === 'sync_pending' && (

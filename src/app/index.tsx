@@ -23,17 +23,31 @@ const COLORS = {
 
 const FadeInView = ({ children, currentTab }: any) => {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(8)).current;
 
   React.useEffect(() => {
     fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 350,
-      useNativeDriver: true,
-    }).start();
+    slideAnim.setValue(8);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 50,
+        useNativeDriver: true,
+      })
+    ]).start();
   }, [currentTab]);
 
-  return <Animated.View style={{ flex: 1, opacity: fadeAnim }}>{children}</Animated.View>;
+  return (
+    <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+      {children}
+    </Animated.View>
+  );
 };
 
 const LoginScreen = ({ onLogin }: any) => {
@@ -672,11 +686,13 @@ export default function App() {
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('home')}>
             <Feather name="home" size={24} color={activeTab === 'home' ? COLORS.primary : COLORS.textMuted} />
             <Text style={[styles.navText, { color: activeTab === 'home' ? COLORS.primary : COLORS.textMuted }]}>Home</Text>
+            <View style={[styles.navDot, { backgroundColor: activeTab === 'home' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('tickets')}>
             <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
             <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>Support</Text>
+            <View style={[styles.navDot, { backgroundColor: activeTab === 'tickets' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
 
@@ -684,11 +700,13 @@ export default function App() {
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('payslip')}>
             <Feather name="dollar-sign" size={24} color={activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted} />
             <Text style={[styles.navText, { color: activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted }]}>Payroll</Text>
+            <View style={[styles.navDot, { backgroundColor: activeTab === 'payslip' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('profile')}>
             <Feather name="user" size={24} color={activeTab === 'profile' ? COLORS.primary : COLORS.textMuted} />
             <Text style={[styles.navText, { color: activeTab === 'profile' ? COLORS.primary : COLORS.textMuted }]}>Profile</Text>
+            <View style={[styles.navDot, { backgroundColor: activeTab === 'profile' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -779,6 +797,7 @@ const styles = StyleSheet.create({
   bottomNav: { flexDirection: 'row', backgroundColor: COLORS.card, paddingBottom: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border, justifyContent: 'space-around' },
   navItem: { alignItems: 'center', justifyContent: 'center' },
   navText: { fontSize: 11, fontWeight: '600', marginTop: 4 },
+  navDot: { width: 4, height: 4, borderRadius: 2, marginTop: 4 },
   webContainer: {
     flex: 1,
     backgroundColor: '#0f172a',
