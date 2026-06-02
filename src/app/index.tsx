@@ -310,20 +310,28 @@ export default function App() {
         const isOnline = await checkIsOnline();
         if (isOnline) {
           setSession(storedSession);
-          await supabase.auth.setSession({
-            access_token: storedSession.access_token,
-            refresh_token: storedSession.refresh_token
-          });
+          try {
+            await supabase.auth.setSession({
+              access_token: storedSession.access_token,
+              refresh_token: storedSession.refresh_token
+            });
+          } catch (e) {
+            console.warn("Online setSession failed:", e);
+          }
           await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', now.toISOString());
         } else {
           // Offline biometric gate
           const authenticated = await authenticateBiometrics();
           if (authenticated) {
             setSession(storedSession);
-            await supabase.auth.setSession({
-              access_token: storedSession.access_token,
-              refresh_token: storedSession.refresh_token
-            });
+            try {
+              await supabase.auth.setSession({
+                access_token: storedSession.access_token,
+                refresh_token: storedSession.refresh_token
+              });
+            } catch (e) {
+              console.warn("Offline setSession failed:", e);
+            }
             setIsLocked(false);
           } else {
             setIsLocked(true);
@@ -388,7 +396,7 @@ export default function App() {
           await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
         }
         fetchDashboardData(currentSession.user.id);
-      } else {
+      } else if (event === 'SIGNED_OUT') {
         await deleteSecureItem('USER_SESSION');
         await AsyncStorage.removeItem('LAST_ONLINE_TIMESTAMP');
       }
