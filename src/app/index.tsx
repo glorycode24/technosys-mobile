@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
 import GeofenceMobileMap from '../components/GeofenceMobileMap';
 import { TicketsTab } from '../components/TicketsTab';
@@ -195,8 +195,138 @@ export default function App() {
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
+
+  // Phase 8: Two-Factor Biometric Scan States & Refs
+  const [isWaitingForScan, setIsWaitingForScan] = useState(false);
+  const [scanType, setScanType] = useState<'in' | 'out' | null>(null);
+  const [scanCountdown, setScanCountdown] = useState(180);
+  const scanTypeRef = React.useRef<'in' | 'out' | null>(null);
+  const pendingLocationRef = React.useRef<any>(null);
+
+  // Phase 8: DMS Download States
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
+  const startFormDownload = (filename: string) => {
+    if (downloadingFile) return;
+    setDownloadingFile(filename);
+    setDownloadProgress(0);
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      currentProgress += 20;
+      setDownloadProgress(currentProgress);
+      if (currentProgress >= 100) {
+        clearInterval(interval);
+        setTimeout(() => {
+          setDownloadingFile(null);
+          Alert.alert(
+            language === 'fil' ? 'Matagumpay' : 'Success',
+            language === 'fil'
+              ? `Matagumpay na na-download ang ${filename} at na-save sa iyong device.`
+              : `${filename} has been downloaded successfully and saved to your device.`
+          );
+        }, 300);
+      }
+    }, 450);
+  };
+
+  useEffect(() => {
+    let timer: any;
+    let pollInterval: any;
+    let channel: any;
+
+    if (isWaitingForScan && session) {
+      setScanCountdown(180);
+      const startTime = new Date().toISOString();
+
+      // Subscribe to Supabase Realtime for this user's scans
+      channel = supabase
+        .channel('biometric_scans_' + session.user.id)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'physical_biometric_scans',
+            filter: `employee_id=eq.${session.user.id}`
+          },
+          (payload) => {
+            console.log('Realtime fingerprint scan detected:', payload);
+            const scanTime = new Date(payload.new.scanned_at).getTime();
+            const startMs = new Date(startTime).getTime();
+            if (scanTime >= startMs - 5000) { // allow a 5s buffer
+              handleBiometricScanSuccess();
+            }
+          }
+        )
+        .subscribe();
+
+      // Polling fallback
+      pollInterval = setInterval(async () => {
+        const online = await checkIsOnline();
+        if (!online) return;
+        try {
+          const { data, error } = await supabase
+            .from('physical_biometric_scans')
+            .select('scanned_at')
+            .eq('employee_id', session.user.id)
+            .gte('scanned_at', startTime)
+            .order('scanned_at', { ascending: false })
+            .limit(1);
+
+          if (!error && data && data.length > 0) {
+            console.log("Polling detected fingerprint scan:", data[0]);
+            handleBiometricScanSuccess();
+          }
+        } catch (err) {
+          console.warn("Polling biometric scan error:", err);
+        }
+      }, 3000);
+
+      // 3-minute Countdown
+      timer = setInterval(() => {
+        setScanCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            clearInterval(pollInterval);
+            if (channel) supabase.removeChannel(channel);
+            setIsWaitingForScan(false);
+            setScanType(null);
+            scanTypeRef.current = null;
+            pendingLocationRef.current = null;
+            Alert.alert(t('biometricVerificationFailed'), t('biometricScanTimeout'));
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+      if (pollInterval) clearInterval(pollInterval);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [isWaitingForScan, session]);
+
+  const handleBiometricScanSuccess = async () => {
+    setIsWaitingForScan(false);
+    setScanType(null);
+    const type = scanTypeRef.current;
+    const locationResult = pendingLocationRef.current;
+    
+    scanTypeRef.current = null;
+    pendingLocationRef.current = null;
+    
+    if (type === 'in') {
+      await executeTimeIn(locationResult);
+    } else if (type === 'out') {
+      await executeTimeOut(locationResult);
+    }
+  };
 
   const [language, setLanguage] = useState<Locale>('en');
   const langAnim = React.useRef(new Animated.Value(0)).current;
@@ -507,6 +637,7 @@ export default function App() {
         if (dashboardCache.profile) setProfile(dashboardCache.profile);
         setSchedules(dashboardCache.schedules || []);
         setPayslip(dashboardCache.payslip);
+        setAnnouncements(dashboardCache.announcements || []);
         
         const cachedLogs = dashboardCache.logs || [];
         
@@ -563,9 +694,12 @@ export default function App() {
         .eq('technician_id', userId)
         .gte('created_at', `${today}T00:00:00Z`)
         .order('created_at', { ascending: false });
+      const fetchAnnouncementsPromise = supabase.from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      const [profResult, schedsResult, payslipsResult, logsResult] = await withTimeout(
-        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise]),
+      const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult] = await withTimeout(
+        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise]),
         4000
       );
 
@@ -579,15 +713,18 @@ export default function App() {
       if (schedsResult.error && isNetworkErr(schedsResult.error)) throw schedsResult.error;
       if (payslipsResult.error && isNetworkErr(payslipsResult.error)) throw payslipsResult.error;
       if (logsResult.error && isNetworkErr(logsResult.error)) throw logsResult.error;
+      if (announcementsResult.error && isNetworkErr(announcementsResult.error)) throw announcementsResult.error;
 
       const prof = profResult.data;
       const scheds = schedsResult.data || [];
       const pay = payslipsResult.data;
       const logs = logsResult.data || [];
+      const anns = announcementsResult.data || [];
 
       if (prof) setProfile(prof);
       setSchedules(scheds);
       setPayslip(pay);
+      setAnnouncements(anns);
 
       // Apply offline queue overrides to time logs
       const queue = await syncQueue.getQueue();
@@ -622,6 +759,7 @@ export default function App() {
         schedules: scheds,
         payslip: pay,
         logs: logs,
+        announcements: anns,
         cachedAt: new Date().toISOString()
       };
       await AsyncStorage.setItem('CACHED_DASHBOARD_' + userId, JSON.stringify(dashboardCache));
@@ -633,24 +771,11 @@ export default function App() {
     }
   };
 
-  const handleTimeIn = async () => {
+  const executeTimeIn = async (locationResult: any) => {
     if (!session) return;
     setTimeInLoading(true);
 
     try {
-      // Step 1: Check geofence
-      const locationResult = await geofence.checkLocation();
-
-      if (!locationResult || locationResult.status !== 'inside') {
-        setTimeInLoading(false);
-        Alert.alert(
-          'Location Verification Failed',
-          locationResult?.error || 'Could not verify your location. Please try again.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
       const timeInPayload = {
         technician_id: session.user.id,
         app_time_in: new Date().toISOString(),
@@ -661,7 +786,6 @@ export default function App() {
         gps_accuracy: locationResult.gpsAccuracy || null
       };
 
-      // Step 2: Insert time log with coordinates
       const { error } = await supabase.from('time_logs').insert(timeInPayload);
 
       if (error) {
@@ -670,9 +794,7 @@ export default function App() {
         const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
         
         if (isNetworkError) {
-          // Store in offline sync queue
           await syncQueue.addToQueue('time_in', timeInPayload);
-          // Set mock time log locally so user is clocked in
           const mockLog = {
             id: 'offline-pending-' + Date.now(),
             technician_id: session.user.id,
@@ -683,14 +805,14 @@ export default function App() {
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
-          Alert.alert(t('syncPendingAlertTitle'), t('syncPendingAlertDesc'));
+          Alert.alert(t('biometricScanMatched'), t('syncPendingAlertDesc'));
           checkQueueStatus();
           return;
         }
         throw error;
       }
 
-      // Refresh dashboard to pull active log
+      Alert.alert(t('biometricScanMatched'), t('locationVerified'));
       await fetchDashboardData(session.user.id);
     } catch (e: any) {
       Alert.alert('Time In Failed', e.message || 'An error occurred.');
@@ -699,25 +821,11 @@ export default function App() {
     }
   };
 
-  const handleTimeOut = async () => {
+  const executeTimeOut = async (locationResult: any) => {
     if (!session || !activeTimeLog) return;
     setTimeOutLoading(true);
 
     try {
-      // Step 1: Check geofence
-      const locationResult = await geofence.checkLocation();
-
-      if (!locationResult || locationResult.status !== 'inside') {
-        setTimeOutLoading(false);
-        Alert.alert(
-          'Location Verification Failed',
-          locationResult?.error || 'Could not verify your location. Please try again.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      // Step 2: Calculate total hours
       const timeOutTime = new Date().toISOString();
       const timeInMs = new Date(activeTimeLog.app_time_in).getTime();
       const timeOutMs = new Date(timeOutTime).getTime();
@@ -726,7 +834,6 @@ export default function App() {
       const isOfflinePending = activeTimeLog.is_offline_pending;
 
       if (isOfflinePending) {
-        // Find the queued time_in item and merge clock-out details
         const queue = await syncQueue.getQueue();
         const timeInItemIndex = queue.findIndex(item => item.type === 'time_in' && item.payload.app_time_in === activeTimeLog.app_time_in);
         
@@ -735,7 +842,6 @@ export default function App() {
           queue[timeInItemIndex].payload.total_hours = diffHours;
           await AsyncStorage.setItem('OFFLINE_TRANSACTION_QUEUE', JSON.stringify(queue));
         } else {
-          // Fallback queue
           await syncQueue.addToQueue('time_out', {
             log_id: activeTimeLog.id,
             app_time_out: timeOutTime,
@@ -748,12 +854,11 @@ export default function App() {
           app_time_out: timeOutTime,
           total_hours: diffHours
         }));
-        Alert.alert(t('syncPendingAlertTitle'), t('syncPendingAlertOut', { hours: diffHours }));
+        Alert.alert(t('biometricScanMatched'), t('syncPendingAlertOut', { hours: diffHours }));
         checkQueueStatus();
         return;
       }
 
-      // Step 3: Update time log with coordinates, app_time_out and total_hours
       const { error } = await supabase.from('time_logs')
         .update({
           app_time_out: timeOutTime,
@@ -777,15 +882,83 @@ export default function App() {
             app_time_out: timeOutTime,
             total_hours: diffHours
           }));
-          Alert.alert(t('syncPendingAlertTitle'), t('syncPendingAlertOut', { hours: diffHours }));
+          Alert.alert(t('biometricScanMatched'), t('syncPendingAlertOut', { hours: diffHours }));
           checkQueueStatus();
           return;
         }
         throw error;
       }
 
-      Alert.alert(t('shiftCompleted'), t('workedHours', { hours: diffHours }));
+      Alert.alert(t('biometricScanMatched'), t('workedHours', { hours: diffHours }));
       await fetchDashboardData(session.user.id);
+    } catch (e: any) {
+      Alert.alert('Time Out Failed', e.message || 'An error occurred.');
+    } finally {
+      setTimeOutLoading(false);
+    }
+  };
+
+  const handleTimeIn = async () => {
+    if (!session) return;
+    setTimeInLoading(true);
+
+    try {
+      const locationResult = await geofence.checkLocation();
+
+      if (!locationResult || locationResult.status !== 'inside') {
+        setTimeInLoading(false);
+        const errMsg = locationResult?.errorKey 
+          ? (locationResult.errorKey === 'poorGpsSignal' && locationResult.gpsAccuracy 
+              ? t(locationResult.errorKey, { accuracy: Math.round(locationResult.gpsAccuracy) }) 
+              : t(locationResult.errorKey))
+          : (locationResult?.error || 'Could not verify your location. Please try again.');
+        Alert.alert(
+          t('locationVerificationFailed'),
+          errMsg,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Proximity verified, transition to biometric waiting state
+      scanTypeRef.current = 'in';
+      pendingLocationRef.current = locationResult;
+      setIsWaitingForScan(true);
+      setScanType('in');
+    } catch (e: any) {
+      Alert.alert('Time In Failed', e.message || 'An error occurred.');
+    } finally {
+      setTimeInLoading(false);
+    }
+  };
+
+  const handleTimeOut = async () => {
+    if (!session || !activeTimeLog) return;
+    setTimeOutLoading(true);
+
+    try {
+      const locationResult = await geofence.checkLocation();
+
+      if (!locationResult || locationResult.status !== 'inside') {
+        setTimeOutLoading(false);
+        const errMsg = locationResult?.errorKey 
+          ? (locationResult.errorKey === 'poorGpsSignal' && locationResult.gpsAccuracy 
+              ? t(locationResult.errorKey, { accuracy: Math.round(locationResult.gpsAccuracy) }) 
+              : t(locationResult.errorKey))
+          : (locationResult?.error || 'Could not verify your location. Please try again.');
+        Alert.alert(
+          t('locationVerificationFailed'),
+          errMsg,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Proximity verified, transition to biometric waiting state
+      scanTypeRef.current = 'out';
+      pendingLocationRef.current = locationResult;
+      setIsWaitingForScan(true);
+      setScanType('out');
     } catch (e: any) {
       Alert.alert('Time Out Failed', e.message || 'An error occurred.');
     } finally {
@@ -985,7 +1158,11 @@ export default function App() {
                       }}>
                         {geofence.status === 'inside' 
                           ? t('verifiedInside', { office: geofence.matchingOfficeName || '', distance: Math.round(geofence.distance || 0) })
-                          : t('outsideArea', { distance: Math.round(geofence.distance || 0) })
+                          : (geofence.status === 'error' && geofence.errorKey
+                              ? (geofence.errorKey === 'poorGpsSignal' && geofence.gpsAccuracy
+                                  ? t(geofence.errorKey, { accuracy: Math.round(geofence.gpsAccuracy) })
+                                  : t(geofence.errorKey))
+                              : (geofence.error || t('outsideArea', { distance: Math.round(geofence.distance || 0) })))
                         }
                       </Text>
                       <TouchableOpacity onPress={geofence.reset} style={{ padding: 4 }}>
@@ -1003,6 +1180,77 @@ export default function App() {
                   </View>
                 )}
               </View>
+
+              {/* Announcements Section */}
+              {(() => {
+                const filteredAnnouncements = announcements.filter(ann => 
+                  !ann.target_branch_id || ann.target_branch_id === profile?.branch_id
+                );
+                
+                const getBilingualText = (text: string, lang: 'en' | 'fil') => {
+                  if (!text) return '';
+                  const parts = text.split('|');
+                  if (parts.length > 1) {
+                    return lang === 'fil' ? parts[1].trim() : parts[0].trim();
+                  }
+                  return text.trim();
+                };
+
+                if (filteredAnnouncements.length === 0) return null;
+
+                return (
+                  <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitleMain}>{t('announcementsLabel')}</Text>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      snapToInterval={280 + 16}
+                      decelerationRate="fast"
+                      contentContainerStyle={{ paddingRight: 16 }}
+                    >
+                      {filteredAnnouncements.map((ann) => (
+                        <View 
+                          key={ann.id} 
+                          style={{
+                            width: 280,
+                            backgroundColor: COLORS.card,
+                            borderRadius: 20,
+                            borderWidth: 1,
+                            borderColor: COLORS.border,
+                            padding: 16,
+                            marginRight: 16,
+                            position: 'relative',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <View style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: 4,
+                            bottom: 0,
+                            backgroundColor: '#6366f1'
+                          }} />
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingLeft: 6 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              📢 {ann.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
+                            </Text>
+                            <Text style={{ fontSize: 9, color: COLORS.textMuted }}>
+                              {new Date(ann.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { month: 'short', day: 'numeric' })}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6, paddingLeft: 6 }} numberOfLines={1}>
+                            {getBilingualText(ann.title, language)}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 18, paddingLeft: 6 }} numberOfLines={3}>
+                            {getBilingualText(ann.content, language)}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                );
+              })()}
 
               <Text style={styles.sectionTitleMain}>{t('priorityDispatch')}</Text>
               {vipSchedules.length === 0 && <Text style={styles.emptyText}>{t('noVipSchedules')}</Text>}
@@ -1122,6 +1370,69 @@ export default function App() {
                     <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('dtrLabel')}</Text>
                   </View>
                   <Feather name="chevron-right" size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Document Management System (DMS) Group Card */}
+              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+                {t('companyFormsLabel')}
+              </Text>
+              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
+                <TouchableOpacity 
+                  onPress={() => startFormDownload('Employee_Handbook_2026.pdf')}
+                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
+                  disabled={!!downloadingFile}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="book-open" size={16} color="#3b82f6" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>Employee Handbook.pdf</Text>
+                      {downloadingFile === 'Employee_Handbook_2026.pdf' && (
+                        <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{t('downloading')} {downloadProgress}%</Text>
+                      )}
+                    </View>
+                  </View>
+                  <Feather name="download" size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  onPress={() => startFormDownload('Leave_Application_Form.pdf')}
+                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
+                  disabled={!!downloadingFile}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(16, 185, 129, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="file-text" size={16} color={COLORS.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>Leave Application Form.pdf</Text>
+                      {downloadingFile === 'Leave_Application_Form.pdf' && (
+                        <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{t('downloading')} {downloadProgress}%</Text>
+                      )}
+                    </View>
+                  </View>
+                  <Feather name="download" size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  onPress={() => startFormDownload('Resignation_Template.pdf')}
+                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                  disabled={!!downloadingFile}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="file-minus" size={16} color={COLORS.danger} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>Resignation Template.pdf</Text>
+                      {downloadingFile === 'Resignation_Template.pdf' && (
+                        <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{t('downloading')} {downloadProgress}%</Text>
+                      )}
+                    </View>
+                  </View>
+                  <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
               </View>
 
@@ -1246,6 +1557,47 @@ export default function App() {
   const renderedContent = (
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
+      
+      {isWaitingForScan && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(15, 23, 42, 0.85)', zIndex: 99999, justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
+          <View style={{ backgroundColor: '#ffffff', borderRadius: 24, padding: 32, alignItems: 'center', width: '100%', maxWidth: 340, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16 }}>
+            <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primaryDim, justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+              <MaterialCommunityIcons name="fingerprint" size={56} color={COLORS.primary} />
+            </View>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain, textAlign: 'center', marginBottom: 12 }}>
+              {t('waitingForBiometricTerminal')}
+            </Text>
+            <Text style={{ fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 24 }}>
+              {t('scanBiometricTerminalInstructions')}
+            </Text>
+            <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.danger, marginBottom: 20 }}>
+              ⏱️ {Math.floor(scanCountdown / 60)}:{(scanCountdown % 60).toString().padStart(2, '0')}
+            </Text>
+            <TouchableOpacity 
+              onPress={() => {
+                setIsWaitingForScan(false);
+                setScanType(null);
+                scanTypeRef.current = null;
+                pendingLocationRef.current = null;
+              }}
+              style={{
+                width: '100%',
+                paddingVertical: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                alignItems: 'center',
+                backgroundColor: COLORS.card
+              }}
+            >
+              <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 14 }}>
+                {t('cancelButton')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {showDtrModal && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>

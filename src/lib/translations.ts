@@ -195,7 +195,22 @@ export const TRANSLATIONS = {
     retryAuth: "Retry Authentication",
     checkProximity: "📍 Check Geofence Proximity Map",
     verifiedInside: "Verified inside: {office} (Distance: {distance}m)",
-    outsideArea: "Outside geofence area. Distance: {distance}m"
+    outsideArea: "Outside geofence area. Distance: {distance}m",
+    locationPermissionDenied: "Location permission denied. Please enable it in your phone settings.",
+    mockLocationDetected: "Spoofing detected: Mock location provider active.",
+    poorGpsSignal: "Poor GPS signal accuracy ({accuracy}m). Please step outside or find an open space.",
+    timeTamperingDetected: "Time manipulation detected. Please set your device clock to automatic network time.",
+    locationVerificationFailed: "Location Verification Failed",
+    biometricVerificationFailed: "Biometric Verification Failed",
+    biometricRequiredMsg: "Biometric verification is required to verify your identity for attendance logging.",
+    announcementsLabel: "Announcements",
+    companyFormsLabel: "Company Forms & Handbooks",
+    downloadForm: "Download Form",
+    downloading: "Downloading...",
+    waitingForBiometricTerminal: "Waiting for office biometric scan...",
+    scanBiometricTerminalInstructions: "Please place your finger on the company biometrics reader machine to complete verification.",
+    biometricScanMatched: "Fingerprint scan matched!",
+    biometricScanTimeout: "Biometric scan verification timed out. Please try again."
   },
   fil: {
     profileTitle: "Profile at Mga Setting",
@@ -391,6 +406,21 @@ export const TRANSLATIONS = {
     retryAuth: "Subukang Muli ang Pag-authenticate",
     checkProximity: "📍 Tingnan ang Mapa ng Kalapitan ng Geofence",
     verifiedInside: "Beripikadong nasa loob ng: {office} (Layo: {distance}m)",
-    outsideArea: "Nasa labas ng sakop ng geofence. Layo: {distance}m"
+    outsideArea: "Nasa labas ng sakop ng geofence. Layo: {distance}m",
+    locationPermissionDenied: "Tinanggihan ang pahintulot sa lokasyon. Mangyaring i-enable ito sa settings ng iyong telepono.",
+    mockLocationDetected: "Nadetektang pekeng lokasyon: Aktibo ang mock location provider.",
+    poorGpsSignal: "Mahinang signal ng GPS ({accuracy}m). Mangyaring lumabas o maghanap ng bukas na lugar.",
+    timeTamperingDetected: "Nadetektang binago ang oras. Mangyaring itakda ang orasan ng iyong device sa awtomatikong network time.",
+    locationVerificationFailed: "Bigo sa Pag-verify ng Lokasyon",
+    biometricVerificationFailed: "Bigo sa Pag-verify ng Biometrics",
+    biometricRequiredMsg: "Kinakailangan ang pag-verify ng biometrics upang patunayan ang iyong pagkakakilanlan sa pag-log ng attendance.",
+    announcementsLabel: "Mga Pahayag",
+    companyFormsLabel: "Mga Form at Handbook ng Kumpanya",
+    downloadForm: "I-download ang Form",
+    downloading: "Kasalukuyang ina-download...",
+    waitingForBiometricTerminal: "Naghihintay ng biometric scan sa opisina...",
+    scanBiometricTerminalInstructions: "Mangyaring ilagay ang iyong daliri sa biometrics reader ng kumpanya upang makumpleto ang pag-verify.",
+    biometricScanMatched: "Nagtugma ang fingerprint scan!",
+    biometricScanTimeout: "Nag-timeout ang pag-verify ng biometric scan. Subukang muli."
   }
 };
