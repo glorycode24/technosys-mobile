@@ -10,6 +10,8 @@ export interface QueueItem {
   timestamp: string;
 }
 
+const HISTORY_KEY = 'SYNCED_TRANSACTION_LOG';
+
 export const syncQueue = {
   async getQueue(): Promise<QueueItem[]> {
     try {
@@ -18,6 +20,42 @@ export const syncQueue = {
     } catch (e) {
       console.error('Failed to read queue:', e);
       return [];
+    }
+  },
+
+  async getHistory(): Promise<any[]> {
+    try {
+      const data = await AsyncStorage.getItem(HISTORY_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error('Failed to read history:', e);
+      return [];
+    }
+  },
+
+  async addToHistory(item: QueueItem, status: 'success' | 'failed', errorMsg?: string): Promise<void> {
+    try {
+      const data = await AsyncStorage.getItem(HISTORY_KEY);
+      const history = data ? JSON.parse(data) : [];
+      const newEntry = {
+        ...item,
+        status,
+        errorMsg,
+        syncedAt: new Date().toISOString()
+      };
+      history.unshift(newEntry);
+      if (history.length > 50) history.pop();
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch (e) {
+      console.error('Failed to add to history:', e);
+    }
+  },
+
+  async clearHistory(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(HISTORY_KEY);
+    } catch (e) {
+      console.error('Failed to clear history:', e);
     }
   },
 
@@ -146,9 +184,11 @@ export const syncQueue = {
             return { success: false, syncedCount };
           } else {
             console.error('Non-recoverable sync error. Discarding transaction:', error);
+            await this.addToHistory(item, 'failed', errMessage || 'Non-recoverable error');
             await this.removeFromQueue(item.id);
           }
         } else {
+          await this.addToHistory(item, 'success');
           await this.removeFromQueue(item.id);
           syncedCount++;
           if (onSyncSuccess) onSyncSuccess(item);
