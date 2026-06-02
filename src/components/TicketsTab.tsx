@@ -39,9 +39,10 @@ interface TicketsTabProps {
   userId: string;
   fullName: string;
   language: string;
+  isOnline: boolean;
 }
 
-export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
+export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabProps) {
   const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
     const currentLangDict = TRANSLATIONS[language as Locale] || TRANSLATIONS['en'];
     let text = (currentLangDict as any)[key] || (TRANSLATIONS['en'] as any)[key] || key;
@@ -114,22 +115,28 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
     setLeavesLoading(true);
     try {
       let dbLeaves = [];
-      try {
-        const fetchPromise = supabase
-          .from('leaves')
-          .select('*')
-          .eq('technician_id', userId)
-          .order('created_at', { ascending: false });
-
-        const { data, error } = await withTimeout(fetchPromise, 4000);
-        if (error) throw error;
-        dbLeaves = data || [];
-        // Save to cache
-        await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(dbLeaves));
-      } catch (networkErr: any) {
-        console.warn('Could not fetch leaves from DB, falling back to cache:', networkErr.message);
+      if (!isOnline) {
+        console.log('App is offline, loading leaves from cache directly...');
         const cached = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
         dbLeaves = cached ? JSON.parse(cached) : [];
+      } else {
+        try {
+          const fetchPromise = supabase
+            .from('leaves')
+            .select('*')
+            .eq('technician_id', userId)
+            .order('created_at', { ascending: false });
+
+          const { data, error } = await withTimeout(fetchPromise, 4000);
+          if (error) throw error;
+          dbLeaves = data || [];
+          // Save to cache
+          await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(dbLeaves));
+        } catch (networkErr: any) {
+          console.warn('Could not fetch leaves from DB, falling back to cache:', networkErr.message);
+          const cached = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
+          dbLeaves = cached ? JSON.parse(cached) : [];
+        }
       }
 
       // 2. Fetch offline queue items
@@ -221,6 +228,14 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
   const fetchTickets = async () => {
     setLoading(true);
     try {
+      if (!isOnline) {
+        console.log('App is offline, loading tickets from cache directly...');
+        const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
+        setTickets(cached ? JSON.parse(cached) : []);
+        setLoading(false);
+        return;
+      }
+
       const fetchPromise = supabase
         .from('tickets')
         .select(`
@@ -239,11 +254,7 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
       console.warn('Failed to load tickets from network, loading cached...', e.message);
       try {
         const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
-        if (cached) {
-          setTickets(JSON.parse(cached));
-        } else {
-          setTickets([]);
-        }
+        setTickets(cached ? JSON.parse(cached) : []);
       } catch (cacheErr) {
         console.error('Failed to read tickets cache', cacheErr);
       }
@@ -256,6 +267,14 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
   const fetchComments = async (ticketId: string) => {
     setLoadingComments(true);
     try {
+      if (!isOnline) {
+        console.log('App is offline, loading ticket comments from cache directly...');
+        const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
+        setComments(cached ? JSON.parse(cached) : []);
+        setLoadingComments(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('ticket_comments')
         .select(`
@@ -267,8 +286,13 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
 
       if (error) throw error;
       setComments(data || []);
+      await AsyncStorage.setItem('CACHED_COMMENTS_' + ticketId, JSON.stringify(data || []));
     } catch (e: any) {
       console.error('Failed to load comments', e);
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
+        if (cached) setComments(JSON.parse(cached));
+      } catch (cacheErr) {}
     } finally {
       setLoadingComments(false);
     }
@@ -277,6 +301,13 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
   // Fetch inventory details for checkout (with cache fallback)
   const fetchInventoryItems = async () => {
     try {
+      if (!isOnline) {
+        console.log('App is offline, loading inventory items from cache directly...');
+        const cached = await AsyncStorage.getItem('CACHED_INVENTORY_ITEMS');
+        setInventoryItems(cached ? JSON.parse(cached) : []);
+        return;
+      }
+
       const fetchPromise = supabase
         .from('inventory_items')
         .select('*')
@@ -291,11 +322,7 @@ export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
       console.warn("Failed to load inventory items from network, loading cached:", e.message);
       try {
         const cached = await AsyncStorage.getItem('CACHED_INVENTORY_ITEMS');
-        if (cached) {
-          setInventoryItems(JSON.parse(cached));
-        } else {
-          setInventoryItems([]);
-        }
+        setInventoryItems(cached ? JSON.parse(cached) : []);
       } catch (cacheErr) {
         console.error("Failed to read inventory cache:", cacheErr);
       }

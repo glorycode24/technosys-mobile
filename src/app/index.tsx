@@ -114,6 +114,7 @@ const LoginScreen = ({ onLogin }: any) => {
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
 
   // Helper functions for platform-agnostic Secure Storage
   const getSecureItem = async (key: string): Promise<string | null> => {
@@ -154,6 +155,9 @@ export default function App() {
 
   // Helper to verify server connectivity
   const checkIsOnline = async (): Promise<boolean> => {
+    if (Platform.OS === 'web') {
+      return typeof navigator !== 'undefined' ? navigator.onLine : true;
+    }
     try {
       const response = await withTimeout(
         fetch('https://ggknkdyuglzcnkwhvdak.supabase.co'),
@@ -234,6 +238,20 @@ export default function App() {
 
   const fetchDtrLogs = async () => {
     if (!session) return;
+    const online = await checkIsOnline();
+    setIsOnline(online);
+
+    if (!online) {
+      console.log("App is offline, loading DTR logs from cache...");
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_DTR_LOGS_' + session.user.id);
+        setDtrLogs(cached ? JSON.parse(cached) : []);
+      } catch (cacheErr) {
+        console.error("Failed to read DTR logs cache", cacheErr);
+      }
+      return;
+    }
+
     setDtrLoading(true);
     try {
       const now = new Date();
@@ -245,8 +263,14 @@ export default function App() {
         .order('created_at', { ascending: false });
       if (error) throw error;
       setDtrLogs(data || []);
+      await AsyncStorage.setItem('CACHED_DTR_LOGS_' + session.user.id, JSON.stringify(data || []));
     } catch (e: any) {
       console.warn("Failed to fetch DTR logs:", e.message);
+      setIsOnline(false);
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_DTR_LOGS_' + session.user.id);
+        if (cached) setDtrLogs(JSON.parse(cached));
+      } catch (cacheErr) {}
     } finally {
       setDtrLoading(false);
     }
@@ -307,8 +331,9 @@ export default function App() {
         }
 
         // Within 24-hour limit
-        const isOnline = await checkIsOnline();
-        if (isOnline) {
+        const onlineStatus = await checkIsOnline();
+        setIsOnline(onlineStatus);
+        if (onlineStatus) {
           setSession(storedSession);
           try {
             await supabase.auth.setSession({
@@ -391,8 +416,9 @@ export default function App() {
       setSession(currentSession);
       if (currentSession) {
         await setSecureItem('USER_SESSION', JSON.stringify(currentSession));
-        const isOnline = await checkIsOnline();
-        if (isOnline) {
+        const onlineStatus = await checkIsOnline();
+        setIsOnline(onlineStatus);
+        if (onlineStatus) {
           await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
         }
         fetchDashboardData(currentSession.user.id);
@@ -414,8 +440,11 @@ export default function App() {
     checkQueueStatus();
 
     const interval = setInterval(async () => {
+      const online = await checkIsOnline();
+      setIsOnline(online);
+
       const queue = await syncQueue.getQueue();
-      if (queue.length > 0) {
+      if (queue.length > 0 && online) {
         console.log('Background checking connection to sync queue...');
         const res = await syncQueue.syncPendingQueue((item) => {
           if (item.type === 'time_in' || item.type === 'time_out') {
@@ -432,7 +461,96 @@ export default function App() {
     return () => clearInterval(interval);
   }, [session]);
 
+  // Web-specific online/offline window listeners
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const handleOnline = () => {
+        setIsOnline(true);
+        if (session) {
+          fetchDashboardData(session.user.id);
+          syncQueue.getQueue().then(queue => {
+            if (queue.length > 0) {
+              syncQueue.syncPendingQueue((item) => {
+                if (item.type === 'time_in' || item.type === 'time_out') {
+                  fetchDashboardData(session.user.id);
+                }
+              }).then(res => {
+                checkQueueStatus();
+                if (res.syncedCount > 0) {
+                  Alert.alert('Sync Successful', `Synchronized ${res.syncedCount} offline transaction(s) with database.`);
+                }
+              });
+            }
+          });
+        }
+      };
+      const handleOffline = () => {
+        setIsOnline(false);
+      };
+
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, [session]);
+
+  const loadDashboardDataFromCache = async (userId: string) => {
+    try {
+      const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
+      if (cached) {
+        const dashboardCache = JSON.parse(cached);
+        if (dashboardCache.profile) setProfile(dashboardCache.profile);
+        setSchedules(dashboardCache.schedules || []);
+        setPayslip(dashboardCache.payslip);
+        
+        const cachedLogs = dashboardCache.logs || [];
+        
+        // Apply offline queue overrides to cached logs
+        const queue = await syncQueue.getQueue();
+        const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
+        
+        let finalActiveLog: any = null;
+        if (pendingTimeIn) {
+          finalActiveLog = {
+            id: 'offline-pending-' + pendingTimeIn.id,
+            technician_id: userId,
+            app_time_in: pendingTimeIn.payload.app_time_in,
+            app_time_out: pendingTimeIn.payload.app_time_out || null,
+            total_hours: pendingTimeIn.payload.total_hours || null,
+            latitude: pendingTimeIn.payload.latitude,
+            longitude: pendingTimeIn.payload.longitude,
+            geofence_status: 'inside',
+            is_offline_pending: true
+          };
+        } else if (cachedLogs.length > 0) {
+          finalActiveLog = { ...cachedLogs[0] };
+          const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
+          if (pendingTimeOut) {
+            finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
+            finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+          }
+        }
+        setActiveTimeLog(finalActiveLog);
+      }
+    } catch (cacheErr) {
+      console.error("Failed to read dashboard cache", cacheErr);
+    }
+  };
+
   const fetchDashboardData = async (userId: string) => {
+    const online = await checkIsOnline();
+    setIsOnline(online);
+
+    if (!online) {
+      console.log("App is offline, loading dashboard data from cache directly...");
+      await loadDashboardDataFromCache(userId);
+      return;
+    }
+
     try {
       const today = new Date().toISOString().split('T')[0];
       
@@ -509,46 +627,8 @@ export default function App() {
       await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
     } catch (e: any) {
       console.warn("Failed to load dashboard data from network, trying cache:", e.message);
-      try {
-        const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
-        if (cached) {
-          const dashboardCache = JSON.parse(cached);
-          if (dashboardCache.profile) setProfile(dashboardCache.profile);
-          setSchedules(dashboardCache.schedules || []);
-          setPayslip(dashboardCache.payslip);
-          
-          const cachedLogs = dashboardCache.logs || [];
-          
-          // Apply offline queue overrides to cached logs
-          const queue = await syncQueue.getQueue();
-          const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
-          
-          let finalActiveLog: any = null;
-          if (pendingTimeIn) {
-            finalActiveLog = {
-              id: 'offline-pending-' + pendingTimeIn.id,
-              technician_id: userId,
-              app_time_in: pendingTimeIn.payload.app_time_in,
-              app_time_out: pendingTimeIn.payload.app_time_out || null,
-              total_hours: pendingTimeIn.payload.total_hours || null,
-              latitude: pendingTimeIn.payload.latitude,
-              longitude: pendingTimeIn.payload.longitude,
-              geofence_status: 'inside',
-              is_offline_pending: true
-            };
-          } else if (cachedLogs.length > 0) {
-            finalActiveLog = { ...cachedLogs[0] };
-            const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
-            if (pendingTimeOut) {
-              finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
-              finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
-            }
-          }
-          setActiveTimeLog(finalActiveLog);
-        }
-      } catch (cacheErr) {
-        console.error("Failed to read dashboard cache", cacheErr);
-      }
+      setIsOnline(false);
+      await loadDashboardDataFromCache(userId);
     }
   };
 
@@ -925,7 +1005,7 @@ export default function App() {
           )}
 
           {activeTab === 'tickets' && (
-            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} />
+            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} />
           )}
 
 
@@ -949,8 +1029,10 @@ export default function App() {
                     {profile?.role === 'technician' ? t('fieldTechnician') : profile?.role === 'helper' ? t('fieldHelper') : t('active')}
                   </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.primary, marginRight: 6 }} />
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('online')}</Text>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isOnline ? COLORS.primary : COLORS.danger, marginRight: 6 }} />
+                    <Text style={{ color: isOnline ? COLORS.primary : COLORS.danger, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {isOnline ? t('online') : t('offline')}
+                    </Text>
                   </View>
                 </View>
               </View>
@@ -1032,8 +1114,8 @@ export default function App() {
                     </View>
                     <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('syncStatus')}</Text>
                   </View>
-                  <Text style={{ color: offlineQueueCount > 0 ? COLORS.danger : COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>
-                    {offlineQueueCount > 0 ? t('offline') : t('online')}
+                  <Text style={{ color: isOnline ? COLORS.primary : COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>
+                    {isOnline ? t('online') : t('offline')}
                   </Text>
                 </View>
 
