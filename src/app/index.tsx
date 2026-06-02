@@ -7,6 +7,7 @@ import { TicketsTab } from '../components/TicketsTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
+import { Locale, TRANSLATIONS } from '../lib/translations';
 
 
 // Clean White Professional Theme
@@ -118,6 +119,41 @@ export default function App() {
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
+
+  const [language, setLanguage] = useState<Locale>('en');
+  const langAnim = React.useRef(new Animated.Value(0)).current;
+
+  const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
+    const currentLangDict = TRANSLATIONS[language] || TRANSLATIONS['en'];
+    let text = (currentLangDict as any)[key] || (TRANSLATIONS['en'] as any)[key] || key;
+    if (replaceParams) {
+      Object.entries(replaceParams).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, String(v));
+      });
+    }
+    return text;
+  };
+
+  const changeLanguage = async (newLang: Locale) => {
+    setLanguage(newLang);
+    await AsyncStorage.setItem('APP_LANGUAGE', newLang);
+    Animated.spring(langAnim, {
+      toValue: newLang === 'en' ? 0 : 1,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 50
+    }).start();
+  };
+
+  useEffect(() => {
+    AsyncStorage.getItem('APP_LANGUAGE').then((storedLang) => {
+      if (storedLang === 'en' || storedLang === 'fil') {
+        const lang = storedLang as Locale;
+        setLanguage(lang);
+        langAnim.setValue(lang === 'en' ? 0 : 1);
+      }
+    });
+  }, []);
 
   const [dtrLogs, setDtrLogs] = useState<any[]>([]);
   const [dtrLoading, setDtrLoading] = useState(false);
@@ -399,7 +435,7 @@ export default function App() {
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
-          Alert.alert('Offline Mode Active', 'Logged Clock-In locally. It will synchronize once you regain connectivity.');
+          Alert.alert(t('syncPendingAlertTitle'), t('syncPendingAlertDesc'));
           checkQueueStatus();
           return;
         }
@@ -464,7 +500,7 @@ export default function App() {
           app_time_out: timeOutTime,
           total_hours: diffHours
         }));
-        Alert.alert('Offline Mode Active', `Logged Clock-Out locally. Worked ${diffHours} hrs. Will sync on reconnection.`);
+        Alert.alert(t('syncPendingAlertTitle'), t('syncPendingAlertOut', { hours: diffHours }));
         checkQueueStatus();
         return;
       }
@@ -493,14 +529,14 @@ export default function App() {
             app_time_out: timeOutTime,
             total_hours: diffHours
           }));
-          Alert.alert('Offline Mode Active', `Logged Clock-Out locally. Worked ${diffHours} hrs. Will sync on reconnection.`);
+          Alert.alert(t('syncPendingAlertTitle'), t('syncPendingAlertOut', { hours: diffHours }));
           checkQueueStatus();
           return;
         }
         throw error;
       }
 
-      Alert.alert('Time-Out Verified', `Shift completed. Total hours: ${diffHours} hrs.`);
+      Alert.alert(t('shiftCompleted'), t('workedHours', { hours: diffHours }));
       await fetchDashboardData(session.user.id);
     } catch (e: any) {
       Alert.alert('Time Out Failed', e.message || 'An error occurred.');
@@ -535,7 +571,7 @@ export default function App() {
           <View style={styles.offlineBanner}>
             <Feather name="wifi-off" size={14} color="#fff" style={{ marginRight: 6 }} />
             <Text style={styles.offlineBannerText}>
-              Offline Mode: {offlineQueueCount} sync request{offlineQueueCount > 1 ? 's' : ''} pending...
+              {t('syncBanner', { count: offlineQueueCount })}
             </Text>
           </View>
         )}
@@ -546,7 +582,7 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                 <View>
-                  <Text style={styles.greeting}>Welcome back,</Text>
+                  <Text style={styles.greeting}>{t('welcomeBack')}</Text>
                   <Text style={styles.name}>{profile?.full_name || 'Technician'}</Text>
                 </View>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
@@ -558,8 +594,8 @@ export default function App() {
                     {timeInLoading ? <ActivityIndicator color="#fff" /> : (
                       <>
                         <Feather name="map-pin" size={28} color="#fff" style={{ marginBottom: 8 }} />
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 20, marginBottom: 4 }}>CLOCK IN NOW</Text>
-                        <Text style={{ color: '#ecfdf5', fontSize: 12 }}>📍 Location will be verified</Text>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 20, marginBottom: 4 }}>{t('clockInNow')}</Text>
+                        <Text style={{ color: '#ecfdf5', fontSize: 12 }}>📍 {t('locationVerificationDetails')}</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -569,9 +605,9 @@ export default function App() {
                   <View>
                     <View style={styles.timeInSuccess}>
                       <Feather name="check-circle" size={22} color={COLORS.primary} style={{ marginBottom: 6 }} />
-                      <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 15 }}>✅ Clock-In Verified</Text>
+                      <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 15 }}>{t('locationVerified')}</Text>
                       <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 2 }}>
-                        Logged at {new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {t('loggedAt', { time: new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}
                       </Text>
                     </View>
                     
@@ -583,8 +619,8 @@ export default function App() {
                       {timeOutLoading ? <ActivityIndicator color="#fff" /> : (
                         <>
                           <Feather name="log-out" size={24} color="#fff" style={{ marginBottom: 6 }} />
-                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, marginBottom: 2 }}>CLOCK OUT NOW</Text>
-                          <Text style={{ color: '#fee2e2', fontSize: 11 }}>📍 Location will be verified</Text>
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, marginBottom: 2 }}>{t('clockOutNow')}</Text>
+                          <Text style={{ color: '#fee2e2', fontSize: 11 }}>📍 {t('locationVerificationDetails')}</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -594,20 +630,20 @@ export default function App() {
                 {activeTimeLog && activeTimeLog.app_time_out && (
                   <View style={[styles.timeInSuccess, { borderColor: COLORS.textMuted, backgroundColor: '#f1f5f9' }]}>
                     <Feather name="lock" size={22} color={COLORS.textMuted} style={{ marginBottom: 6 }} />
-                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 15 }}>🔒 Shift Completed Today</Text>
+                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 15 }}>{t('shiftCompleted')}</Text>
                     <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
-                      Worked {activeTimeLog.total_hours} hrs ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                      {t('workedHours', { hours: activeTimeLog.total_hours })} ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
                     </Text>
                   </View>
                 )}
               </View>
 
-              <Text style={styles.sectionTitleMain}>Priority Dispatch</Text>
-              {vipSchedules.length === 0 && <Text style={styles.emptyText}>No VIP hooks active.</Text>}
+              <Text style={styles.sectionTitleMain}>{t('priorityDispatch')}</Text>
+              {vipSchedules.length === 0 && <Text style={styles.emptyText}>{t('noVipSchedules')}</Text>}
               {vipSchedules.map(sched => (
                 <View key={sched.id} style={styles.vipCard}>
                   <View style={styles.vipBadge}>
-                    <Text style={styles.vipBadgeText}>URGENT</Text>
+                    <Text style={styles.vipBadgeText}>{t('urgent').toUpperCase()}</Text>
                   </View>
                   <Text style={styles.vipTitle}>{sched.client_name}</Text>
                   <Text style={styles.vipTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
@@ -615,8 +651,8 @@ export default function App() {
                 </View>
               ))}
 
-              <Text style={[styles.sectionTitleMain, { marginTop: 24 }]}>Standard Schedule</Text>
-              {regularSchedules.length === 0 && <Text style={styles.emptyText}>No standard schedules today.</Text>}
+              <Text style={[styles.sectionTitleMain, { marginTop: 24 }]}>{t('standardSchedule')}</Text>
+              {regularSchedules.length === 0 && <Text style={styles.emptyText}>{t('noSchedule')}</Text>}
               {regularSchedules.map(sched => (
                 <View key={sched.id} style={styles.regularCard}>
                   <Text style={styles.regularTitle}>{sched.client_name}</Text>
@@ -672,7 +708,7 @@ export default function App() {
           )}
 
           {activeTab === 'tickets' && (
-            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} />
+            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} />
           )}
 
 
@@ -680,36 +716,125 @@ export default function App() {
 
           {activeTab === 'profile' && (
             <ScrollView contentContainerStyle={styles.content}>
-               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-                <Text style={styles.name}>Profile & Settings</Text>
+               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
+                <Text style={styles.name}>{t('profileTitle')}</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
-              <View style={styles.regularCard}>
-                <View style={{ alignItems: 'center', marginBottom: 24 }}>
-                  <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: COLORS.primaryDim, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                    <Text style={{ color: COLORS.primary, fontSize: 32, fontWeight: 'bold' }}>{profile?.full_name?.charAt(0) || 'T'}</Text>
-                  </View>
-                  <Text style={{ color: COLORS.textMain, fontSize: 20, fontWeight: 'bold' }}>{profile?.full_name}</Text>
-                  <Text style={{ color: COLORS.primary, fontSize: 14 }}>{profile?.role === 'technician' ? 'Field Technician' : 'Staff'}</Text>
-                </View>
 
+              {/* Avatar Header Row */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, marginBottom: 24 }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.primaryDim, alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                  <Text style={{ color: COLORS.primary, fontSize: 24, fontWeight: 'bold' }}>{profile?.full_name?.charAt(0) || 'T'}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: COLORS.textMain, fontSize: 18, fontWeight: 'bold', marginBottom: 2 }}>{profile?.full_name}</Text>
+                  <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 6 }}>
+                    {profile?.role === 'technician' ? t('fieldTechnician') : profile?.role === 'helper' ? t('fieldHelper') : t('active')}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.primary, marginRight: 6 }} />
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>{t('online')}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Account Group Card */}
+              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+                {t('accountSection')}
+              </Text>
+              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
                 <TouchableOpacity 
                   onPress={() => { setShowDtrModal(true); fetchDtrLogs(); }}
-                  style={{ backgroundColor: '#f1f5f9', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}
+                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Feather name="clock" size={18} color={COLORS.primary} style={{ marginRight: 8 }} />
-                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 14 }}>My Daily Time Records (DTR)</Text>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(16, 185, 129, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="clock" size={16} color={COLORS.primary} />
+                    </View>
+                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('dtrLabel')}</Text>
                   </View>
                   <Feather name="chevron-right" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
+              </View>
 
-                <TouchableOpacity onPress={async () => {
-                  setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
-                  try { await supabase.auth.signOut(); } catch(e) {}
-                }} style={{ backgroundColor: 'rgba(244, 63, 94, 0.1)', padding: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(244, 63, 94, 0.2)', flexDirection: 'row', justifyContent: 'center' }}>
-                  <Feather name="log-out" size={20} color={COLORS.danger} style={{ marginRight: 8 }} />
-                  <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 16 }}>Log Out</Text>
+              {/* Preferences Group Card */}
+              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+                {t('preferencesSection')}
+              </Text>
+              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
+                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="globe" size={16} color="#3b82f6" />
+                    </View>
+                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('languageLabel')}</Text>
+                  </View>
+                  
+                  {/* Segmented language switcher */}
+                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
+                    <Animated.View style={{
+                      position: 'absolute',
+                      top: 2,
+                      bottom: 2,
+                      left: 0,
+                      width: 56,
+                      backgroundColor: '#ffffff',
+                      borderRadius: 6,
+                      transform: [{
+                        translateX: langAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [2, 58]
+                        })
+                      }],
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 2,
+                      elevation: 2
+                    }} />
+                    <TouchableOpacity onPress={() => changeLanguage('en')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: language === 'en' ? COLORS.primary : COLORS.textMuted }}>EN</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => changeLanguage('fil')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: language === 'fil' ? COLORS.primary : COLORS.textMuted }}>FIL</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* System Group Card */}
+              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+                {t('systemSection')}
+              </Text>
+              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 24 }}>
+                {/* Connection Status Row */}
+                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(71, 85, 105, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="activity" size={16} color="#475569" />
+                    </View>
+                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('syncStatus')}</Text>
+                  </View>
+                  <Text style={{ color: offlineQueueCount > 0 ? COLORS.danger : COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>
+                    {offlineQueueCount > 0 ? t('offline') : t('online')}
+                  </Text>
+                </View>
+
+                {/* Highly Accessible Log Out Row */}
+                <TouchableOpacity 
+                  onPress={async () => {
+                    setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
+                    try { await supabase.auth.signOut(); } catch(e) {}
+                  }}
+                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="log-out" size={16} color={COLORS.danger} />
+                    </View>
+                    <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 14 }}>{t('logOut')}</Text>
+                  </View>
+                  <Feather name="chevron-right" size={16} color={COLORS.danger} style={{ opacity: 0.5 }} />
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -720,13 +845,13 @@ export default function App() {
         <View style={styles.bottomNav}>
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('home')}>
             <Feather name="home" size={24} color={activeTab === 'home' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'home' ? COLORS.primary : COLORS.textMuted }]}>Home</Text>
+            <Text style={[styles.navText, { color: activeTab === 'home' ? COLORS.primary : COLORS.textMuted }]}>{t('homeTab')}</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'home' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('tickets')}>
             <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>Support</Text>
+            <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>{t('supportTab')}</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'tickets' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
@@ -734,13 +859,13 @@ export default function App() {
           
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('payslip')}>
             <Feather name="dollar-sign" size={24} color={activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted }]}>Payroll</Text>
+            <Text style={[styles.navText, { color: activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted }]}>{t('payrollTab')}</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'payslip' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('profile')}>
             <Feather name="user" size={24} color={activeTab === 'profile' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'profile' ? COLORS.primary : COLORS.textMuted }]}>Profile</Text>
+            <Text style={[styles.navText, { color: activeTab === 'profile' ? COLORS.primary : COLORS.textMuted }]}>{t('profileTab')}</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'profile' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
         </View>
@@ -759,21 +884,21 @@ export default function App() {
             <TouchableOpacity onPress={() => setShowDtrModal(false)} style={{ padding: 8, marginLeft: -8 }}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
             </TouchableOpacity>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>My Daily Time Record (DTR)</Text>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>{t('dtrHistoryTitle')}</Text>
             <TouchableOpacity onPress={fetchDtrLogs} style={{ padding: 8, marginRight: -8 }} disabled={dtrLoading}>
               {dtrLoading ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Feather name="refresh-cw" size={18} color={COLORS.primary} />}
             </TouchableOpacity>
           </View>
           
           <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
-            Current Month Logs ({dtrLogs.length})
+            {t('currentMonthLogs')} ({dtrLogs.length})
           </Text>
 
           {dtrLogs.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 60 }}>
               <Feather name="clock" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
               <Text style={{ color: COLORS.textMuted, fontStyle: 'italic' }}>
-                {dtrLoading ? "Loading logs..." : "No DTR entries for this month."}
+                {dtrLoading ? t('loadingLogs') : t('noLogs')}
               </Text>
             </View>
           ) : (
@@ -782,7 +907,7 @@ export default function App() {
                 const logDate = new Date(log.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                 const timeInStr = log.app_time_in ? formatTime(log.app_time_in) : '--:--';
                 const timeOutStr = log.app_time_out ? formatTime(log.app_time_out) : '--:--';
-                const hours = log.total_hours !== null ? `${log.total_hours} hrs` : 'Active';
+                const hours = log.total_hours !== null ? `${log.total_hours} hrs` : t('active');
                 const isManual = log.is_manual_entry || log.geofence_status === 'manual_override';
 
                 return (
@@ -791,33 +916,33 @@ export default function App() {
                       <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>📅 {logDate}</Text>
                       {isManual ? (
                         <View style={{ backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, color: '#475569', fontWeight: '800' }}>Manual Entry</Text>
+                          <Text style={{ fontSize: 10, color: '#475569', fontWeight: '800' }}>{t('manualEntry')}</Text>
                         </View>
                       ) : (
                         <View style={{ backgroundColor: COLORS.primaryDim, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, color: COLORS.primary, fontWeight: '800' }}>GPS Verified</Text>
+                          <Text style={{ fontSize: 10, color: COLORS.primary, fontWeight: '800' }}>{t('gpsVerified')}</Text>
                         </View>
                       )}
                     </View>
 
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>Clock In</Text>
+                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>{t('clockIn')}</Text>
                         <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginTop: 2 }}>{timeInStr}</Text>
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>Clock Out</Text>
+                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>{t('clockOut')}</Text>
                         <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginTop: 2 }}>{timeOutStr}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end', flex: 1 }}>
-                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>Duration</Text>
+                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>{t('duration')}</Text>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: COLORS.primary, marginTop: 2 }}>{hours}</Text>
                       </View>
                     </View>
                     
                     {log.gps_accuracy && !isManual && (
                       <Text style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 8 }}>
-                        📍 Accuracy: {log.gps_accuracy.toFixed(1)}m {log.is_mocked ? ' | ⚠️ Mock GPS' : ''}
+                        📍 {t('accuracy')}: {log.gps_accuracy.toFixed(1)}m {log.is_mocked ? ` | ⚠️ ${t('mockGps')}` : ''}
                       </Text>
                     )}
                   </View>

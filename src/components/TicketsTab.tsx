@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
+import { Locale, TRANSLATIONS } from '../lib/translations';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -37,9 +38,20 @@ const COLORS = {
 interface TicketsTabProps {
   userId: string;
   fullName: string;
+  language: string;
 }
 
-export function TicketsTab({ userId, fullName }: TicketsTabProps) {
+export function TicketsTab({ userId, fullName, language }: TicketsTabProps) {
+  const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
+    const currentLangDict = TRANSLATIONS[language as Locale] || TRANSLATIONS['en'];
+    let text = (currentLangDict as any)[key] || (TRANSLATIONS['en'] as any)[key] || key;
+    if (replaceParams) {
+      Object.entries(replaceParams).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, String(v));
+      });
+    }
+    return text;
+  };
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
   const [tickets, setTickets] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
@@ -167,34 +179,34 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
   const getLeaveTypeDetails = (type: string) => {
     switch (type) {
       case 'sick':
-        return { label: 'Sick', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' };
+        return { label: t('sick'), color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' };
       case 'vacation':
-        return { label: 'Vacation', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+        return { label: t('vacation'), color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
       case 'wedding':
-        return { label: 'Wedding', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)' };
+        return { label: t('wedding'), color: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)' };
       case 'paternal':
-        return { label: 'Paternal', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)' };
+        return { label: t('paternal'), color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)' };
       case 'maternal':
-        return { label: 'Maternal', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)' };
+        return { label: t('maternal'), color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)' };
       case 'emergency':
-        return { label: 'Emergency', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
+        return { label: t('emergency'), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
       case 'unpaid':
       default:
-        return { label: 'Unpaid', color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)' };
+        return { label: t('unpaid'), color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)' };
     }
   };
 
   const getLeaveStatusDetails = (status: string) => {
     switch (status) {
       case 'approved':
-        return { label: 'Approved', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+        return { label: t('approved'), color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
       case 'rejected':
-        return { label: 'Rejected', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' };
+        return { label: t('rejected'), color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' };
       case 'sync_pending':
-        return { label: 'Sync Pending', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', isSync: true };
+        return { label: t('syncPending'), color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', isSync: true };
       case 'pending':
       default:
-        return { label: 'Pending', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
+        return { label: t('pending'), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
     }
   };
 
@@ -305,14 +317,14 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
   const handleCreateTicket = async () => {
     if (category === 'Leave Request') {
       if (!startDate || !endDate || !reason.trim()) {
-        Alert.alert('Incomplete Form', 'Please fill in all leave request fields.');
+        Alert.alert(t('incompleteForm'), t('fillAllFields'));
         return;
       }
 
       // Basic format validation: YYYY-MM-DD
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
-        Alert.alert('Invalid Date Format', 'Dates must be formatted as YYYY-MM-DD.');
+        Alert.alert(t('invalidDateFormat'), t('datesMustBeFormatted'));
         return;
       }
 
@@ -320,12 +332,12 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       const start = new Date(startDate);
       const end = new Date(endDate);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        Alert.alert('Invalid Dates', 'Please enter valid date values.');
+        Alert.alert(t('invalidDates'), t('enterValidDates'));
         return;
       }
 
       if (end < start) {
-        Alert.alert('Invalid Date Range', 'End Date must be on or after Start Date.');
+        Alert.alert(t('invalidDateRange'), t('endDateAfterStart'));
         return;
       }
 
@@ -351,8 +363,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             // Add to offline sync queue
             await syncQueue.addToQueue('leave_request', payload);
             Alert.alert(
-              'Offline Mode Active',
-              'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+              t('syncPendingAlertTitle'),
+              t('offlineStoredPending')
             );
             setReason('');
             setView('list');
@@ -363,7 +375,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
           throw error;
         }
 
-        Alert.alert('Success', 'Leave request filed successfully.');
+        Alert.alert(t('submissionSuccess'), t('leaveFiledSuccess'));
         setReason('');
         setView('list');
         setSubTab('leaves');
@@ -375,15 +387,15 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         if (isNetworkError) {
           await syncQueue.addToQueue('leave_request', payload);
           Alert.alert(
-            'Offline Mode Active',
-            'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+            t('syncPendingAlertTitle'),
+            t('offlineStoredPending')
           );
           setReason('');
           setView('list');
           setSubTab('leaves');
           fetchLeaves();
         } else {
-          Alert.alert('Submission Failed', err.message || 'Could not submit leave request.');
+          Alert.alert(t('submissionFailed'), err.message || 'Could not submit leave request.');
         }
       } finally {
         setSubmitting(false);
@@ -393,12 +405,12 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
     if (category === 'Payroll Dispute') {
       if (!disputedMonth.trim() || !disputedAmount.trim() || !payrollNotes.trim()) {
-        Alert.alert('Validation Error', 'Please fill in all fields for the payroll dispute.');
+        Alert.alert(t('validationError'), t('fillAllFields'));
         return;
       }
       const amtNum = parseFloat(disputedAmount);
       if (isNaN(amtNum) || amtNum <= 0) {
-        Alert.alert('Validation Error', 'Disputed amount must be a positive number.');
+        Alert.alert(t('validationError'), t('qtyPositive'));
         return;
       }
 
@@ -421,7 +433,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
         if (error) throw error;
 
-        Alert.alert('Success', 'Your payroll dispute request has been submitted.');
+        Alert.alert(t('submissionSuccess'), t('disputeSubmittedSuccess'));
         setDisputedMonth('');
         setDisputedAmount('');
         setPayrollNotes('');
@@ -429,7 +441,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         setSubTab('tickets');
         fetchTickets();
       } catch (e: any) {
-        Alert.alert('Submission Failed', e.message);
+        Alert.alert(t('submissionFailed'), e.message);
       } finally {
         setSubmitting(false);
       }
@@ -438,7 +450,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
     if (category === 'Equipment Issue') {
       if (!serialNumber.trim() || !equipmentNotes.trim()) {
-        Alert.alert('Validation Error', 'Please enter a serial number and details of the issue.');
+        Alert.alert(t('validationError'), t('fillAllFields'));
         return;
       }
 
@@ -461,14 +473,14 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
         if (error) throw error;
 
-        Alert.alert('Success', 'Your equipment issue request has been submitted.');
+        Alert.alert(t('submissionSuccess'), t('equipmentSubmittedSuccess'));
         setSerialNumber('');
         setEquipmentNotes('');
         setView('list');
         setSubTab('tickets');
         fetchTickets();
       } catch (e: any) {
-        Alert.alert('Submission Failed', e.message);
+        Alert.alert(t('submissionFailed'), e.message);
       } finally {
         setSubmitting(false);
       }
@@ -476,7 +488,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
     }
 
     if (!title.trim() || !description.trim()) {
-      Alert.alert('Validation Error', 'Please enter a summary and details.');
+      Alert.alert(t('validationError'), t('fillAllFields'));
       return;
     }
 
@@ -493,7 +505,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
       if (error) throw error;
 
-      Alert.alert('Success', 'Your HR service request has been submitted.');
+      Alert.alert(t('submissionSuccess'), t('ticketSubmittedSuccess'));
       setTitle('');
       setDescription('');
       setCategory('Leave Request');
@@ -501,7 +513,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       setView('list');
       fetchTickets();
     } catch (e: any) {
-      Alert.alert('Submission Failed', e.message);
+      Alert.alert(t('submissionFailed'), e.message);
     } finally {
       setSubmitting(false);
     }
@@ -540,20 +552,20 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
   const handleCheckoutParts = async () => {
     if (!selectedPart || !checkoutQty) {
-      Alert.alert('Validation Error', 'Please select a part and enter a quantity.');
+      Alert.alert(t('validationError'), t('selectPartQty'));
       return;
     }
 
     const qtyNum = parseInt(checkoutQty);
     if (isNaN(qtyNum) || qtyNum <= 0) {
-      Alert.alert('Validation Error', 'Quantity must be greater than zero.');
+      Alert.alert(t('validationError'), t('qtyPositive'));
       return;
     }
 
     // Helper for offline queue fallback
     const handleOfflineFallback = async (itemDetails: any) => {
       if (itemDetails.quantity < qtyNum) {
-        Alert.alert('Insufficient Stock', `Only ${itemDetails.quantity} ${itemDetails.unit} available locally for ${itemDetails.name}.`);
+        Alert.alert(t('insufficientStock'), t('onlyAvailableLocally', { qty: itemDetails.quantity, unit: itemDetails.unit, name: itemDetails.name }));
         return;
       }
 
@@ -583,7 +595,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       };
       setComments(prev => [...prev, mockComment]);
 
-      Alert.alert('Offline Mode Active', `Logged parts checkout locally. Will sync on reconnection.`);
+      Alert.alert(t('syncPendingAlertTitle'), t('offlinePartsCheckoutSuccess'));
       setSelectedPart(null);
       setCheckoutQty('');
       setCheckoutNotes('');
@@ -615,7 +627,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       }
 
       if (item.quantity < qtyNum) {
-        Alert.alert('Insufficient Stock', `Only ${item.quantity} ${item.unit} available for ${item.name}.`);
+        Alert.alert(t('insufficientStock'), t('onlyAvailable', { qty: item.quantity, unit: item.unit, name: item.name }));
         return;
       }
 
@@ -668,7 +680,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         content: `🔧 [System DTR Log]: Technician checked out ${qtyNum} ${item.unit} of "${item.name}" for dispatch. Memo: ${checkoutNotes.trim() || 'None'}`
       });
 
-      Alert.alert('Parts Checkout Successful', `Logged checkout of ${qtyNum} ${item.unit} of ${item.name}.`);
+      Alert.alert(t('partsCheckoutSuccess'), t('checkedOutSuccessMsg', { qty: qtyNum, unit: item.unit, name: item.name }));
       setSelectedPart(null);
       setCheckoutQty('');
       setCheckoutNotes('');
@@ -678,18 +690,18 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       fetchComments(selectedTicket.id);
       fetchInventoryItems();
     } catch (err: any) {
-      Alert.alert('Checkout Failed', err.message || 'An error occurred during parts checkout.');
+      Alert.alert(t('checkoutFailed'), err.message || 'An error occurred during parts checkout.');
     }
   };
 
   const handleCloseTicket = async () => {
     Alert.alert(
-      'Close Ticket',
-      'Are you sure you want to close this ticket? You can reopen it if you still need help.',
+      t('closeTicketTitle'),
+      t('closeTicketConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancelButton'), style: 'cancel' },
         { 
-          text: 'Yes, Close It', 
+          text: t('yesCloseIt'), 
           style: 'destructive',
           onPress: async () => {
             try {
@@ -795,8 +807,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         <View style={styles.container}>
           <View style={styles.tabHeader}>
             <View>
-              <Text style={styles.title}>Service Desk</Text>
-              <Text style={styles.subtitle}>File requests and chat with HR Support</Text>
+              <Text style={styles.title}>{t('serviceDesk')}</Text>
+              <Text style={styles.subtitle}>{t('fileRequestsSubtitle')}</Text>
             </View>
             <TouchableOpacity 
               style={styles.createButton} 
@@ -819,7 +831,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             >
               <Feather name="message-square" size={14} color={subTab === 'tickets' ? '#fff' : COLORS.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.segmentedText, subTab === 'tickets' ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                Support Tickets
+                {t('ticketsLabel')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity 
@@ -828,7 +840,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             >
               <Feather name="calendar" size={14} color={subTab === 'leaves' ? '#fff' : COLORS.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.segmentedText, subTab === 'leaves' ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                Leave Log
+                {t('leavesLabel')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -841,8 +853,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             ) : tickets.length === 0 ? (
               <ScrollView contentContainerStyle={styles.centeredScroll}>
                 <Feather name="inbox" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
-                <Text style={styles.emptyTitle}>No service tickets</Text>
-                <Text style={styles.emptyDesc}>Have a question about payroll, leaves, or equipment? Click the + button to file an HR request.</Text>
+                <Text style={styles.emptyTitle}>{t('emptyTicketsTitle')}</Text>
+                <Text style={styles.emptyDesc}>{t('emptyTicketsDesc')}</Text>
               </ScrollView>
             ) : (
               <ScrollView contentContainerStyle={styles.listContent} refreshControl={
@@ -853,7 +865,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   const catTheme = getCategoryTheme(ticket.category);
                   return (
                     <TouchableOpacity 
-                      key={ticket.id} 
+                       key={ticket.id} 
                       style={styles.ticketCard}
                       onPress={() => handleSelectTicket(ticket)}
                     >
@@ -898,8 +910,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             ) : leavesList.length === 0 ? (
               <ScrollView contentContainerStyle={styles.centeredScroll}>
                 <Feather name="calendar" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
-                <Text style={styles.emptyTitle}>No leave requests</Text>
-                <Text style={styles.emptyDesc}>Want to request leave or vacation days? Click the + button to submit a leave request.</Text>
+                <Text style={styles.emptyTitle}>{t('emptyLeavesTitle')}</Text>
+                <Text style={styles.emptyDesc}>{t('emptyLeavesDesc')}</Text>
               </ScrollView>
             ) : (
               <ScrollView 
@@ -917,7 +929,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                         <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
                           <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
                           <Text style={[styles.catBadgeText, { color: typeDetails.color }]}>
-                            {typeDetails.label} Leave
+                            {typeDetails.label}
                           </Text>
                         </View>
                         <View style={[styles.catBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
@@ -933,7 +945,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       </Text>
                       
                       <Text style={[styles.ticketDesc, { marginBottom: 8 }]}>
-                        Duration: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{duration} {duration === 1 ? 'day' : 'days'}</Text>
+                        {t('leaveDurationLabel', { duration, days: duration === 1 ? t('daySingular') : t('dayPlural') })}
                       </Text>
 
                       <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
@@ -943,7 +955,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       {item.status === 'sync_pending' && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
                           <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
-                          <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
+                          <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>{t('offlineStoredPending')}</Text>
                         </View>
                       )}
                     </View>
@@ -961,15 +973,24 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             <TouchableOpacity onPress={() => setView('list')} style={styles.backButton}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
             </TouchableOpacity>
-            <Text style={styles.formTitle}>New HR Request</Text>
+            <Text style={styles.formTitle}>{t('newHrRequest')}</Text>
           </View>
 
           <View style={styles.formCard}>
-            <Text style={styles.label}>Request Category</Text>
+            <Text style={styles.label}>{t('requestCategory')}</Text>
             <View style={styles.categoriesGrid}>
               {['Leave Request', 'Payroll Dispute', 'Benefits Inquiry', 'Equipment Issue', 'Other'].map(cat => {
                 const isActive = category === cat;
                 const catTheme = getCategoryTheme(cat);
+                
+                // Get translation label
+                let catLabel = cat;
+                if (cat === 'Leave Request') catLabel = t('leaveRequest');
+                else if (cat === 'Payroll Dispute') catLabel = t('payrollDispute');
+                else if (cat === 'Benefits Inquiry') catLabel = t('benefitsInquiry');
+                else if (cat === 'Equipment Issue') catLabel = t('equipmentIssue');
+                else if (cat === 'Other') catLabel = t('other');
+
                 return (
                   <TouchableOpacity
                     key={cat}
@@ -981,7 +1002,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   >
                     <Feather name={catTheme.icon as any} size={14} color={isActive ? catTheme.text : COLORS.textMuted} style={{ marginRight: 6 }} />
                     <Text style={[styles.categoryOptionText, isActive ? { color: catTheme.text, fontWeight: 'bold' } : {}]}>
-                      {cat}
+                      {catLabel}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -990,7 +1011,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
             {category === 'Leave Request' && (
               <>
-                <Text style={styles.label}>Leave Classification</Text>
+                <Text style={styles.label}>{t('leaveClassification')}</Text>
                 <View style={styles.categoriesGrid}>
                   {(['sick', 'vacation', 'wedding', 'paternal', 'maternal', 'emergency', 'unpaid'] as const).map((type) => {
                     const active = leaveType === type;
@@ -1012,31 +1033,31 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   })}
                 </View>
 
-                <Text style={styles.label}>Quick Presets</Text>
+                <Text style={styles.label}>{t('quickPresets')}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(1, 1)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>Tomorrow</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>{t('tomorrow')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(1, 3)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>3 Days (Next Week)</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>{t('threeDaysNextWeek')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(0, 1)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>Today Only</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>{t('todayOnly')}</Text>
                   </TouchableOpacity>
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Start Date</Text>
+                    <Text style={styles.label}>{t('startDateLabel')}</Text>
                     <TextInput
                       style={[styles.input, { marginBottom: 0 }]}
                       placeholder="YYYY-MM-DD"
@@ -1046,7 +1067,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>End Date</Text>
+                    <Text style={styles.label}>{t('endDateLabel')}</Text>
                     <TextInput
                       style={[styles.input, { marginBottom: 0 }]}
                       placeholder="YYYY-MM-DD"
@@ -1057,10 +1078,10 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   </View>
                 </View>
 
-                <Text style={styles.label}>Reason / Handover Notes</Text>
+                <Text style={styles.label}>{t('reasonLabel')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Please describe the reason for your leave request..."
+                  placeholder={t('reasonPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={4}
@@ -1073,29 +1094,29 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
             {category === 'Payroll Dispute' && (
               <>
-                <Text style={styles.label}>Disputed Payslip Month</Text>
+                <Text style={styles.label}>{t('disputedMonth')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. May 2026"
+                  placeholder={t('disputeMonthPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   value={disputedMonth}
                   onChangeText={setDisputedMonth}
                 />
 
-                <Text style={styles.label}>Disputed Amount (₱)</Text>
+                <Text style={styles.label}>{t('disputedAmount')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. 5000"
+                  placeholder={t('disputeAmountPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   keyboardType="numeric"
                   value={disputedAmount}
                   onChangeText={setDisputedAmount}
                 />
 
-                <Text style={styles.label}>Explanation of Discrepancy</Text>
+                <Text style={styles.label}>{t('explanationDiscrepancy')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Please describe why this payslip is incorrect..."
+                  placeholder={t('disputeErrorPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={4}
@@ -1108,10 +1129,11 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
             {category === 'Equipment Issue' && (
               <>
-                <Text style={styles.label}>Equipment Type</Text>
+                <Text style={styles.label}>{t('equipmentType')}</Text>
                 <View style={styles.categoriesGrid}>
                   {(['tool', 'vehicle', 'device', 'other'] as const).map((type) => {
                     const active = equipmentType === type;
+                    const label = type === 'tool' ? t('tool') : type === 'vehicle' ? t('vehicle') : type === 'device' ? t('device') : t('other');
                     return (
                       <TouchableOpacity
                         key={type}
@@ -1122,26 +1144,26 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                         onPress={() => setEquipmentType(type)}
                       >
                         <Text style={[styles.categoryOptionText, active ? { color: COLORS.rose, fontWeight: 'bold' } : {}]}>
-                          {type.toUpperCase()}
+                          {label.toUpperCase()}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
-                <Text style={styles.label}>Serial Number / Asset Tag</Text>
+                <Text style={styles.label}>{t('serialNumber')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. SN-10924-X"
+                  placeholder={t('serialPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   value={serialNumber}
                   onChangeText={setSerialNumber}
                 />
 
-                <Text style={styles.label}>Issue Description</Text>
+                <Text style={styles.label}>{t('issueDescription')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Please explain the damage or performance issues..."
+                  placeholder={t('issuePlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={4}
@@ -1154,10 +1176,11 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
             {category !== 'Leave Request' && category !== 'Payroll Dispute' && category !== 'Equipment Issue' && (
               <>
-                <Text style={styles.label}>Priority Level</Text>
+                <Text style={styles.label}>{t('priorityLabel')}</Text>
                 <View style={styles.priorityRow}>
                   {['low', 'medium', 'high', 'urgent'].map(p => {
                     const isActive = priority === p;
+                    const label = p === 'low' ? t('low') : p === 'medium' ? t('medium') : p === 'high' ? t('high') : t('urgent');
                     return (
                       <TouchableOpacity
                         key={p}
@@ -1168,26 +1191,26 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                         onPress={() => setPriority(p)}
                       >
                         <Text style={[styles.priorityTextOption, isActive ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                          {p.toUpperCase()}
+                          {label.toUpperCase()}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
-                <Text style={styles.label}>Summary / Title</Text>
+                <Text style={styles.label}>{t('summaryTitle')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Brief summary of your request"
+                  placeholder={t('briefSummaryPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   value={title}
                   onChangeText={setTitle}
                 />
 
-                <Text style={styles.label}>Explain Details</Text>
+                <Text style={styles.label}>{t('explainDetails')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Provide all relevant details here..."
+                  placeholder={t('explainDetailsPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={6}
@@ -1206,7 +1229,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               {submitting ? <ActivityIndicator color="#fff" /> : (
                 <>
                   <Feather name="send" size={16} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.submitButtonText}>Submit Request</Text>
+                  <Text style={styles.submitButtonText}>{t('submitTicket')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -1224,14 +1247,14 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.detailTitle} numberOfLines={1}>{selectedTicket.title}</Text>
               <Text style={{ color: getStatusColor(selectedTicket.status), fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>
-                ● {selectedTicket.status.replace('_', ' ')}
+                ● {selectedTicket.status === 'in_progress' ? t('inProgress') : selectedTicket.status === 'open' ? t('open') : selectedTicket.status === 'assigned' ? t('assigned') : selectedTicket.status === 'resolved' ? t('resolved') : selectedTicket.status === 'closed' ? t('closed') : selectedTicket.status}
               </Text>
             </View>
             
             {selectedTicket.status !== 'closed' && (
               <TouchableOpacity onPress={handleCloseTicket} style={styles.closeTicketBtn}>
                 <Feather name="check" size={16} color={COLORS.danger} style={{ marginRight: 4 }} />
-                <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>Close</Text>
+                <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>{t('closeTicketButton').split(' ')[0]}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1248,11 +1271,11 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               <View style={styles.cardHeader}>
                 <View style={[styles.catBadge, { backgroundColor: getCategoryTheme(selectedTicket.category).bg }]}>
                   <Text style={[styles.catBadgeText, { color: getCategoryTheme(selectedTicket.category).text }]}>
-                    {selectedTicket.category}
+                    {selectedTicket.category === 'Leave Request' ? t('leaveRequest') : selectedTicket.category === 'Payroll Dispute' ? t('payrollDispute') : selectedTicket.category === 'Benefits Inquiry' ? t('benefitsInquiry') : selectedTicket.category === 'Equipment Issue' ? t('equipmentIssue') : selectedTicket.category === 'Other' ? t('other') : selectedTicket.category}
                   </Text>
                 </View>
                 <Text style={{ fontSize: 11, color: COLORS.textMuted }}>
-                  Priority: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{selectedTicket.priority.toUpperCase()}</Text>
+                  {t('priorityLabel')}: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{(selectedTicket.priority === 'low' ? t('low') : selectedTicket.priority === 'medium' ? t('medium') : selectedTicket.priority === 'high' ? t('high') : selectedTicket.priority === 'urgent' ? t('urgent') : selectedTicket.priority).toUpperCase()}</Text>
                 </Text>
               </View>
               {selectedTicket.description.trim().startsWith('{') ? (
@@ -1260,7 +1283,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               ) : (
                 <Text style={styles.detailDescText}>{selectedTicket.description}</Text>
               )}
-              <Text style={styles.detailDateText}>Filed on {formatDate(selectedTicket.created_at)}</Text>
+              <Text style={styles.detailDateText}>{t('filedOnLabel', { date: formatDate(selectedTicket.created_at) })}</Text>
             </View>
 
             {/* Spare Parts checkout section (Available when status is in_progress) */}
@@ -1271,21 +1294,21 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                 >
                   <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.indigo, flex: 1 }}>
-                    🔧 Inventory Spare Parts Checkout
+                    🔧 {t('partsCheckoutTitle')}
                   </Text>
                   <Feather name={showCheckout ? "chevron-up" : "chevron-down"} size={18} color={COLORS.indigo} />
                 </TouchableOpacity>
 
                 {showCheckout && (
                   <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 14 }}>
-                    <Text style={[styles.label, { marginBottom: 6 }]}>Select Part</Text>
+                    <Text style={[styles.label, { marginBottom: 6 }]}>{t('selectPart')}</Text>
                     
                     <TouchableOpacity 
                       onPress={() => setShowPartList(!showPartList)}
                       style={{ padding: 12, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     >
                       <Text style={{ fontSize: 13, color: selectedPart ? COLORS.textMain : COLORS.textMuted }}>
-                        {selectedPart ? `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} left)` : '-- Choose Spare Part --'}
+                        {selectedPart ? (language === 'fil' ? `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} natira)` : `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} left)`) : `-- ${t('selectPart')} --`}
                       </Text>
                       <Feather name="chevron-down" size={16} color={COLORS.textMuted} />
                     </TouchableOpacity>
@@ -1294,7 +1317,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       <View style={{ maxHeight: 150, borderRadius: 10, backgroundColor: '#fff', marginBottom: 12, borderWidth: 1, borderColor: COLORS.border, padding: 4 }}>
                         <ScrollView nestedScrollEnabled style={{ flexGrow: 0 }}>
                           {inventoryItems.length === 0 ? (
-                            <Text style={{ padding: 10, fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic' }}>No parts available in stock</Text>
+                            <Text style={{ padding: 10, fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic' }}>{language === 'fil' ? 'Walang makitang piyesa sa stock' : 'No parts available in stock'}</Text>
                           ) : (
                             inventoryItems.map(item => (
                               <TouchableOpacity 
@@ -1313,20 +1336,20 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.label, { marginBottom: 6 }]}>Quantity</Text>
+                        <Text style={[styles.label, { marginBottom: 6 }]}>{t('quantity')}</Text>
                         <TextInput
                           style={[styles.input, { marginBottom: 0 }]}
-                          placeholder="e.g. 1"
+                          placeholder="1"
                           keyboardType="numeric"
                           value={checkoutQty}
                           onChangeText={setCheckoutQty}
                         />
                       </View>
                       <View style={{ flex: 2 }}>
-                        <Text style={[styles.label, { marginBottom: 6 }]}>Checkout Memo</Text>
+                        <Text style={[styles.label, { marginBottom: 6 }]}>{t('checkoutNotesLabel')}</Text>
                         <TextInput
                           style={[styles.input, { marginBottom: 0 }]}
-                          placeholder="Usage notes..."
+                          placeholder={t('checkoutNotesPlaceholder')}
                           value={checkoutNotes}
                           onChangeText={setCheckoutNotes}
                         />
@@ -1338,7 +1361,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       onPress={handleCheckoutParts}
                     >
                       <Feather name="package" size={14} color="#fff" style={{ marginRight: 6 }} />
-                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Verify & Checkout Parts</Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{t('checkoutButton')}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1346,12 +1369,12 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             )}
 
             {/* Comments Timeline */}
-            <Text style={styles.discussionHeading}>Support Discussion</Text>
+            <Text style={styles.discussionHeading}>{t('discussion')}</Text>
 
             {loadingComments && comments.length === 0 ? (
               <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 20 }} />
             ) : comments.length === 0 ? (
-              <Text style={styles.noCommentsText}>No responses yet. Support team will review shortly.</Text>
+              <Text style={styles.noCommentsText}>{t('noComments')}</Text>
             ) : (
               <View style={{ gap: 16, marginBottom: 20 }}>
                 {comments.map(c => {
@@ -1390,7 +1413,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             <View style={styles.composer}>
               <TextInput
                 style={styles.composerInput}
-                placeholder="Type a message..."
+                placeholder={t('chatInputPlaceholder')}
                 placeholderTextColor={COLORS.textMuted}
                 value={commentText}
                 onChangeText={setCommentText}
@@ -1407,7 +1430,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
           ) : (
             <View style={styles.closedFooter}>
               <Feather name="lock" size={14} color={COLORS.textMuted} style={{ marginRight: 6 }} />
-              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '500' }}>This request has been resolved and closed.</Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '500' }}>{language === 'fil' ? 'Ang kahilingang ito ay naresolba at naisara na.' : 'This request has been resolved and closed.'}</Text>
             </View>
           )}
         </View>
