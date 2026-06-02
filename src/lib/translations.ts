@@ -192,7 +192,10 @@ export const TRANSLATIONS = {
     offlineSessionExpiredMsg: "Your offline session has expired (24 hours limit). Please connect to the internet to sign in again.",
     lockedScreenTitle: "App Locked",
     lockedScreenDesc: "Please authenticate to access your account.",
-    retryAuth: "Retry Authentication"
+    retryAuth: "Retry Authentication",
+    checkProximity: "📍 Check Geofence Proximity Map",
+    verifiedInside: "Verified inside: {office} (Distance: {distance}m)",
+    outsideArea: "Outside geofence area. Distance: {distance}m"
   },
   fil: {
     profileTitle: "Profile at Mga Setting",
@@ -385,6 +388,9 @@ export const TRANSLATIONS = {
     offlineSessionExpiredMsg: "Nag-expire na ang iyong offline session (24 oras na limitasyon). Mangyaring kumonekta sa internet upang mag-sign in muli.",
     lockedScreenTitle: "Naka-lock ang App",
     lockedScreenDesc: "Mangyaring mag-authenticate upang ma-access ang iyong account.",
-    retryAuth: "Subukang Muli ang Pag-authenticate"
+    retryAuth: "Subukang Muli ang Pag-authenticate",
+    checkProximity: "📍 Tingnan ang Mapa ng Kalapitan ng Geofence",
+    verifiedInside: "Beripikadong nasa loob ng: {office} (Layo: {distance}m)",
+    outsideArea: "Nasa labas ng sakop ng geofence. Layo: {distance}m"
   }
 };

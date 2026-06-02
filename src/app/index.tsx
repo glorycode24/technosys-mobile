@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, Sta
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
+import GeofenceMobileMap from '../components/GeofenceMobileMap';
 import { TicketsTab } from '../components/TicketsTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -931,6 +932,74 @@ export default function App() {
                     <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
                       {t('workedHours', { hours: activeTimeLog.total_hours })} ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
                     </Text>
+                  </View>
+                )}
+
+                {/* Proximity / Map Section */}
+                {!geofence.latitude ? (
+                  <TouchableOpacity
+                    style={{
+                      marginTop: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: COLORS.primary,
+                      backgroundColor: COLORS.primaryDim,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onPress={async () => {
+                      await geofence.checkLocation();
+                    }}
+                  >
+                    <Feather name="map" size={16} color={COLORS.primary} style={{ marginRight: 8 }} />
+                    <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>
+                      {t('checkProximity')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ marginTop: 12 }}>
+                    <View style={{
+                      padding: 12,
+                      borderRadius: 12,
+                      backgroundColor: geofence.status === 'inside' ? COLORS.primaryDim : 'rgba(239, 68, 68, 0.08)',
+                      borderWidth: 1,
+                      borderColor: geofence.status === 'inside' ? COLORS.primary : COLORS.danger,
+                      marginBottom: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center'
+                    }}>
+                      <Feather 
+                        name={geofence.status === 'inside' ? "check-circle" : "alert-triangle"} 
+                        size={16} 
+                        color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} 
+                        style={{ marginRight: 8 }} 
+                      />
+                      <Text style={{ 
+                        flex: 1, 
+                        fontSize: 12, 
+                        color: geofence.status === 'inside' ? COLORS.primary : COLORS.danger, 
+                        fontWeight: '600' 
+                      }}>
+                        {geofence.status === 'inside' 
+                          ? t('verifiedInside', { office: geofence.matchingOfficeName || '', distance: Math.round(geofence.distance || 0) })
+                          : t('outsideArea', { distance: Math.round(geofence.distance || 0) })
+                        }
+                      </Text>
+                      <TouchableOpacity onPress={geofence.reset} style={{ padding: 4 }}>
+                        <Feather name="x" size={14} color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} />
+                      </TouchableOpacity>
+                    </View>
+                    <GeofenceMobileMap
+                      userLat={geofence.latitude || 0}
+                      userLng={geofence.longitude || 0}
+                      branchLat={geofence.officeLatitude || 0}
+                      branchLng={geofence.officeLongitude || 0}
+                      radius={geofence.officeRadius || 50}
+                      branchName={geofence.matchingOfficeName || 'Office'}
+                    />
                   </View>
                 )}
               </View>

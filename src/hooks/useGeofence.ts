@@ -11,6 +11,9 @@ interface GeofenceResult {
   latitude: number | null;
   longitude: number | null;
   matchingOfficeName: string | null;
+  officeLatitude?: number | null;
+  officeLongitude?: number | null;
+  officeRadius?: number | null;
   error: string | null;
   isMocked?: boolean;
   gpsAccuracy?: number | null;
@@ -23,6 +26,9 @@ export function useGeofence() {
     latitude: null, 
     longitude: null, 
     matchingOfficeName: null,
+    officeLatitude: null,
+    officeLongitude: null,
+    officeRadius: null,
     error: null,
     isMocked: false,
     gpsAccuracy: null
@@ -124,6 +130,9 @@ export function useGeofence() {
           latitude: userLat,
           longitude: userLng,
           matchingOfficeName: nearestOffice.name,
+          officeLatitude: nearestOffice.latitude,
+          officeLongitude: nearestOffice.longitude,
+          officeRadius: nearestOffice.radius_meters,
           error: null,
           isMocked,
           gpsAccuracy
@@ -140,7 +149,10 @@ export function useGeofence() {
           distance: nearestDistance,
           latitude: userLat,
           longitude: userLng,
-          matchingOfficeName: null,
+          matchingOfficeName: nearestName,
+          officeLatitude: nearestOffice ? nearestOffice.latitude : null,
+          officeLongitude: nearestOffice ? nearestOffice.longitude : null,
+          officeRadius: nearestRadius,
           error: errorMsg,
           isMocked,
           gpsAccuracy
@@ -162,6 +174,9 @@ export function useGeofence() {
       latitude: null, 
       longitude: null, 
       matchingOfficeName: null,
+      officeLatitude: null,
+      officeLongitude: null,
+      officeRadius: null,
       error: null,
       isMocked: false,
       gpsAccuracy: null
