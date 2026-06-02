@@ -8,6 +8,8 @@ import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
 import { Locale, TRANSLATIONS } from '../lib/translations';
+import * as SecureStore from 'expo-secure-store';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 
 // Clean White Professional Theme
@@ -111,6 +113,77 @@ const LoginScreen = ({ onLogin }: any) => {
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
+  const [isLocked, setIsLocked] = useState(false);
+
+  // Helper functions for platform-agnostic Secure Storage
+  const getSecureItem = async (key: string): Promise<string | null> => {
+    try {
+      if (Platform.OS === 'web') {
+        return AsyncStorage.getItem(key);
+      }
+      return await SecureStore.getItemAsync(key);
+    } catch (e) {
+      console.warn("SecureStore get failed", e);
+      return null;
+    }
+  };
+
+  const setSecureItem = async (key: string, value: string): Promise<void> => {
+    try {
+      if (Platform.OS === 'web') {
+        await AsyncStorage.setItem(key, value);
+      } else {
+        await SecureStore.setItemAsync(key, value);
+      }
+    } catch (e) {
+      console.warn("SecureStore set failed", e);
+    }
+  };
+
+  const deleteSecureItem = async (key: string): Promise<void> => {
+    try {
+      if (Platform.OS === 'web') {
+        await AsyncStorage.removeItem(key);
+      } else {
+        await SecureStore.deleteItemAsync(key);
+      }
+    } catch (e) {
+      console.warn("SecureStore delete failed", e);
+    }
+  };
+
+  // Helper to verify server connectivity
+  const checkIsOnline = async (): Promise<boolean> => {
+    try {
+      const response = await withTimeout(
+        fetch('https://ggknkdyuglzcnkwhvdak.supabase.co'),
+        2000
+      );
+      return !!response;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  const authenticateBiometrics = async (): Promise<boolean> => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!hasHardware || !isEnrolled) {
+        return true;
+      }
+      
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: t('biometricPrompt') || 'Authenticate to unlock TechnoSys',
+        fallbackLabel: t('biometricFallback') || 'Use passcode',
+        disableDeviceFallback: false,
+      });
+      return result.success;
+    } catch (e) {
+      console.warn("Biometric authentication error:", e);
+      return false;
+    }
+  };
   const [profile, setProfile] = useState<any>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [payslip, setPayslip] = useState<any>(null);
@@ -196,51 +269,136 @@ export default function App() {
   };
 
   useEffect(() => {
-    // 1. Fetch auth session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchDashboardData(session.user.id);
-    });
+    // Check auth cache, TTL and trigger biometrics if offline
+    const initAuth = async () => {
+      try {
+        const storedSessionStr = await getSecureItem('USER_SESSION');
+        if (!storedSessionStr) {
+          return;
+        }
 
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) fetchDashboardData(session.user.id);
-    });
+        const storedSession = JSON.parse(storedSessionStr);
+        
+        // TTL Check: 24 hours
+        const lastOnlineStr = await AsyncStorage.getItem('LAST_ONLINE_TIMESTAMP');
+        const now = new Date();
+        let isExpired = false;
+        
+        if (lastOnlineStr) {
+          const lastOnline = new Date(lastOnlineStr);
+          const diffMs = now.getTime() - lastOnline.getTime();
+          if (diffMs > 24 * 60 * 60 * 1000) {
+            isExpired = true;
+          }
+        } else {
+          isExpired = true;
+        }
 
-    // 2. Play opening transition animation
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(logoOpacity, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.spring(logoScale, {
-          toValue: 1,
-          friction: 6,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-        Animated.timing(taglineOpacity, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.timing(taglineTranslateY, {
-          toValue: 0,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.delay(1000), // Hold for 1 second
+        if (isExpired) {
+          await deleteSecureItem('USER_SESSION');
+          await AsyncStorage.removeItem('LAST_ONLINE_TIMESTAMP');
+          await supabase.auth.signOut();
+          
+          Alert.alert(
+            t('offlineSessionExpired'),
+            t('offlineSessionExpiredMsg')
+          );
+          return;
+        }
+
+        // Within 24-hour limit
+        const isOnline = await checkIsOnline();
+        if (isOnline) {
+          setSession(storedSession);
+          await supabase.auth.setSession({
+            access_token: storedSession.access_token,
+            refresh_token: storedSession.refresh_token
+          });
+          await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', now.toISOString());
+        } else {
+          // Offline biometric gate
+          const authenticated = await authenticateBiometrics();
+          if (authenticated) {
+            setSession(storedSession);
+            await supabase.auth.setSession({
+              access_token: storedSession.access_token,
+              refresh_token: storedSession.refresh_token
+            });
+            setIsLocked(false);
+          } else {
+            setIsLocked(true);
+          }
+        }
+      } catch (err) {
+        console.warn("Init auth error", err);
+      }
+    };
+
+    const startupSequence = async () => {
+      // 1. Start logo entry animation
+      const animPromise = new Promise<void>((resolve) => {
+        Animated.parallel([
+          Animated.timing(logoOpacity, {
+            toValue: 1,
+            duration: 900,
+            useNativeDriver: true,
+          }),
+          Animated.spring(logoScale, {
+            toValue: 1,
+            friction: 6,
+            tension: 40,
+            useNativeDriver: true,
+          }),
+          Animated.timing(taglineOpacity, {
+            toValue: 1,
+            duration: 900,
+            useNativeDriver: true,
+          }),
+          Animated.timing(taglineTranslateY, {
+            toValue: 0,
+            duration: 900,
+            useNativeDriver: true,
+          }),
+        ]).start(() => resolve());
+      });
+
+      // 2. Run auth checks in parallel
+      const authPromise = initAuth();
+
+      // 3. Wait for animation, auth check, and a minimum 1-second hold
+      await Promise.all([animPromise, authPromise, new Promise(r => setTimeout(r, 1000))]);
+
+      // 4. Fade out splash
       Animated.timing(splashOpacity, {
         toValue: 0,
         duration: 500,
         useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setSplashVisible(false);
+      }).start(() => {
+        setSplashVisible(false);
+      });
+    };
+
+    // Listen to Supabase auth events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      setSession(currentSession);
+      if (currentSession) {
+        await setSecureItem('USER_SESSION', JSON.stringify(currentSession));
+        const isOnline = await checkIsOnline();
+        if (isOnline) {
+          await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
+        }
+        fetchDashboardData(currentSession.user.id);
+      } else {
+        await deleteSecureItem('USER_SESSION');
+        await AsyncStorage.removeItem('LAST_ONLINE_TIMESTAMP');
+      }
     });
+
+    startupSequence();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Offline sync loop
@@ -340,6 +498,7 @@ export default function App() {
         cachedAt: new Date().toISOString()
       };
       await AsyncStorage.setItem('CACHED_DASHBOARD_' + userId, JSON.stringify(dashboardCache));
+      await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
     } catch (e: any) {
       console.warn("Failed to load dashboard data from network, trying cache:", e.message);
       try {
@@ -556,6 +715,56 @@ export default function App() {
   };
 
   const renderAppContent = () => {
+    if (isLocked) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
+            <Feather name="lock" size={64} color={COLORS.danger} style={{ marginBottom: 24 }} />
+            <Text style={{ fontSize: 24, fontWeight: '800', color: COLORS.textMain, marginBottom: 8 }}>
+              {t('lockedScreenTitle')}
+            </Text>
+            <Text style={{ fontSize: 14, color: COLORS.textMuted, textAlign: 'center', marginBottom: 32, paddingHorizontal: 20 }}>
+              {t('lockedScreenDesc')}
+            </Text>
+            <TouchableOpacity 
+              style={{ 
+                backgroundColor: COLORS.primary, 
+                paddingHorizontal: 24, 
+                paddingVertical: 14, 
+                borderRadius: 12, 
+                flexDirection: 'row', 
+                alignItems: 'center',
+                shadowColor: COLORS.primary,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 8
+              }}
+              onPress={async () => {
+                const authenticated = await authenticateBiometrics();
+                if (authenticated) {
+                  setIsLocked(false);
+                  const storedSessionStr = await getSecureItem('USER_SESSION');
+                  if (storedSessionStr) {
+                    const storedSession = JSON.parse(storedSessionStr);
+                    setSession(storedSession);
+                    await supabase.auth.setSession({
+                      access_token: storedSession.access_token,
+                      refresh_token: storedSession.refresh_token
+                    });
+                  }
+                }
+              }}
+            >
+              <Feather name="shield" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+                {t('retryAuth')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
     if (!session) {
       return <LoginScreen onLogin={setSession} />;
     }

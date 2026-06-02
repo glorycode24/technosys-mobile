@@ -185,7 +185,14 @@ export const TRANSLATIONS = {
     chatInputPlaceholder: "Type a message...",
     syncPendingAlertTitle: "Offline Mode Active",
     syncPendingAlertDesc: "Logged Clock-In locally. It will synchronize once you regain connectivity.",
-    syncPendingAlertOut: "Logged Clock-Out locally. Worked {hours} hrs. Will sync on reconnection."
+    syncPendingAlertOut: "Logged Clock-Out locally. Worked {hours} hrs. Will sync on reconnection.",
+    biometricPrompt: "Verify identity to unlock TechnoSys",
+    biometricFallback: "Use passcode",
+    offlineSessionExpired: "Offline Session Expired",
+    offlineSessionExpiredMsg: "Your offline session has expired (24 hours limit). Please connect to the internet to sign in again.",
+    lockedScreenTitle: "App Locked",
+    lockedScreenDesc: "Please authenticate to access your account.",
+    retryAuth: "Retry Authentication"
   },
   fil: {
     profileTitle: "Profile at Mga Setting",
@@ -371,6 +378,13 @@ export const TRANSLATIONS = {
     chatInputPlaceholder: "Sumulat ng mensahe...",
     syncPendingAlertTitle: "Aktibo ang Offline Mode",
     syncPendingAlertDesc: "Naka-log ang Clock-In sa lokal. Magsi-sync ito kapag nagkaroon muli ng koneksyon.",
-    syncPendingAlertOut: "Naka-log ang Clock-Out sa lokal. Nagtrabaho ng {hours} oras. Magsi-sync ito kapag nagkaroon muli ng koneksyon."
+    syncPendingAlertOut: "Naka-log ang Clock-Out sa lokal. Nagtrabaho ng {hours} oras. Magsi-sync ito kapag nagkaroon muli ng koneksyon.",
+    biometricPrompt: "I-verify ang pagkakakilanlan upang buksan ang TechnoSys",
+    biometricFallback: "Gamitin ang passcode",
+    offlineSessionExpired: "Nag-expire na ang Offline Session",
+    offlineSessionExpiredMsg: "Nag-expire na ang iyong offline session (24 oras na limitasyon). Mangyaring kumonekta sa internet upang mag-sign in muli.",
+    lockedScreenTitle: "Naka-lock ang App",
+    lockedScreenDesc: "Mangyaring mag-authenticate upang ma-access ang iyong account.",
+    retryAuth: "Subukang Muli ang Pag-authenticate"
   }
 };
