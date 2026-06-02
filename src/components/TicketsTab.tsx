@@ -84,7 +84,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
   // Create leave request form states
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'emergency' | 'unpaid'>('sick');
+  const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'wedding' | 'paternal' | 'maternal' | 'emergency' | 'unpaid'>('sick');
   const [reason, setReason] = useState('');
 
   // Create payroll dispute states
@@ -170,6 +170,12 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         return { label: 'Sick', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' };
       case 'vacation':
         return { label: 'Vacation', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+      case 'wedding':
+        return { label: 'Wedding', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)' };
+      case 'paternal':
+        return { label: 'Paternal', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)' };
+      case 'maternal':
+        return { label: 'Maternal', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)' };
       case 'emergency':
         return { label: 'Emergency', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
       case 'unpaid':
@@ -986,7 +992,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               <>
                 <Text style={styles.label}>Leave Classification</Text>
                 <View style={styles.categoriesGrid}>
-                  {(['sick', 'vacation', 'emergency', 'unpaid'] as const).map((type) => {
+                  {(['sick', 'vacation', 'wedding', 'paternal', 'maternal', 'emergency', 'unpaid'] as const).map((type) => {
                     const active = leaveType === type;
                     const details = getLeaveTypeDetails(type);
                     return (

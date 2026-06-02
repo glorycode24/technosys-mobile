@@ -119,6 +119,30 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
 
+  const [dtrLogs, setDtrLogs] = useState<any[]>([]);
+  const [dtrLoading, setDtrLoading] = useState(false);
+  const [showDtrModal, setShowDtrModal] = useState(false);
+
+  const fetchDtrLogs = async () => {
+    if (!session) return;
+    setDtrLoading(true);
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const { data, error } = await supabase.from('time_logs')
+        .select('*')
+        .eq('technician_id', session.user.id)
+        .gte('created_at', startOfMonth)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setDtrLogs(data || []);
+    } catch (e: any) {
+      console.warn("Failed to fetch DTR logs:", e.message);
+    } finally {
+      setDtrLoading(false);
+    }
+  };
+
   // Opening splash transition states
   const splashOpacity = React.useRef(new Animated.Value(1)).current;
   const logoOpacity = React.useRef(new Animated.Value(0)).current;
@@ -669,6 +693,17 @@ export default function App() {
                   <Text style={{ color: COLORS.primary, fontSize: 14 }}>{profile?.role === 'technician' ? 'Field Technician' : 'Staff'}</Text>
                 </View>
 
+                <TouchableOpacity 
+                  onPress={() => { setShowDtrModal(true); fetchDtrLogs(); }}
+                  style={{ backgroundColor: '#f1f5f9', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Feather name="clock" size={18} color={COLORS.primary} style={{ marginRight: 8 }} />
+                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 14 }}>My Daily Time Records (DTR)</Text>
+                  </View>
+                  <Feather name="chevron-right" size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
                 <TouchableOpacity onPress={async () => {
                   setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
                   try { await supabase.auth.signOut(); } catch(e) {}
@@ -718,6 +753,80 @@ export default function App() {
   const renderedContent = (
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
+      {showDtrModal && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <TouchableOpacity onPress={() => setShowDtrModal(false)} style={{ padding: 8, marginLeft: -8 }}>
+              <Feather name="arrow-left" size={24} color={COLORS.textMain} />
+            </TouchableOpacity>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>My Daily Time Record (DTR)</Text>
+            <TouchableOpacity onPress={fetchDtrLogs} style={{ padding: 8, marginRight: -8 }} disabled={dtrLoading}>
+              {dtrLoading ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Feather name="refresh-cw" size={18} color={COLORS.primary} />}
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+            Current Month Logs ({dtrLogs.length})
+          </Text>
+
+          {dtrLogs.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 60 }}>
+              <Feather name="clock" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
+              <Text style={{ color: COLORS.textMuted, fontStyle: 'italic' }}>
+                {dtrLoading ? "Loading logs..." : "No DTR entries for this month."}
+              </Text>
+            </View>
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
+              {dtrLogs.map((log) => {
+                const logDate = new Date(log.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const timeInStr = log.app_time_in ? formatTime(log.app_time_in) : '--:--';
+                const timeOutStr = log.app_time_out ? formatTime(log.app_time_out) : '--:--';
+                const hours = log.total_hours !== null ? `${log.total_hours} hrs` : 'Active';
+                const isManual = log.is_manual_entry || log.geofence_status === 'manual_override';
+
+                return (
+                  <View key={log.id} style={{ backgroundColor: COLORS.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>📅 {logDate}</Text>
+                      {isManual ? (
+                        <View style={{ backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, color: '#475569', fontWeight: '800' }}>Manual Entry</Text>
+                        </View>
+                      ) : (
+                        <View style={{ backgroundColor: COLORS.primaryDim, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, color: COLORS.primary, fontWeight: '800' }}>GPS Verified</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>Clock In</Text>
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginTop: 2 }}>{timeInStr}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>Clock Out</Text>
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginTop: 2 }}>{timeOutStr}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', flex: 1 }}>
+                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>Duration</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: COLORS.primary, marginTop: 2 }}>{hours}</Text>
+                      </View>
+                    </View>
+                    
+                    {log.gps_accuracy && !isManual && (
+                      <Text style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 8 }}>
+                        📍 Accuracy: {log.gps_accuracy.toFixed(1)}m {log.is_mocked ? ' | ⚠️ Mock GPS' : ''}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      )}
       {splashVisible && (
         <Animated.View style={[styles.splashContainer, { opacity: splashOpacity }]} pointerEvents={splashVisible ? 'auto' : 'none'}>
           <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity, alignItems: 'center' }}>
