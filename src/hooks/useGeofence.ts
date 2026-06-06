@@ -18,6 +18,7 @@ interface GeofenceResult {
   errorKey?: string;
   isMocked?: boolean;
   gpsAccuracy?: number | null;
+  timeDrift?: number | null;
 }
 
 export function useGeofence() {
@@ -148,7 +149,8 @@ export function useGeofence() {
           officeRadius: nearestOffice.radius_meters,
           error: null,
           isMocked,
-          gpsAccuracy
+          gpsAccuracy,
+          timeDrift: timeDelta
         };
         setResult(finalResult);
         return finalResult;
@@ -168,7 +170,8 @@ export function useGeofence() {
           officeRadius: nearestRadius,
           error: errorMsg,
           isMocked,
-          gpsAccuracy
+          gpsAccuracy,
+          timeDrift: timeDelta
         };
         setResult(finalResult);
         return finalResult;

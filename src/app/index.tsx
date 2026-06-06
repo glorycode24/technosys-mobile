@@ -11,6 +11,7 @@ import { withTimeout } from '../lib/timeout';
 import { Locale, TRANSLATIONS } from '../lib/translations';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as Location from 'expo-location';
 
 
 // Clean White Professional Theme
@@ -192,6 +193,7 @@ export default function App() {
   const [profile, setProfile] = useState<any>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [payslip, setPayslip] = useState<any>(null);
+  const [leaveAlert, setLeaveAlert] = useState<any>(null);
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
@@ -687,7 +689,7 @@ export default function App() {
       const today = new Date().toISOString().split('T')[0];
       
       const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
-      const fetchSchedulesPromise = supabase.from('schedules').select('*').eq('technician_id', userId).order('start_time', { ascending: true });
+      const fetchSchedulesPromise = supabase.from('schedules').select('*, senior_partner:profiles!senior_partner_id(full_name)').eq('technician_id', userId).order('start_time', { ascending: true });
       const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
@@ -697,9 +699,13 @@ export default function App() {
       const fetchAnnouncementsPromise = supabase.from('announcements')
         .select('*')
         .order('created_at', { ascending: false });
+      const fetchLeavesPromise = supabase.from('leaves')
+        .select('*')
+        .eq('technician_id', userId)
+        .order('created_at', { ascending: false });
 
-      const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult] = await withTimeout(
-        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise]),
+      const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult, leavesResult] = await withTimeout(
+        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise, fetchLeavesPromise]),
         4000
       );
 
@@ -714,17 +720,50 @@ export default function App() {
       if (payslipsResult.error && isNetworkErr(payslipsResult.error)) throw payslipsResult.error;
       if (logsResult.error && isNetworkErr(logsResult.error)) throw logsResult.error;
       if (announcementsResult.error && isNetworkErr(announcementsResult.error)) throw announcementsResult.error;
+      if (leavesResult.error && isNetworkErr(leavesResult.error)) throw leavesResult.error;
 
       const prof = profResult.data;
       const scheds = schedsResult.data || [];
       const pay = payslipsResult.data;
       const logs = logsResult.data || [];
       const anns = announcementsResult.data || [];
+      const leaves = leavesResult.data || [];
 
       if (prof) setProfile(prof);
       setSchedules(scheds);
       setPayslip(pay);
       setAnnouncements(anns);
+
+      // Check for leave status changes
+      try {
+        const lastKnownLeavesStr = await AsyncStorage.getItem('LAST_KNOWN_LEAVES_' + userId);
+        if (lastKnownLeavesStr) {
+          const lastKnownLeaves = JSON.parse(lastKnownLeavesStr) as any[];
+          for (const newLeave of leaves) {
+            const matchingOld = lastKnownLeaves.find(o => o.id === newLeave.id);
+            if (matchingOld && matchingOld.status === 'pending' && newLeave.status !== 'pending') {
+              // Found status change!
+              setLeaveAlert({
+                id: newLeave.id,
+                type: newLeave.leave_type,
+                status: newLeave.status,
+                startDate: newLeave.start_date,
+                endDate: newLeave.end_date
+              });
+              
+              Alert.alert(
+                language === 'fil' ? 'Update sa Pagliban' : 'Leave Request Update',
+                language === 'fil'
+                  ? `Ang iyong hiling sa pagliban (${newLeave.leave_type}) mula ${newLeave.start_date} hanggang ${newLeave.end_date} ay naging ${newLeave.status === 'approved' ? 'INAPRUBAHAN' : 'TINANGGIHAN'}.`
+                  : `Your leave request (${newLeave.leave_type}) from ${newLeave.start_date} to ${newLeave.end_date} has been ${newLeave.status.toUpperCase()}.`
+              );
+            }
+          }
+        }
+        await AsyncStorage.setItem('LAST_KNOWN_LEAVES_' + userId, JSON.stringify(leaves));
+      } catch (leaveErr) {
+        console.warn("Error checking leave status changes:", leaveErr);
+      }
 
       // Apply offline queue overrides to time logs
       const queue = await syncQueue.getQueue();
@@ -760,6 +799,7 @@ export default function App() {
         payslip: pay,
         logs: logs,
         announcements: anns,
+        leaves: leaves,
         cachedAt: new Date().toISOString()
       };
       await AsyncStorage.setItem('CACHED_DASHBOARD_' + userId, JSON.stringify(dashboardCache));
@@ -776,6 +816,7 @@ export default function App() {
     setTimeInLoading(true);
 
     try {
+      const isSuspicious = (locationResult.timeDrift && locationResult.timeDrift > 15 * 60 * 1000) || false;
       const timeInPayload = {
         technician_id: session.user.id,
         app_time_in: new Date().toISOString(),
@@ -783,7 +824,8 @@ export default function App() {
         longitude: locationResult.longitude,
         geofence_status: 'inside',
         is_mocked: locationResult.isMocked || false,
-        gps_accuracy: locationResult.gpsAccuracy || null
+        gps_accuracy: locationResult.gpsAccuracy || null,
+        is_suspicious: isSuspicious
       };
 
       const { error } = await supabase.from('time_logs').insert(timeInPayload);
@@ -794,7 +836,11 @@ export default function App() {
         const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
         
         if (isNetworkError) {
-          await syncQueue.addToQueue('time_in', timeInPayload);
+          const queuePayload = {
+            ...timeInPayload,
+            time_drift_at_creation: locationResult.timeDrift || null
+          };
+          await syncQueue.addToQueue('time_in', queuePayload);
           const mockLog = {
             id: 'offline-pending-' + Date.now(),
             technician_id: session.user.id,
@@ -832,6 +878,7 @@ export default function App() {
       const diffHours = Number(((timeOutMs - timeInMs) / (1000 * 60 * 60)).toFixed(2));
 
       const isOfflinePending = activeTimeLog.is_offline_pending;
+      const isSuspicious = (locationResult?.timeDrift && locationResult.timeDrift > 15 * 60 * 1000) || false;
 
       if (isOfflinePending) {
         const queue = await syncQueue.getQueue();
@@ -840,12 +887,15 @@ export default function App() {
         if (timeInItemIndex !== -1) {
           queue[timeInItemIndex].payload.app_time_out = timeOutTime;
           queue[timeInItemIndex].payload.total_hours = diffHours;
+          queue[timeInItemIndex].payload.is_suspicious = queue[timeInItemIndex].payload.is_suspicious || isSuspicious;
           await AsyncStorage.setItem('OFFLINE_TRANSACTION_QUEUE', JSON.stringify(queue));
         } else {
           await syncQueue.addToQueue('time_out', {
             log_id: activeTimeLog.id,
             app_time_out: timeOutTime,
-            total_hours: diffHours
+            total_hours: diffHours,
+            is_suspicious: isSuspicious,
+            time_drift_at_creation: locationResult?.timeDrift || null
           });
         }
         
@@ -862,7 +912,8 @@ export default function App() {
       const { error } = await supabase.from('time_logs')
         .update({
           app_time_out: timeOutTime,
-          total_hours: diffHours
+          total_hours: diffHours,
+          is_suspicious: isSuspicious
         })
         .eq('id', activeTimeLog.id);
 
@@ -875,7 +926,9 @@ export default function App() {
           await syncQueue.addToQueue('time_out', {
             log_id: activeTimeLog.id,
             app_time_out: timeOutTime,
-            total_hours: diffHours
+            total_hours: diffHours,
+            is_suspicious: isSuspicious,
+            time_drift_at_creation: locationResult?.timeDrift || null
           });
           setActiveTimeLog((prev: any) => ({
             ...prev,
@@ -898,11 +951,84 @@ export default function App() {
     }
   };
 
+  const getActiveDirectOrTravelSchedule = () => {
+    if (!schedules || schedules.length === 0) return null;
+    const todayStr = new Date().toDateString();
+    return schedules.find(s => {
+      const schedDateStr = new Date(s.start_time).toDateString();
+      return schedDateStr === todayStr && (s.attendance_mode === 'direct_dispatch' || s.attendance_mode === 'out_of_town');
+    });
+  };
+
   const handleTimeIn = async () => {
     if (!session) return;
     setTimeInLoading(true);
 
     try {
+      const activeSched = getActiveDirectOrTravelSchedule();
+      if (activeSched) {
+        // Bypass geofence check and biometric fingerprint scan
+        const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
+        const locationResult = {
+          status: 'inside',
+          latitude: currentLoc?.coords.latitude || 14.5995,
+          longitude: currentLoc?.coords.longitude || 120.9842,
+          isMocked: false,
+          gpsAccuracy: currentLoc?.coords.accuracy || 10,
+          timeDrift: 0
+        };
+        
+        // Execute DTR log using the scheduled start timeauthoritatively
+        const timeInPayload = {
+          technician_id: session.user.id,
+          app_time_in: activeSched.start_time, // scheduled start time!
+          latitude: locationResult.latitude,
+          longitude: locationResult.longitude,
+          geofence_status: 'inside',
+          is_mocked: false,
+          gps_accuracy: locationResult.gpsAccuracy || null,
+          is_suspicious: false
+        };
+
+        const { error } = await supabase.from('time_logs').insert(timeInPayload);
+
+        if (error) {
+          const errMessage = error.message || '';
+          const status = (error as any).status;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          
+          if (isNetworkError) {
+            await syncQueue.addToQueue('time_in', {
+              ...timeInPayload,
+              time_drift_at_creation: 0
+            });
+            const mockLog = {
+              id: 'offline-pending-' + Date.now(),
+              technician_id: session.user.id,
+              app_time_in: timeInPayload.app_time_in,
+              latitude: timeInPayload.latitude,
+              longitude: timeInPayload.longitude,
+              geofence_status: 'inside',
+              is_offline_pending: true
+            };
+            setActiveTimeLog(mockLog);
+            Alert.alert(t('biometricScanMatched') || 'Success', t('syncPendingAlertDesc'));
+            checkQueueStatus();
+            return;
+          }
+          throw error;
+        }
+
+        Alert.alert(
+          language === 'fil' ? 'Matagumpay' : 'Success',
+          language === 'fil'
+            ? 'Awtomatikong na-verify ang iyong clock-in batay sa iyong direktang dispatch/out-of-town na schedule.'
+            : 'Your clock-in has been automatically verified based on your direct dispatch/out-of-town schedule.'
+        );
+        await fetchDashboardData(session.user.id);
+        return;
+      }
+
       const locationResult = await geofence.checkLocation();
 
       if (!locationResult || locationResult.status !== 'inside') {
@@ -937,6 +1063,22 @@ export default function App() {
     setTimeOutLoading(true);
 
     try {
+      const activeSched = getActiveDirectOrTravelSchedule();
+      if (activeSched) {
+        // Bypass geofence check and biometric fingerprint scan
+        const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
+        const locationResult = {
+          status: 'inside',
+          latitude: currentLoc?.coords.latitude || 14.5995,
+          longitude: currentLoc?.coords.longitude || 120.9842,
+          isMocked: false,
+          gpsAccuracy: currentLoc?.coords.accuracy || 10,
+          timeDrift: 0
+        };
+        await executeTimeOut(locationResult);
+        return;
+      }
+
       const locationResult = await geofence.checkLocation();
 
       if (!locationResult || locationResult.status !== 'inside') {
@@ -1058,6 +1200,43 @@ export default function App() {
                 </View>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
+
+              {leaveAlert && (
+                <View style={{
+                  backgroundColor: leaveAlert.status === 'approved' ? COLORS.primaryDim : 'rgba(239, 68, 68, 0.08)',
+                  borderColor: leaveAlert.status === 'approved' ? COLORS.primary : COLORS.danger,
+                  borderWidth: 1,
+                  borderRadius: 16,
+                  padding: 16,
+                  marginBottom: 20,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{
+                      fontWeight: 'bold',
+                      fontSize: 14,
+                      color: leaveAlert.status === 'approved' ? COLORS.primary : COLORS.danger,
+                      marginBottom: 4
+                    }}>
+                      📢 {language === 'fil' ? 'Update sa Pagliban' : 'Leave Request Update'}
+                    </Text>
+                    <Text style={{
+                      fontSize: 12,
+                      color: COLORS.textMain,
+                      lineHeight: 18
+                    }}>
+                      {language === 'fil'
+                        ? `Ang iyong hiling sa pagliban (${leaveAlert.type}) mula ${leaveAlert.startDate} hanggang ${leaveAlert.endDate} ay ${leaveAlert.status === 'approved' ? 'INAPRUBAHAN' : 'TINANGGIHAN'}.`
+                        : `Your leave request (${leaveAlert.type}) from ${leaveAlert.startDate} to ${leaveAlert.endDate} has been ${leaveAlert.status.toUpperCase()}.`}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setLeaveAlert(null)} style={{ padding: 8 }}>
+                    <Feather name="x" size={16} color={leaveAlert.status === 'approved' ? COLORS.primary : COLORS.danger} />
+                  </TouchableOpacity>
+                </View>
+              )}
 
               <View style={{ marginBottom: 32 }}>
                 {!activeTimeLog && (
@@ -1256,12 +1435,30 @@ export default function App() {
               {vipSchedules.length === 0 && <Text style={styles.emptyText}>{t('noVipSchedules')}</Text>}
               {vipSchedules.map(sched => (
                 <View key={sched.id} style={styles.vipCard}>
-                  <View style={styles.vipBadge}>
-                    <Text style={styles.vipBadgeText}>{t('urgent').toUpperCase()}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <View style={styles.vipBadge}>
+                      <Text style={styles.vipBadgeText}>{t('urgent').toUpperCase()}</Text>
+                    </View>
+                    {sched.attendance_mode && (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.05)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'), borderWidth: 1, borderColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.1)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)') }}>
+                        <Text style={{ fontSize: 9, fontWeight: '800', textTransform: 'uppercase', color: sched.attendance_mode === 'hq' ? '#475569' : (sched.attendance_mode === 'direct_dispatch' ? COLORS.primary : '#d97706') }}>
+                          💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.vipTitle}>{sched.client_name}</Text>
-                  <Text style={styles.vipTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
+                  <Text style={styles.vipTime}>{formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
                   <Text style={styles.vipLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
+                  {sched.senior_partner?.full_name && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: 'rgba(15, 23, 42, 0.03)', borderRadius: 8 }}>
+                      <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
+                      <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
+                        {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
+                        <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ))}
 
@@ -1269,9 +1466,27 @@ export default function App() {
               {regularSchedules.length === 0 && <Text style={styles.emptyText}>{t('noSchedule')}</Text>}
               {regularSchedules.map(sched => (
                 <View key={sched.id} style={styles.regularCard}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    {sched.attendance_mode && (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.05)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'), borderWidth: 1, borderColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.1)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)') }}>
+                        <Text style={{ fontSize: 9, fontWeight: '800', textTransform: 'uppercase', color: sched.attendance_mode === 'hq' ? '#475569' : (sched.attendance_mode === 'direct_dispatch' ? COLORS.primary : '#d97706') }}>
+                          💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.regularTitle}>{sched.client_name}</Text>
-                  <Text style={styles.regularTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
+                  <Text style={styles.regularTime}>{formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
                   <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
+                  {sched.senior_partner?.full_name && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: 'rgba(15, 23, 42, 0.03)', borderRadius: 8 }}>
+                      <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
+                      <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
+                        {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
+                        <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ))}
             </ScrollView>
@@ -1279,44 +1494,87 @@ export default function App() {
 
           {activeTab === 'payslip' && (
             <ScrollView contentContainerStyle={styles.content}>
-              <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-                <Text style={styles.name}>My Earnings</Text>
+              <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
+                <Text style={styles.name}>{t('payrollTab') || 'My Earnings'}</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
               {payslip ? (
-                <View style={styles.payslipCard}>
-                  <Text style={styles.sectionTitle}>Latest Payslip</Text>
-                  <Text style={styles.period}>Generated: {payslip.period_start}</Text>
+                (() => {
+                  // Calculate itemized details
+                  const cycleLogs = dtrLogs.filter(log => {
+                    const logDate = log.created_at ? log.created_at.split('T')[0] : '';
+                    return logDate >= payslip.period_start && logDate <= payslip.period_end;
+                  });
+                  const daysWorked = cycleLogs.length || 10;
+                  const totalHours = cycleLogs.reduce((sum, log) => sum + Number(log.total_hours || 0), 0) || (daysWorked * 8);
                   
-                  <View style={styles.netPayBox}>
-                    <Text style={styles.netPayLabel}>Net Take-Home Pay</Text>
-                    <Text style={styles.netPayAmount}>{formatPhp(payslip.net_pay)}</Text>
-                  </View>
+                  const baseHourlyRate = Number(profile?.base_salary || 20000) / 160;
+                  const expectedRegularPay = baseHourlyRate * totalHours;
+                  const holidayBonus = Math.max(0, Number(payslip.gross_pay) - expectedRegularPay);
+                  const holidayHours = holidayBonus > 0 ? Math.round(holidayBonus / (baseHourlyRate * 0.3)) : 0;
+                  
+                  const withholdingTax = Math.max(0, Number(payslip.gross_pay) - Number(payslip.sss_deduction) - Number(payslip.philhealth_deduction) - Number(payslip.pagibig_deduction) - Number(payslip.net_pay));
 
-                  <View style={styles.divider} />
+                  return (
+                    <View style={styles.payslipCard}>
+                      <Text style={styles.sectionTitle}>{language === 'fil' ? 'Huling Payslip' : 'Latest Payslip'}</Text>
+                      <Text style={styles.period}>{language === 'fil' ? 'Siklo' : 'Cycle'}: {payslip.period_start} to {payslip.period_end}</Text>
+                      
+                      <View style={styles.netPayBox}>
+                        <Text style={styles.netPayLabel}>{language === 'fil' ? 'Kabuuang Netong Sahod' : 'Net Take-Home Pay'}</Text>
+                        <Text style={styles.netPayAmount}>{formatPhp(payslip.net_pay)}</Text>
+                      </View>
 
-                  <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>Base Salary</Text>
-                    <Text style={styles.grossAmount}>{formatPhp(payslip.gross_pay)}</Text>
-                  </View>
-                  <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>SSS Contribution</Text>
-                    <Text style={styles.deductionAmount}>- {formatPhp(payslip.sss_deduction)}</Text>
-                  </View>
-                  <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>PhilHealth</Text>
-                    <Text style={styles.deductionAmount}>- {formatPhp(payslip.philhealth_deduction)}</Text>
-                  </View>
-                  <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>Pag-IBIG</Text>
-                    <Text style={styles.deductionAmount}>- {formatPhp(payslip.pagibig_deduction)}</Text>
-                  </View>
-                </View>
+                      {/* Itemized Table */}
+                      <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginTop: 8 }}>
+                        {language === 'fil' ? 'PAGHAHATI-HATI NG KITA' : 'EARNINGS BREAKDOWN'}
+                      </Text>
+                      
+                      <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 20 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Mga Araw na Ipinasok' : 'Days Worked in Cycle'}</Text>
+                          <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 13 }}>{daysWorked} {language === 'fil' ? 'araw' : 'days'} ({totalHours.toFixed(1)} hrs)</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Kita sa Reglar na Oras' : 'Base Regular Pay'}</Text>
+                          <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 13 }}>{formatPhp(Math.min(Number(payslip.gross_pay), expectedRegularPay))}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Oras ng Holiday at Bonus' : 'Holiday Hours & Multiplier'}</Text>
+                          <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>+{formatPhp(holidayBonus)} ({holidayHours} hrs)</Text>
+                        </View>
+                      </View>
+
+                      <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+                        {language === 'fil' ? 'MGA BINAWAS (DEDUCTIONS)' : 'DEDUCTIONS & ADJUSTMENTS'}
+                      </Text>
+
+                      <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>SSS Contribution</Text>
+                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.sss_deduction)}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>PhilHealth Contribution</Text>
+                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.philhealth_deduction)}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>Pag-IBIG Contribution</Text>
+                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.pagibig_deduction)}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Withholding Tax / Karagdagang Bawas' : 'Withholding Tax adjustments'}</Text>
+                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(withholdingTax)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })()
               ) : (
-                 <View style={[styles.payslipCard, { alignItems: 'center', paddingVertical: 60 }]}>
-                   <Feather name="file-text" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
-                   <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
-                 </View>
+                <View style={[styles.payslipCard, { alignItems: 'center', paddingVertical: 60 }]}>
+                  <Feather name="file-text" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
+                  <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
+                </View>
               )}
             </ScrollView>
           )}

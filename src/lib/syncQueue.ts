@@ -57,27 +57,59 @@ export const syncQueue = {
       try {
         let error = null;
 
-        if (item.type === 'time_in') {
-          const { error: err } = await supabase.from('time_logs').insert({
-            technician_id: item.payload.technician_id,
-            app_time_in: item.payload.app_time_in,
-            latitude: item.payload.latitude,
-            longitude: item.payload.longitude,
-            geofence_status: item.payload.geofence_status,
-            is_mocked: item.payload.is_mocked,
-            gps_accuracy: item.payload.gps_accuracy,
-            app_time_out: item.payload.app_time_out || null,
-            total_hours: item.payload.total_hours || null
-          });
-          error = err;
-        } else if (item.type === 'time_out') {
-          const { error: err } = await supabase.from('time_logs')
-            .update({
-              app_time_out: item.payload.app_time_out,
-              total_hours: item.payload.total_hours
-            })
-            .eq('id', item.payload.log_id);
-          error = err;
+        if (item.type === 'time_in' || item.type === 'time_out') {
+          let isSuspicious = false;
+          try {
+            const { data: sTime, error: sErr } = await supabase.rpc('get_server_time');
+            if (!sErr && sTime) {
+              const serverTimeDate = new Date(sTime);
+              const currentDeviceDate = new Date();
+              
+              // 1. Current system clock drift
+              const clockDriftMs = Math.abs(currentDeviceDate.getTime() - serverTimeDate.getTime());
+              if (clockDriftMs > 15 * 60 * 1000) {
+                isSuspicious = true;
+              }
+              
+              // 2. Future clock tampering check
+              const logTimeIn = item.payload.app_time_in ? new Date(item.payload.app_time_in) : null;
+              if (logTimeIn && logTimeIn.getTime() > serverTimeDate.getTime() + 15 * 60 * 1000) {
+                isSuspicious = true;
+              }
+              
+              // 3. Saved time tampering at creation
+              if (item.payload.time_drift_at_creation && item.payload.time_drift_at_creation > 15 * 60 * 1000) {
+                isSuspicious = true;
+              }
+            }
+          } catch (err) {
+            console.warn("Failed to perform clock tampering check:", err);
+          }
+
+          if (item.type === 'time_in') {
+            const { error: err } = await supabase.from('time_logs').insert({
+              technician_id: item.payload.technician_id,
+              app_time_in: item.payload.app_time_in,
+              latitude: item.payload.latitude,
+              longitude: item.payload.longitude,
+              geofence_status: item.payload.geofence_status,
+              is_mocked: item.payload.is_mocked,
+              gps_accuracy: item.payload.gps_accuracy,
+              app_time_out: item.payload.app_time_out || null,
+              total_hours: item.payload.total_hours || null,
+              is_suspicious: isSuspicious
+            });
+            error = err;
+          } else {
+            const { error: err } = await supabase.from('time_logs')
+              .update({
+                app_time_out: item.payload.app_time_out,
+                total_hours: item.payload.total_hours,
+                is_suspicious: isSuspicious
+              })
+              .eq('id', item.payload.log_id);
+            error = err;
+          }
         } else if (item.type === 'leave_request') {
           const { error: err } = await supabase.from('leaves').insert({
             technician_id: item.payload.technician_id,
