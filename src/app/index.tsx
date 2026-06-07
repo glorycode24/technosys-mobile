@@ -12,7 +12,64 @@ import { Locale, TRANSLATIONS } from '../lib/translations';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Location from 'expo-location';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false, // soft default
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+async function registerForPushNotificationsAsync(userId: string) {
+  if (Platform.OS === 'web') {
+    console.log('Push notifications not supported on web platform.');
+    return;
+  }
+  if (!Device.isDevice) {
+    console.log('Must use physical device for Push Notifications');
+    return;
+  }
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      console.log('Failed to get push token for push notification!');
+      return;
+    }
+    // Fetch token
+    const projectId = require('../../app.json')?.expo?.extra?.eas?.projectId;
+    if (!projectId) {
+      console.warn('Expo Project ID not found in app.json. Cannot fetch push token.');
+      return;
+    }
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId
+    });
+    const token = tokenData.data;
+    console.log('Expo Push Token generated successfully:', token);
+    
+    // Save to Supabase profiles table
+    const { error } = await supabase
+      .from('profiles')
+      .update({ push_token: token })
+      .eq('id', userId);
+      
+    if (error) {
+      console.error('Failed to update push token in profile:', error.message);
+    }
+  } catch (e: any) {
+    console.warn('Error in push registration:', e.message || e);
+  }
+}
 
 // Clean White Professional Theme
 const COLORS = {
@@ -554,7 +611,8 @@ export default function App() {
         if (onlineStatus) {
           await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
         }
-        fetchDashboardData(currentSession.user.id);
+        await fetchDashboardData(currentSession.user.id);
+        registerForPushNotificationsAsync(currentSession.user.id);
       } else if (event === 'SIGNED_OUT') {
         await deleteSecureItem('USER_SESSION');
         await AsyncStorage.removeItem('LAST_ONLINE_TIMESTAMP');
@@ -565,6 +623,20 @@ export default function App() {
 
     return () => {
       subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received in foreground:', notification);
+    });
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification response received:', response);
+    });
+    return () => {
+      notificationListener.remove();
+      responseListener.remove();
     };
   }, []);
 
