@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
-import { syncQueue } from '../lib/syncQueue';
+import { syncQueue, generateUUID } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
 import { Locale, TRANSLATIONS } from '../lib/translations';
@@ -228,36 +228,53 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
   const fetchTickets = async () => {
     setLoading(true);
     try {
+      let dbTickets = [];
       if (!isOnline) {
         console.log('App is offline, loading tickets from cache directly...');
         const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
-        setTickets(cached ? JSON.parse(cached) : []);
-        setLoading(false);
-        return;
+        dbTickets = cached ? JSON.parse(cached) : [];
+      } else {
+        try {
+          const fetchPromise = supabase
+            .from('tickets')
+            .select(`
+              *,
+              assignee:profiles!assigned_to(full_name)
+            `)
+            .eq('employee_id', userId)
+            .order('created_at', { ascending: false });
+
+          const { data, error } = await withTimeout(fetchPromise, 4000);
+
+          if (error) throw error;
+          dbTickets = data || [];
+          await AsyncStorage.setItem('CACHED_TICKETS_' + userId, JSON.stringify(dbTickets));
+        } catch (e: any) {
+          console.warn('Failed to load tickets from network, loading cached...', e.message);
+          const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
+          dbTickets = cached ? JSON.parse(cached) : [];
+        }
       }
 
-      const fetchPromise = supabase
-        .from('tickets')
-        .select(`
-          *,
-          assignee:profiles!assigned_to(full_name)
-        `)
-        .eq('employee_id', userId)
-        .order('created_at', { ascending: false });
+      // Fetch all items from the offline sync queue
+      const queue = await syncQueue.getQueue();
+      const offlineTickets = queue
+        .filter(item => item.type === 'ticket_submission' && item.payload.employee_id === userId)
+        .map(item => ({
+          id: item.payload.id,
+          employee_id: userId,
+          title: item.payload.title,
+          category: item.payload.category,
+          priority: item.payload.priority,
+          description: item.payload.description,
+          status: 'sync_pending',
+          created_at: item.payload.created_at || item.timestamp,
+          assignee: null
+        }));
 
-      const { data, error } = await withTimeout(fetchPromise, 4000);
-
-      if (error) throw error;
-      setTickets(data || []);
-      await AsyncStorage.setItem('CACHED_TICKETS_' + userId, JSON.stringify(data || []));
+      setTickets([...offlineTickets, ...dbTickets]);
     } catch (e: any) {
-      console.warn('Failed to load tickets from network, loading cached...', e.message);
-      try {
-        const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
-        setTickets(cached ? JSON.parse(cached) : []);
-      } catch (cacheErr) {
-        console.error('Failed to read tickets cache', cacheErr);
-      }
+      console.error('Error fetching tickets', e);
     } finally {
       setLoading(false);
     }
@@ -267,32 +284,49 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
   const fetchComments = async (ticketId: string) => {
     setLoadingComments(true);
     try {
+      let dbComments = [];
       if (!isOnline) {
         console.log('App is offline, loading ticket comments from cache directly...');
         const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
-        setComments(cached ? JSON.parse(cached) : []);
-        setLoadingComments(false);
-        return;
+        dbComments = cached ? JSON.parse(cached) : [];
+      } else {
+        try {
+          const { data, error } = await supabase
+            .from('ticket_comments')
+            .select(`
+              *,
+              author:profiles!author_id(full_name, role)
+            `)
+            .eq('ticket_id', ticketId)
+            .order('created_at', { ascending: true });
+
+          if (error) throw error;
+          dbComments = data || [];
+          await AsyncStorage.setItem('CACHED_COMMENTS_' + ticketId, JSON.stringify(dbComments));
+        } catch (e: any) {
+          console.error('Failed to load comments from network, loading cached...', e);
+          const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
+          dbComments = cached ? JSON.parse(cached) : [];
+        }
       }
 
-      const { data, error } = await supabase
-        .from('ticket_comments')
-        .select(`
-          *,
-          author:profiles!author_id(full_name, role)
-        `)
-        .eq('ticket_id', ticketId)
-        .order('created_at', { ascending: true });
+      // Fetch all items from the offline sync queue
+      const queue = await syncQueue.getQueue();
+      const offlineComments = queue
+        .filter(item => item.type === 'post_comment' && item.payload.ticket_id === ticketId)
+        .map(item => ({
+          id: item.id,
+          ticket_id: item.payload.ticket_id,
+          author_id: item.payload.author_id,
+          content: item.payload.content,
+          created_at: item.payload.created_at || item.timestamp,
+          status: 'sync_pending',
+          author: { full_name: fullName, role: 'technician' }
+        }));
 
-      if (error) throw error;
-      setComments(data || []);
-      await AsyncStorage.setItem('CACHED_COMMENTS_' + ticketId, JSON.stringify(data || []));
+      setComments([...dbComments, ...offlineComments]);
     } catch (e: any) {
-      console.error('Failed to load comments', e);
-      try {
-        const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
-        if (cached) setComments(JSON.parse(cached));
-      } catch (cacheErr) {}
+      console.error('Error in fetchComments:', e);
     } finally {
       setLoadingComments(false);
     }
@@ -442,23 +476,54 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
       }
 
       setSubmitting(true);
+      const ticketId = generateUUID();
+      const payloadDesc = JSON.stringify({
+        disputed_month: disputedMonth.trim(),
+        disputed_amount: amtNum,
+        details: payrollNotes.trim()
+      });
+
+      const payload = {
+        id: ticketId,
+        employee_id: userId,
+        title: `Payroll Dispute - ${disputedMonth.trim()}`,
+        category: 'Payroll Dispute',
+        priority: 'medium',
+        description: payloadDesc,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+
+      const handleOffline = async () => {
+        await syncQueue.addToQueue('ticket_submission', payload);
+        Alert.alert(t('syncPendingAlertTitle'), t('offlineStoredPending'));
+        setDisputedMonth('');
+        setDisputedAmount('');
+        setPayrollNotes('');
+        setView('list');
+        setSubTab('tickets');
+        fetchTickets();
+      };
+
+      if (!isOnline) {
+        await handleOffline();
+        setSubmitting(false);
+        return;
+      }
+
       try {
-        const payloadDesc = JSON.stringify({
-          disputed_month: disputedMonth.trim(),
-          disputed_amount: amtNum,
-          details: payrollNotes.trim()
-        });
+        const { error } = await supabase.from('tickets').insert(payload);
 
-        const { error } = await supabase.from('tickets').insert({
-          employee_id: userId,
-          title: `Payroll Dispute - ${disputedMonth.trim()}`,
-          category: 'Payroll Dispute',
-          priority: 'medium',
-          description: payloadDesc,
-          status: 'open'
-        });
-
-        if (error) throw error;
+        if (error) {
+          const errMessage = error.message || '';
+          const status = (error as any).status;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          if (isNetworkError) {
+            await handleOffline();
+            return;
+          }
+          throw error;
+        }
 
         Alert.alert(t('submissionSuccess'), t('disputeSubmittedSuccess'));
         setDisputedMonth('');
@@ -468,7 +533,13 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         setSubTab('tickets');
         fetchTickets();
       } catch (e: any) {
-        Alert.alert(t('submissionFailed'), e.message);
+        const errMessage = e.message || '';
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        if (isNetworkError) {
+          await handleOffline();
+        } else {
+          Alert.alert(t('submissionFailed'), e.message);
+        }
       } finally {
         setSubmitting(false);
       }
@@ -482,23 +553,53 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
       }
 
       setSubmitting(true);
+      const ticketId = generateUUID();
+      const payloadDesc = JSON.stringify({
+        equipment_type: equipmentType,
+        serial_number: serialNumber.trim(),
+        details: equipmentNotes.trim()
+      });
+
+      const payload = {
+        id: ticketId,
+        employee_id: userId,
+        title: `Equipment Issue - ${equipmentType.toUpperCase()} (${serialNumber.trim()})`,
+        category: 'Equipment Issue',
+        priority: 'high',
+        description: payloadDesc,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+
+      const handleOffline = async () => {
+        await syncQueue.addToQueue('ticket_submission', payload);
+        Alert.alert(t('syncPendingAlertTitle'), t('offlineStoredPending'));
+        setSerialNumber('');
+        setEquipmentNotes('');
+        setView('list');
+        setSubTab('tickets');
+        fetchTickets();
+      };
+
+      if (!isOnline) {
+        await handleOffline();
+        setSubmitting(false);
+        return;
+      }
+
       try {
-        const payloadDesc = JSON.stringify({
-          equipment_type: equipmentType,
-          serial_number: serialNumber.trim(),
-          details: equipmentNotes.trim()
-        });
+        const { error } = await supabase.from('tickets').insert(payload);
 
-        const { error } = await supabase.from('tickets').insert({
-          employee_id: userId,
-          title: `Equipment Issue - ${equipmentType.toUpperCase()} (${serialNumber.trim()})`,
-          category: 'Equipment Issue',
-          priority: 'high',
-          description: payloadDesc,
-          status: 'open'
-        });
-
-        if (error) throw error;
+        if (error) {
+          const errMessage = error.message || '';
+          const status = (error as any).status;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          if (isNetworkError) {
+            await handleOffline();
+            return;
+          }
+          throw error;
+        }
 
         Alert.alert(t('submissionSuccess'), t('equipmentSubmittedSuccess'));
         setSerialNumber('');
@@ -507,7 +608,13 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         setSubTab('tickets');
         fetchTickets();
       } catch (e: any) {
-        Alert.alert(t('submissionFailed'), e.message);
+        const errMessage = e.message || '';
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        if (isNetworkError) {
+          await handleOffline();
+        } else {
+          Alert.alert(t('submissionFailed'), e.message);
+        }
       } finally {
         setSubmitting(false);
       }
@@ -520,17 +627,48 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     }
 
     setSubmitting(true);
-    try {
-      const { error } = await supabase.from('tickets').insert({
-        employee_id: userId,
-        title: title.trim(),
-        category,
-        priority,
-        description: description.trim(),
-        status: 'open'
-      });
+    const ticketId = generateUUID();
+    const payload = {
+      id: ticketId,
+      employee_id: userId,
+      title: title.trim(),
+      category,
+      priority,
+      description: description.trim(),
+      status: 'open',
+      created_at: new Date().toISOString()
+    };
 
-      if (error) throw error;
+    const handleOffline = async () => {
+      await syncQueue.addToQueue('ticket_submission', payload);
+      Alert.alert(t('syncPendingAlertTitle'), t('offlineStoredPending'));
+      setTitle('');
+      setDescription('');
+      setCategory('Leave Request');
+      setPriority('medium');
+      setView('list');
+      fetchTickets();
+    };
+
+    if (!isOnline) {
+      await handleOffline();
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('tickets').insert(payload);
+
+      if (error) {
+        const errMessage = error.message || '';
+        const status = (error as any).status;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        if (isNetworkError) {
+          await handleOffline();
+          return;
+        }
+        throw error;
+      }
 
       Alert.alert(t('submissionSuccess'), t('ticketSubmittedSuccess'));
       setTitle('');
@@ -540,7 +678,13 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
       setView('list');
       fetchTickets();
     } catch (e: any) {
-      Alert.alert(t('submissionFailed'), e.message);
+      const errMessage = e.message || '';
+      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+      if (isNetworkError) {
+        await handleOffline();
+      } else {
+        Alert.alert(t('submissionFailed'), e.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -553,6 +697,42 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     const content = commentText.trim();
     setCommentText('');
 
+    const handleOfflineComment = async () => {
+      const commentId = generateUUID();
+      const payload = {
+        ticket_id: selectedTicket.id,
+        author_id: userId,
+        content,
+        created_at: new Date().toISOString()
+      };
+
+      await syncQueue.addToQueue('post_comment', payload);
+
+      const newComment = {
+        id: commentId,
+        ticket_id: selectedTicket.id,
+        author_id: userId,
+        content,
+        created_at: payload.created_at,
+        status: 'sync_pending',
+        author: { full_name: fullName, role: 'technician' }
+      };
+
+      // Instantly append comment to local state
+      setComments(prev => [...prev, newComment]);
+
+      // Update the local ticket updated_at time
+      const nowStr = new Date().toISOString();
+      setSelectedTicket((prev: any) => prev ? { ...prev, updated_at: nowStr } : null);
+      setTickets(prev => prev.map(t => t.id === selectedTicket.id ? { ...t, updated_at: nowStr } : t));
+    };
+
+    if (!isOnline || selectedTicket.status === 'sync_pending') {
+      await handleOfflineComment();
+      setCommentSubmitting(false);
+      return;
+    }
+
     try {
       const { error } = await supabase.from('ticket_comments').insert({
         ticket_id: selectedTicket.id,
@@ -560,7 +740,16 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         content
       });
 
-      if (error) throw error;
+      if (error) {
+        const errMessage = error.message || '';
+        const status = (error as any).status;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        if (isNetworkError) {
+          await handleOfflineComment();
+          return;
+        }
+        throw error;
+      }
 
       // Update local ticket updated_at
       await supabase
@@ -570,8 +759,14 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
 
       fetchComments(selectedTicket.id);
     } catch (e: any) {
-      Alert.alert('Comment Error', e.message);
-      setCommentText(content); // restore input
+      const errMessage = e.message || '';
+      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+      if (isNetworkError) {
+        await handleOfflineComment();
+      } else {
+        Alert.alert('Comment Error', e.message);
+        setCommentText(content); // restore input
+      }
     } finally {
       setCommentSubmitting(false);
     }
@@ -731,17 +926,46 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
           text: t('yesCloseIt'), 
           style: 'destructive',
           onPress: async () => {
+            const handleOfflineClose = async () => {
+              const payload = {
+                ticket_id: selectedTicket.id
+              };
+              await syncQueue.addToQueue('close_ticket', payload);
+              setSelectedTicket((prev: any) => prev ? { ...prev, status: 'closed' } : null);
+              fetchTickets();
+            };
+
+            if (!isOnline || selectedTicket.status === 'sync_pending') {
+              await handleOfflineClose();
+              return;
+            }
+
             try {
               const { error } = await supabase
                 .from('tickets')
                 .update({ status: 'closed', updated_at: new Date().toISOString() })
                 .eq('id', selectedTicket.id);
-              if (error) throw error;
+              if (error) {
+                const errMessage = error.message || '';
+                const status = (error as any).status;
+                const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+                if (isNetworkError) {
+                  await handleOfflineClose();
+                  return;
+                }
+                throw error;
+              }
 
-              setSelectedTicket((prev: any) => ({ ...prev, status: 'closed' }));
+              setSelectedTicket((prev: any) => prev ? { ...prev, status: 'closed' } : null);
               fetchTickets();
             } catch (e: any) {
-              Alert.alert('Error', 'Failed to close ticket: ' + e.message);
+              const errMessage = e.message || '';
+              const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+              if (isNetworkError) {
+                await handleOfflineClose();
+              } else {
+                Alert.alert('Error', 'Failed to close ticket: ' + e.message);
+              }
             }
           }
         }
@@ -772,6 +996,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
       case 'in_progress': return COLORS.indigo;
       case 'resolved': return COLORS.textMuted;
       case 'closed': return '#94a3b8';
+      case 'sync_pending': return '#3b82f6';
       default: return COLORS.textMuted;
     }
   };
