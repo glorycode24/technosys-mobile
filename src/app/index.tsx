@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -119,6 +119,24 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
 
+  // Leaves alerts and refreshing states
+  const [recentLeaveAlerts, setRecentLeaveAlerts] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Load recent alerts
+  const loadRecentAlerts = async (userId: string) => {
+    try {
+      const stored = await AsyncStorage.getItem('UNREAD_LEAVE_ALERTS_' + userId);
+      if (stored) {
+        setRecentLeaveAlerts(JSON.parse(stored));
+      } else {
+        setRecentLeaveAlerts([]);
+      }
+    } catch (err) {
+      console.error('Failed to load recent leave alerts:', err);
+    }
+  };
+
   // Opening splash transition states
   const splashOpacity = React.useRef(new Animated.Value(1)).current;
   const logoOpacity = React.useRef(new Animated.Value(0)).current;
@@ -139,12 +157,20 @@ export default function App() {
     // 1. Fetch auth session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) fetchDashboardData(session.user.id);
+      if (session) {
+        fetchDashboardData(session.user.id);
+        loadRecentAlerts(session.user.id);
+      }
     });
 
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchDashboardData(session.user.id);
+      if (session) {
+        fetchDashboardData(session.user.id);
+        loadRecentAlerts(session.user.id);
+      } else {
+        setRecentLeaveAlerts([]);
+      }
     });
 
     // 2. Play opening transition animation
@@ -218,9 +244,13 @@ export default function App() {
         .eq('technician_id', userId)
         .gte('created_at', `${today}T00:00:00Z`)
         .order('created_at', { ascending: false });
+      const fetchLeavesPromise = supabase.from('leaves')
+        .select('*')
+        .eq('technician_id', userId)
+        .order('created_at', { ascending: false });
 
-      const [profResult, schedsResult, payslipsResult, logsResult] = await withTimeout(
-        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise]),
+      const [profResult, schedsResult, payslipsResult, logsResult, leavesResult] = await withTimeout(
+        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchLeavesPromise]),
         4000
       );
 
@@ -234,15 +264,82 @@ export default function App() {
       if (schedsResult.error && isNetworkErr(schedsResult.error)) throw schedsResult.error;
       if (payslipsResult.error && isNetworkErr(payslipsResult.error)) throw payslipsResult.error;
       if (logsResult.error && isNetworkErr(logsResult.error)) throw logsResult.error;
+      if (leavesResult.error && isNetworkErr(leavesResult.error)) throw leavesResult.error;
 
       const prof = profResult.data;
       const scheds = schedsResult.data || [];
       const pay = payslipsResult.data;
       const logs = logsResult.data || [];
+      const leaves = leavesResult.data || [];
 
       if (prof) setProfile(prof);
       setSchedules(scheds);
       setPayslip(pay);
+
+      // Process leaves transitions
+      const cachedLeavesRaw = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
+      const cachedLeaves = cachedLeavesRaw ? JSON.parse(cachedLeavesRaw) : null;
+
+      if (cachedLeaves !== null) {
+        const newAlerts: any[] = [];
+        
+        leaves.forEach((newLeave: any) => {
+          const matchedCached = cachedLeaves.find((c: any) => c.id === newLeave.id);
+          if (matchedCached) {
+            const isApprovedTransition = matchedCached.status === 'pending' && newLeave.status === 'approved';
+            const isRejectedTransition = matchedCached.status === 'pending' && newLeave.status === 'rejected';
+            
+            if (isApprovedTransition || isRejectedTransition) {
+              newAlerts.push({
+                id: newLeave.id,
+                type: newLeave.status,
+                startDate: newLeave.start_date,
+                endDate: newLeave.end_date,
+                reason: newLeave.reason || '',
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        });
+
+        if (newAlerts.length > 0) {
+          const currentStoredRaw = await AsyncStorage.getItem('UNREAD_LEAVE_ALERTS_' + userId);
+          const currentStored = currentStoredRaw ? JSON.parse(currentStoredRaw) : [];
+          
+          const updatedStored = [...currentStored];
+          newAlerts.forEach(alert => {
+            if (!updatedStored.some(existing => existing.id === alert.id)) {
+              updatedStored.unshift(alert);
+            }
+          });
+
+          await AsyncStorage.setItem('UNREAD_LEAVE_ALERTS_' + userId, JSON.stringify(updatedStored));
+          setRecentLeaveAlerts(updatedStored);
+
+          if (newAlerts.length === 1) {
+            const alertItem = newAlerts[0];
+            const title = alertItem.type === 'approved' ? 'Leave Approved! 🎉' : 'Leave Request Update ⚠️';
+            const message = alertItem.type === 'approved'
+              ? `Your leave request for ${alertItem.startDate} to ${alertItem.endDate} has been approved.`
+              : `Your leave request for ${alertItem.startDate} to ${alertItem.endDate} has been rejected. Check Support tickets for comments.`;
+            Alert.alert(title, message);
+          } else {
+            const approvedCount = newAlerts.filter(a => a.type === 'approved').length;
+            const rejectedCount = newAlerts.filter(a => a.type === 'rejected').length;
+            let msg = '';
+            if (approvedCount > 0 && rejectedCount > 0) {
+              msg = `You have ${approvedCount} approved leave request(s) and ${rejectedCount} rejected leave request(s).`;
+            } else if (approvedCount > 0) {
+              msg = `You have ${approvedCount} new approved leave request(s).`;
+            } else {
+              msg = `You have ${rejectedCount} new rejected leave request(s).`;
+            }
+            Alert.alert('Leave Status Updates', msg);
+          }
+        }
+      }
+
+      await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(leaves));
 
       // Apply offline queue overrides to time logs
       const queue = await syncQueue.getQueue();
@@ -485,6 +582,24 @@ export default function App() {
     }
   };
 
+  const handleRefresh = async () => {
+    if (!session) return;
+    setRefreshing(true);
+    await fetchDashboardData(session.user.id);
+    setRefreshing(false);
+  };
+
+  const handleDismissAlert = async (id: string) => {
+    if (!session) return;
+    try {
+      const updated = recentLeaveAlerts.filter((a: any) => a.id !== id);
+      setRecentLeaveAlerts(updated);
+      await AsyncStorage.setItem('UNREAD_LEAVE_ALERTS_' + session.user.id, JSON.stringify(updated));
+    } catch (err) {
+      console.error('Failed to dismiss alert:', err);
+    }
+  };
+
   const formatPhp = (amount: number) => {
     if (!amount) return '₱ 0.00';
     return `₱ ${Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -519,7 +634,17 @@ export default function App() {
         {/* Dynamic Main Content Based on Tab */}
         <FadeInView currentTab={activeTab}>
           {activeTab === 'home' && (
-            <ScrollView contentContainerStyle={styles.content}>
+            <ScrollView 
+              contentContainerStyle={styles.content}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[COLORS.primary]}
+                  tintColor={COLORS.primary}
+                />
+              }
+            >
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                 <View>
                   <Text style={styles.greeting}>Welcome back,</Text>
@@ -527,6 +652,54 @@ export default function App() {
                 </View>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
+
+              {recentLeaveAlerts.map((alert: any) => (
+                <View 
+                  key={alert.id} 
+                  style={[
+                    styles.alertCard, 
+                    alert.type === 'approved' ? styles.alertCardApproved : styles.alertCardRejected
+                  ]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1, paddingRight: 8 }}>
+                    <View style={[
+                      styles.alertIconContainer, 
+                      alert.type === 'approved' ? styles.alertIconContainerApproved : styles.alertIconContainerRejected
+                    ]}>
+                      <Feather 
+                        name={alert.type === 'approved' ? 'check-circle' : 'x-circle'} 
+                        size={20} 
+                        color={alert.type === 'approved' ? '#10b981' : '#ef4444'} 
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={[
+                        styles.alertTitle, 
+                        alert.type === 'approved' ? styles.alertTitleApproved : styles.alertTitleRejected
+                      ]}>
+                        {alert.type === 'approved' ? 'Leave Request Approved' : 'Leave Request Rejected'}
+                      </Text>
+                      <Text style={[
+                        styles.alertText, 
+                        alert.type === 'approved' ? styles.alertTextApproved : styles.alertTextRejected
+                      ]}>
+                        Your leave request for {alert.startDate} to {alert.endDate} has been {alert.type}.
+                        {alert.reason ? ` Reason: "${alert.reason}"` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.alertCloseButton} 
+                    onPress={() => handleDismissAlert(alert.id)}
+                  >
+                    <Feather 
+                      name="x" 
+                      size={16} 
+                      color={alert.type === 'approved' ? '#047857' : '#b91c1c'} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              ))}
 
               <View style={{ marginBottom: 32 }}>
                 {!activeTimeLog && (
@@ -690,7 +863,12 @@ export default function App() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('tickets')}>
-            <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
+            <View style={{ position: 'relative' }}>
+              <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
+              {recentLeaveAlerts.length > 0 && (
+                <View style={styles.navBadge} />
+              )}
+            </View>
             <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>Support</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'tickets' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
@@ -902,5 +1080,77 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase'
-  } as TextStyle
+  } as TextStyle,
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  } as ViewStyle,
+  alertCardApproved: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+  } as ViewStyle,
+  alertCardRejected: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  } as ViewStyle,
+  alertIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as ViewStyle,
+  alertIconContainerApproved: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  } as ViewStyle,
+  alertIconContainerRejected: {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+  } as ViewStyle,
+  alertTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  } as TextStyle,
+  alertTitleApproved: {
+    color: '#065f46',
+  } as TextStyle,
+  alertTitleRejected: {
+    color: '#92400e',
+  } as TextStyle,
+  alertText: {
+    fontSize: 12,
+    lineHeight: 16,
+  } as TextStyle,
+  alertTextApproved: {
+    color: '#047857',
+  } as TextStyle,
+  alertTextRejected: {
+    color: '#b45309',
+  } as TextStyle,
+  alertCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 4,
+    borderRadius: 12,
+  } as ViewStyle,
+  navBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ef4444',
+  } as ViewStyle
 });
