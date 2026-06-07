@@ -427,27 +427,66 @@ export default function App() {
     setTimeInLoading(true);
 
     try {
+      // Find today's active schedule for DTR mode validation
+      const nowTime = new Date();
+      const activeSched = schedules.find(s => {
+        const start = new Date(s.start_time);
+        const end = new Date(s.end_time);
+        return nowTime >= start && nowTime <= end;
+      }) || schedules[0]; // Fallback to first schedule if none covers this exact second
+
+      const trackingMode = activeSched?.attendance_tracking_mode || 'pacita_hq';
+
       // Step 1: Check geofence
       const locationResult = await geofence.checkLocation();
 
-      if (!locationResult || locationResult.status !== 'inside') {
-        setTimeInLoading(false);
-        Alert.alert(
-          'Location Verification Failed',
-          locationResult?.error || 'Could not verify your location. Please try again.',
-          [{ text: 'OK' }]
-        );
-        return;
+      let canClockIn = false;
+      let finalGeofenceStatus = 'unknown';
+
+      if (trackingMode === 'pacita_hq') {
+        if (locationResult && locationResult.status === 'inside') {
+          canClockIn = true;
+          finalGeofenceStatus = 'inside';
+        } else {
+          setTimeInLoading(false);
+          Alert.alert(
+            'Location Verification Failed',
+            locationResult?.error || 'You must be at Pacita HQ or QC Branch office to clock in.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'direct_on_site') {
+        if (locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside')) {
+          canClockIn = true;
+          finalGeofenceStatus = locationResult.status === 'inside' ? 'inside' : 'outside_override';
+        } else {
+          setTimeInLoading(false);
+          Alert.alert(
+            'Location Check Failed',
+            locationResult?.error || 'Could not verify GPS coordinates for Direct On-site clock-in.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'out_of_town') {
+        canClockIn = true;
+        if (locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside')) {
+          finalGeofenceStatus = locationResult.status === 'inside' ? 'inside' : 'outside_override';
+        } else {
+          finalGeofenceStatus = 'unknown';
+        }
       }
 
+      const hasLocationData = locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside');
       const timeInPayload = {
         technician_id: session.user.id,
         app_time_in: new Date().toISOString(),
-        latitude: locationResult.latitude,
-        longitude: locationResult.longitude,
-        geofence_status: 'inside',
-        is_mocked: locationResult.isMocked || false,
-        gps_accuracy: locationResult.gpsAccuracy || null
+        latitude: hasLocationData ? locationResult.latitude : null,
+        longitude: hasLocationData ? locationResult.longitude : null,
+        geofence_status: finalGeofenceStatus,
+        is_mocked: hasLocationData ? (locationResult.isMocked || false) : false,
+        gps_accuracy: hasLocationData ? (locationResult.gpsAccuracy || null) : null
       };
 
       // Step 2: Insert time log with coordinates
@@ -468,7 +507,7 @@ export default function App() {
             app_time_in: timeInPayload.app_time_in,
             latitude: timeInPayload.latitude,
             longitude: timeInPayload.longitude,
-            geofence_status: 'inside',
+            geofence_status: finalGeofenceStatus,
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
@@ -493,17 +532,47 @@ export default function App() {
     setTimeOutLoading(true);
 
     try {
+      // Find today's active schedule for DTR mode validation
+      const nowTime = new Date();
+      const activeSched = schedules.find(s => {
+        const start = new Date(s.start_time);
+        const end = new Date(s.end_time);
+        return nowTime >= start && nowTime <= end;
+      }) || schedules[0];
+
+      const trackingMode = activeSched?.attendance_tracking_mode || 'pacita_hq';
+
       // Step 1: Check geofence
       const locationResult = await geofence.checkLocation();
 
-      if (!locationResult || locationResult.status !== 'inside') {
-        setTimeOutLoading(false);
-        Alert.alert(
-          'Location Verification Failed',
-          locationResult?.error || 'Could not verify your location. Please try again.',
-          [{ text: 'OK' }]
-        );
-        return;
+      let canClockOut = false;
+
+      if (trackingMode === 'pacita_hq') {
+        if (locationResult && locationResult.status === 'inside') {
+          canClockOut = true;
+        } else {
+          setTimeOutLoading(false);
+          Alert.alert(
+            'Location Verification Failed',
+            locationResult?.error || 'You must be at Pacita HQ or QC Branch office to clock out.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'direct_on_site') {
+        if (locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside')) {
+          canClockOut = true;
+        } else {
+          setTimeOutLoading(false);
+          Alert.alert(
+            'Location Check Failed',
+            locationResult?.error || 'Could not verify GPS coordinates for Direct On-site clock-out.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'out_of_town') {
+        canClockOut = true;
       }
 
       // Step 2: Calculate total hours
@@ -755,8 +824,15 @@ export default function App() {
               {vipSchedules.length === 0 && <Text style={styles.emptyText}>No VIP hooks active.</Text>}
               {vipSchedules.map(sched => (
                 <View key={sched.id} style={styles.vipCard}>
-                  <View style={styles.vipBadge}>
-                    <Text style={styles.vipBadgeText}>URGENT</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <View style={styles.vipBadge}>
+                      <Text style={styles.vipBadgeText}>URGENT</Text>
+                    </View>
+                    <View style={{ backgroundColor: 'rgba(6, 182, 212, 0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ color: '#083344', fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {sched.attendance_tracking_mode ? sched.attendance_tracking_mode.replace(/_/g, ' ') : 'Pacita HQ'}
+                      </Text>
+                    </View>
                   </View>
                   <Text style={styles.vipTitle}>{sched.client_name}</Text>
                   <Text style={styles.vipTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
@@ -768,7 +844,14 @@ export default function App() {
               {regularSchedules.length === 0 && <Text style={styles.emptyText}>No standard schedules today.</Text>}
               {regularSchedules.map(sched => (
                 <View key={sched.id} style={styles.regularCard}>
-                  <Text style={styles.regularTitle}>{sched.client_name}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={styles.regularTitle}>{sched.client_name}</Text>
+                    <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.05)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ color: COLORS.textMuted, fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {sched.attendance_tracking_mode ? sched.attendance_tracking_mode.replace(/_/g, ' ') : 'Pacita HQ'}
+                      </Text>
+                    </View>
+                  </View>
                   <Text style={styles.regularTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
                   <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
                 </View>
@@ -784,31 +867,69 @@ export default function App() {
               </View>
               {payslip ? (
                 <View style={styles.payslipCard}>
-                  <Text style={styles.sectionTitle}>Latest Payslip</Text>
-                  <Text style={styles.period}>Generated: {payslip.period_start}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Feather name="file-text" size={20} color={COLORS.primary} />
+                    <Text style={styles.sectionTitle}>Latest Payslip</Text>
+                  </View>
+                  <Text style={styles.period}>Period: {payslip.period_start} to {payslip.period_end}</Text>
                   
                   <View style={styles.netPayBox}>
                     <Text style={styles.netPayLabel}>Net Take-Home Pay</Text>
                     <Text style={styles.netPayAmount}>{formatPhp(payslip.net_pay)}</Text>
                   </View>
 
-                  <View style={styles.divider} />
-
+                  {/* Section: Earnings & Benefits */}
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: COLORS.primary, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
+                    Earnings & Benefits
+                  </Text>
+                  
                   <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>Base Salary</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="briefcase" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>Base Salary</Text>
+                    </View>
                     <Text style={styles.grossAmount}>{formatPhp(payslip.gross_pay)}</Text>
                   </View>
+
+                  <View style={styles.divider} />
+
+                  {/* Section: Statutory Deductions */}
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: COLORS.danger, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
+                    Deductions
+                  </Text>
+
                   <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>SSS Contribution</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="shield" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>SSS Contribution</Text>
+                    </View>
                     <Text style={styles.deductionAmount}>- {formatPhp(payslip.sss_deduction)}</Text>
                   </View>
+
                   <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>PhilHealth</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="activity" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>PhilHealth</Text>
+                    </View>
                     <Text style={styles.deductionAmount}>- {formatPhp(payslip.philhealth_deduction)}</Text>
                   </View>
+
                   <View style={styles.deductionRow}>
-                    <Text style={styles.deductionLabel}>Pag-IBIG</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="home" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>Pag-IBIG</Text>
+                    </View>
                     <Text style={styles.deductionAmount}>- {formatPhp(payslip.pagibig_deduction)}</Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  {/* Breakdown summary */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>Total Deductions</Text>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.danger }}>
+                      - {formatPhp(Number(payslip.sss_deduction) + Number(payslip.philhealth_deduction) + Number(payslip.pagibig_deduction))}
+                    </Text>
                   </View>
                 </View>
               ) : (
