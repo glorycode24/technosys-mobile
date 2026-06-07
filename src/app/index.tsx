@@ -497,7 +497,8 @@ export default function App() {
     return `₱ ${Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  const formatTime = (isoString: string) => {
+  const formatTime = (isoString: string | null | undefined) => {
+    if (!isoString) return '';
     const d = new Date(isoString);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
@@ -593,7 +594,10 @@ export default function App() {
                     <Text style={styles.vipBadgeText}>URGENT</Text>
                   </View>
                   <Text style={styles.vipTitle}>{sched.client_name}</Text>
-                  <Text style={styles.vipTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
+                  <Text style={styles.vipTime}>
+                    {formatTime(sched.start_time)}
+                    {sched.end_time ? ` - ${formatTime(sched.end_time)}` : ' (Open-Ended)'}
+                  </Text>
                   <Text style={styles.vipLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
                   {sched.senior_partner_id && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: '#cffafe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, alignSelf: 'flex-start' }}>
@@ -613,7 +617,10 @@ export default function App() {
               {regularSchedules.map(sched => (
                 <View key={sched.id} style={styles.regularCard}>
                   <Text style={styles.regularTitle}>{sched.client_name}</Text>
-                  <Text style={styles.regularTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
+                  <Text style={styles.regularTime}>
+                    {formatTime(sched.start_time)}
+                    {sched.end_time ? ` - ${formatTime(sched.end_time)}` : ' (Open-Ended)'}
+                  </Text>
                   <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
                   {sched.senior_partner_id && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, alignSelf: 'flex-start' }}>
