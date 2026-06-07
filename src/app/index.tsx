@@ -211,7 +211,14 @@ export default function App() {
       const today = new Date().toISOString().split('T')[0];
       
       const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
-      const fetchSchedulesPromise = supabase.from('schedules').select('*').eq('technician_id', userId).order('start_time', { ascending: true });
+      const fetchSchedulesPromise = supabase.from('schedules')
+        .select(`
+          *,
+          technician:profiles!technician_id(full_name, role),
+          senior_partner:profiles!senior_partner_id(full_name, role)
+        `)
+        .or(`technician_id.eq.${userId},senior_partner_id.eq.${userId}`)
+        .order('start_time', { ascending: true });
       const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
@@ -578,7 +585,7 @@ export default function App() {
                 )}
               </View>
 
-              <Text style={styles.sectionTitleMain}>Priority Dispatch</Text>
+               <Text style={styles.sectionTitleMain}>Priority Dispatch</Text>
               {vipSchedules.length === 0 && <Text style={styles.emptyText}>No VIP hooks active.</Text>}
               {vipSchedules.map(sched => (
                 <View key={sched.id} style={styles.vipCard}>
@@ -588,6 +595,16 @@ export default function App() {
                   <Text style={styles.vipTitle}>{sched.client_name}</Text>
                   <Text style={styles.vipTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
                   <Text style={styles.vipLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
+                  {sched.senior_partner_id && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: '#cffafe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, alignSelf: 'flex-start' }}>
+                      <Feather name="users" size={12} color="#0891b2" style={{ marginRight: 6 }} />
+                      <Text style={{ color: '#0891b2', fontSize: 12, fontWeight: '700' }}>
+                        {profile?.role === 'helper' 
+                          ? `Lead Tech: ${sched.senior_partner?.full_name}` 
+                          : `Helper: ${sched.technician?.full_name}`}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ))}
 
@@ -598,6 +615,16 @@ export default function App() {
                   <Text style={styles.regularTitle}>{sched.client_name}</Text>
                   <Text style={styles.regularTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
                   <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
+                  {sched.senior_partner_id && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, alignSelf: 'flex-start' }}>
+                      <Feather name="users" size={12} color="#64748b" style={{ marginRight: 6 }} />
+                      <Text style={{ color: '#475569', fontSize: 12, fontWeight: '700' }}>
+                        {profile?.role === 'helper' 
+                          ? `Lead Tech: ${sched.senior_partner?.full_name}` 
+                          : `Helper: ${sched.technician?.full_name}`}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ))}
             </ScrollView>
