@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl, Modal } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -147,10 +147,90 @@ export default function App() {
 
   // Offline queue state
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [syncQueueItems, setSyncQueueItems] = useState<any[]>([]);
+  const [syncHistory, setSyncHistory] = useState<any[]>([]);
+  const [syncingNow, setSyncingNow] = useState(false);
 
-  const checkQueueStatus = async () => {
+  const loadSyncData = async () => {
     const queue = await syncQueue.getQueue();
+    const history = await syncQueue.getHistory();
+    setSyncQueueItems(queue);
+    setSyncHistory(history);
     setOfflineQueueCount(queue.length);
+  };
+
+  const handleForceSync = async () => {
+    if (syncingNow) return;
+    setSyncingNow(true);
+    try {
+      const res = await syncQueue.syncPendingQueue((item) => {
+        if (item.type === 'time_in' || item.type === 'time_out') {
+          if (session) fetchDashboardData(session.user.id);
+        }
+      });
+      await loadSyncData();
+      if (res.syncedCount > 0) {
+        Alert.alert('Sync Successful', `Synchronized ${res.syncedCount} offline transaction(s) with database.`);
+      } else if (res.success) {
+        Alert.alert('Sync Center', 'No pending items to sync or all items already synced.');
+      } else {
+        Alert.alert('Sync Failed', 'Could not sync queue. Please check your internet connection.');
+      }
+    } catch (e: any) {
+      Alert.alert('Sync Error', e.message || 'An error occurred during sync.');
+    } finally {
+      setSyncingNow(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    Alert.alert(
+      'Clear History',
+      'Are you sure you want to clear all sync history logs?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear', 
+          style: 'destructive',
+          onPress: async () => {
+            await syncQueue.clearHistory();
+            await loadSyncData();
+          }
+        }
+      ]
+    );
+  };
+
+  const getQueueItemLabel = (type: string) => {
+    switch (type) {
+      case 'time_in':
+        return 'Clock In';
+      case 'time_out':
+        return 'Clock Out';
+      case 'leave_request':
+        return 'Leave Request';
+      case 'parts_checkout':
+        return 'Parts Checkout';
+      default:
+        return type;
+    }
+  };
+
+  const getQueueItemDetails = (item: any) => {
+    if (item.type === 'time_in') {
+      return `Time: ${new Date(item.payload.app_time_in).toLocaleTimeString()}\nLat/Lng: ${Number(item.payload.latitude).toFixed(4)}, ${Number(item.payload.longitude).toFixed(4)}`;
+    }
+    if (item.type === 'time_out') {
+      return `Worked: ${item.payload.total_hours} hrs`;
+    }
+    if (item.type === 'leave_request') {
+      return `Dates: ${item.payload.start_date} to ${item.payload.end_date}\nReason: ${item.payload.reason}`;
+    }
+    if (item.type === 'parts_checkout') {
+      return `Qty: ${item.payload.quantity}\nMemo: ${item.payload.notes || 'None'}`;
+    }
+    return JSON.stringify(item.payload);
   };
 
   useEffect(() => {
@@ -211,7 +291,7 @@ export default function App() {
 
   // Offline sync loop
   useEffect(() => {
-    checkQueueStatus();
+    loadSyncData();
 
     const interval = setInterval(async () => {
       const queue = await syncQueue.getQueue();
@@ -222,7 +302,7 @@ export default function App() {
             if (session) fetchDashboardData(session.user.id);
           }
         });
-        checkQueueStatus();
+        loadSyncData();
         if (res.syncedCount > 0) {
           Alert.alert('Sync Successful', `Synchronized ${res.syncedCount} offline transaction(s) with database.`);
         }
@@ -519,7 +599,7 @@ export default function App() {
           };
           setActiveTimeLog(mockLog);
           Alert.alert('Offline Mode Active', 'Logged Clock-In locally. It will synchronize once you regain connectivity.');
-          checkQueueStatus();
+          loadSyncData();
           return;
         }
         throw error;
@@ -614,7 +694,7 @@ export default function App() {
           total_hours: diffHours
         }));
         Alert.alert('Offline Mode Active', `Logged Clock-Out locally. Worked ${diffHours} hrs. Will sync on reconnection.`);
-        checkQueueStatus();
+        loadSyncData();
         return;
       }
 
@@ -643,7 +723,7 @@ export default function App() {
             total_hours: diffHours
           }));
           Alert.alert('Offline Mode Active', `Logged Clock-Out locally. Worked ${diffHours} hrs. Will sync on reconnection.`);
-          checkQueueStatus();
+          loadSyncData();
           return;
         }
         throw error;
@@ -700,12 +780,18 @@ export default function App() {
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
         
         {offlineQueueCount > 0 && (
-          <View style={styles.offlineBanner}>
+          <TouchableOpacity 
+            style={styles.offlineBanner} 
+            onPress={() => {
+              loadSyncData();
+              setSyncModalVisible(true);
+            }}
+          >
             <Feather name="wifi-off" size={14} color="#fff" style={{ marginRight: 6 }} />
             <Text style={styles.offlineBannerText}>
-              Offline Mode: {offlineQueueCount} sync request{offlineQueueCount > 1 ? 's' : ''} pending...
+              Offline Mode: {offlineQueueCount} sync request{offlineQueueCount > 1 ? 's' : ''} pending (Tap to view)
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
         
         {/* Dynamic Main Content Based on Tab */}
@@ -997,6 +1083,17 @@ export default function App() {
                   <Text style={{ color: COLORS.primary, fontSize: 14 }}>{profile?.role === 'technician' ? 'Field Technician' : 'Staff'}</Text>
                 </View>
 
+                <TouchableOpacity 
+                  onPress={() => {
+                    loadSyncData();
+                    setSyncModalVisible(true);
+                  }} 
+                  style={{ backgroundColor: COLORS.card, padding: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'center', marginBottom: 12 }}
+                >
+                  <Feather name="refresh-cw" size={20} color={COLORS.primary} style={{ marginRight: 8 }} />
+                  <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 16 }}>Offline Sync Center</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity onPress={async () => {
                   setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
                   try { await supabase.auth.signOut(); } catch(e) {}
@@ -1051,6 +1148,112 @@ export default function App() {
   const renderedContent = (
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
+      
+      {/* OFFLINE SYNC CENTER MODAL */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={syncModalVisible}
+        onRequestClose={() => setSyncModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Feather name="refresh-cw" size={20} color={COLORS.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Offline Sync Center</Text>
+              </View>
+              <TouchableOpacity onPress={() => setSyncModalVisible(false)} style={styles.modalCloseButton}>
+                <Feather name="x" size={20} color={COLORS.textMain} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalScrollContent}>
+              <Text style={styles.syncSectionHeader}>Pending Sync Queue ({syncQueueItems.length})</Text>
+              {syncQueueItems.length === 0 ? (
+                <View style={styles.emptySyncState}>
+                  <Feather name="check-circle" size={24} color={COLORS.primary} style={{ marginBottom: 8 }} />
+                  <Text style={styles.emptySyncText}>No pending transactions.</Text>
+                </View>
+              ) : (
+                syncQueueItems.map((item) => (
+                  <View key={item.id} style={styles.syncItemCard}>
+                    <View style={styles.syncItemRow}>
+                      <Text style={styles.syncItemTitle}>{getQueueItemLabel(item.type)}</Text>
+                      <View style={[styles.syncBadge, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+                        <Text style={[styles.syncBadgeText, { color: '#f59e0b' }]}>Pending</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.syncItemDetails}>{getQueueItemDetails(item)}</Text>
+                    <Text style={styles.syncItemTime}>Created: {new Date(item.timestamp).toLocaleString()}</Text>
+                  </View>
+                ))
+              )}
+
+              <Text style={[styles.syncSectionHeader, { marginTop: 24 }]}>Sync History Logs ({syncHistory.length})</Text>
+              {syncHistory.length === 0 ? (
+                <View style={styles.emptySyncState}>
+                  <Feather name="list" size={24} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
+                  <Text style={styles.emptySyncText}>No history logs found.</Text>
+                </View>
+              ) : (
+                syncHistory.map((item, idx) => (
+                  <View key={item.id || idx} style={styles.syncItemCard}>
+                    <View style={styles.syncItemRow}>
+                      <Text style={styles.syncItemTitle}>{getQueueItemLabel(item.type)}</Text>
+                      <View style={[
+                        styles.syncBadge,
+                        { backgroundColor: item.status === 'success' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)' }
+                      ]}>
+                        <Text style={[
+                          styles.syncBadgeText,
+                          { color: item.status === 'success' ? COLORS.primary : COLORS.danger }
+                        ]}>
+                          {item.status === 'success' ? 'Success' : 'Failed'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.syncItemDetails}>{getQueueItemDetails(item)}</Text>
+                    {item.errorMsg && (
+                      <View style={styles.syncErrorContainer}>
+                        <Feather name="alert-circle" size={12} color={COLORS.danger} style={{ marginRight: 4, marginTop: 2 }} />
+                        <Text style={styles.syncErrorText}>{item.errorMsg}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.syncItemTime}>Synced: {new Date(item.syncedAt).toLocaleString()}</Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={[styles.syncButton, syncingNow && styles.disabledButton]} 
+                onPress={handleForceSync}
+                disabled={syncingNow}
+              >
+                {syncingNow ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Feather name="refresh-cw" size={16} color="#fff" style={{ marginRight: 8 }} />
+                    <Text style={styles.syncButtonText}>Force Sync Now</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.clearButton, syncHistory.length === 0 && styles.disabledButton]} 
+                onPress={handleClearHistory}
+                disabled={syncHistory.length === 0}
+              >
+                <Feather name="trash-2" size={16} color={syncHistory.length === 0 ? COLORS.textMuted : COLORS.danger} style={{ marginRight: 8 }} />
+                <Text style={[styles.clearButtonText, { color: syncHistory.length === 0 ? COLORS.textMuted : COLORS.danger }]}>Clear History</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {splashVisible && (
         <Animated.View style={[styles.splashContainer, { opacity: splashOpacity }]} pointerEvents={splashVisible ? 'auto' : 'none'}>
           <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity, alignItems: 'center' }}>
@@ -1307,5 +1510,173 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#ef4444',
-  } as ViewStyle
+  } as ViewStyle,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  } as ViewStyle,
+  modalContent: {
+    width: '100%',
+    height: '85%',
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 20,
+  } as ViewStyle,
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  } as ViewStyle,
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    letterSpacing: -0.5,
+  } as TextStyle,
+  modalCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.card,
+  } as ViewStyle,
+  modalScrollContent: {
+    padding: 24,
+    paddingBottom: 40,
+  } as ViewStyle,
+  syncSectionHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 12,
+  } as TextStyle,
+  emptySyncState: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as ViewStyle,
+  emptySyncText: {
+    color: COLORS.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  } as TextStyle,
+  syncItemCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    marginBottom: 12,
+  } as ViewStyle,
+  syncItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  } as ViewStyle,
+  syncItemTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textMain,
+  } as TextStyle,
+  syncBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  } as ViewStyle,
+  syncBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  } as TextStyle,
+  syncItemDetails: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    lineHeight: 18,
+    marginBottom: 6,
+  } as TextStyle,
+  syncItemTime: {
+    fontSize: 10,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
+  } as TextStyle,
+  syncErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.1)',
+  } as ViewStyle,
+  syncErrorText: {
+    flex: 1,
+    fontSize: 12,
+    color: COLORS.danger,
+    lineHeight: 16,
+    fontWeight: '600',
+  } as TextStyle,
+  modalFooter: {
+    flexDirection: 'row',
+    padding: 24,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: '#ffffff',
+    gap: 12,
+  } as ViewStyle,
+  syncButton: {
+    flex: 2,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  } as ViewStyle,
+  syncButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  } as TextStyle,
+  clearButton: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  } as ViewStyle,
+  clearButtonText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  } as TextStyle,
+  disabledButton: {
+    opacity: 0.5,
+    shadowOpacity: 0,
+  } as ViewStyle,
 });

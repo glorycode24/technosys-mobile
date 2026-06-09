@@ -199,6 +199,97 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
     return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1;
   };
 
+  const calculateLeaveCredits = () => {
+    const totalAllowance = 15;
+    const currentYear = new Date().getFullYear();
+    
+    // Filter approved paid leaves ('sick', 'vacation', 'emergency') for current year
+    const approvedPaidLeaves = leavesList.filter(item => 
+      item.status === 'approved' && 
+      ['sick', 'vacation', 'emergency'].includes(item.leave_type) &&
+      new Date(item.start_date).getFullYear() === currentYear
+    );
+    
+    // Filter pending paid leaves (including offline sync_pending) for current year
+    const pendingPaidLeaves = leavesList.filter(item => 
+      (item.status === 'pending' || item.status === 'sync_pending') && 
+      ['sick', 'vacation', 'emergency'].includes(item.leave_type) &&
+      new Date(item.start_date).getFullYear() === currentYear
+    );
+    
+    const usedCredits = approvedPaidLeaves.reduce((acc, item) => {
+      return acc + calculateLeaveDuration(item.start_date, item.end_date);
+    }, 0);
+
+    const pendingCredits = pendingPaidLeaves.reduce((acc, item) => {
+      return acc + calculateLeaveDuration(item.start_date, item.end_date);
+    }, 0);
+    
+    // remaining is allowance minus approved used (clamped at 0)
+    const remainingBalance = Math.max(0, totalAllowance - usedCredits);
+
+    // available is remaining minus pending requested (clamped at 0)
+    const availableBalance = Math.max(0, remainingBalance - pendingCredits);
+    
+    return {
+      totalAllowance,
+      usedCredits,
+      pendingCredits,
+      remainingBalance,
+      availableBalance
+    };
+  };
+
+  const renderLeaveBalanceCard = () => {
+    const { totalAllowance, usedCredits, pendingCredits, availableBalance } = calculateLeaveCredits();
+    
+    return (
+      <View style={styles.balanceCard}>
+        <View style={styles.balanceCardHeader}>
+          <Text style={styles.balanceCardTitle}>Leave Credits Balance</Text>
+          <View style={styles.balanceCardIconBg}>
+            <Feather name="activity" size={14} color={COLORS.primary} />
+          </View>
+        </View>
+        
+        <View style={styles.balanceGrid}>
+          <View style={styles.balanceCol}>
+            <Text style={styles.balanceVal}>{totalAllowance}d</Text>
+            <Text style={styles.balanceLbl}>Allowance</Text>
+          </View>
+          <View style={[styles.balanceCol, { borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.border }]}>
+            <Text style={[styles.balanceVal, { color: COLORS.indigo }]}>{usedCredits}d</Text>
+            <Text style={styles.balanceLbl}>Approved</Text>
+          </View>
+          <View style={[styles.balanceCol, { borderRightWidth: 1, borderColor: COLORS.border }]}>
+            <Text style={[styles.balanceVal, { color: '#f59e0b' }]}>{pendingCredits}d</Text>
+            <Text style={styles.balanceLbl}>Pending</Text>
+          </View>
+          <View style={styles.balanceCol}>
+            <Text style={[styles.balanceVal, { color: availableBalance > 0 ? COLORS.primary : COLORS.danger }]}>
+              {availableBalance}d
+            </Text>
+            <Text style={styles.balanceLbl}>Available</Text>
+          </View>
+        </View>
+
+        {/* Dynamic Progress indicator */}
+        <View style={styles.progressBarBg}>
+          <View 
+            style={[
+              styles.progressBarFill, 
+              { 
+                width: `${Math.min(100, (availableBalance / totalAllowance) * 100)}%`,
+                backgroundColor: availableBalance > 5 ? COLORS.primary : availableBalance > 2 ? '#f59e0b' : COLORS.danger
+              }
+            ]} 
+          />
+        </View>
+      </View>
+    );
+  };
+
+
   // Fetch technician's tickets (with cache fallback)
   const fetchTickets = async () => {
     setLoading(true);
@@ -322,6 +413,30 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         Alert.alert('Invalid Date Range', 'End Date must be on or after Start Date.');
         return;
       }
+
+      // Check if requested duration exceeds remaining balance for paid leaves
+      if (['sick', 'vacation', 'emergency'].includes(leaveType)) {
+        const duration = calculateLeaveDuration(startDate, endDate);
+        const { availableBalance } = calculateLeaveCredits();
+        
+        if (duration > availableBalance) {
+          Alert.alert(
+            'Insufficient Leave Credits',
+            `You are requesting ${duration} day(s) of ${leaveType} leave, but you only have ${availableBalance} day(s) of available paid leave credits.\n\nWould you like to file this as Unpaid leave instead, or adjust your dates?`,
+            [
+              { text: 'Adjust Dates', style: 'cancel' },
+              { 
+                text: 'Change to Unpaid', 
+                onPress: () => {
+                  setLeaveType('unpaid');
+                }
+              }
+            ]
+          );
+          return;
+        }
+      }
+
 
       const payload = {
         technician_id: userId,
@@ -885,66 +1000,69 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
               </ScrollView>
             )
           ) : (
-            leavesLoading && leavesList.length === 0 ? (
-              <View style={styles.centered}>
-                <ActivityIndicator color={COLORS.primary} size="large" />
-              </View>
-            ) : leavesList.length === 0 ? (
-              <ScrollView contentContainerStyle={styles.centeredScroll}>
-                <Feather name="calendar" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
-                <Text style={styles.emptyTitle}>No leave requests</Text>
-                <Text style={styles.emptyDesc}>Want to request leave or vacation days? Click the + button to submit a leave request.</Text>
-              </ScrollView>
-            ) : (
-              <ScrollView 
-                contentContainerStyle={styles.listContent} 
-                refreshControl={<RefreshControl refreshing={leavesRefreshing} onRefresh={() => { setLeavesRefreshing(true); fetchLeaves(); }} colors={[COLORS.primary]} />}
-              >
-                {leavesList.map((item) => {
-                  const typeDetails = getLeaveTypeDetails(item.leave_type);
-                  const statusDetails = getLeaveStatusDetails(item.status);
-                  const duration = calculateLeaveDuration(item.start_date, item.end_date);
-                  
-                  return (
-                    <View key={item.id} style={styles.ticketCard}>
-                      <View style={styles.cardHeader}>
-                        <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
-                          <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
-                          <Text style={[styles.catBadgeText, { color: typeDetails.color }]}>
-                            {typeDetails.label} Leave
-                          </Text>
+            <View style={{ flex: 1 }}>
+              {renderLeaveBalanceCard()}
+              {leavesLoading && leavesList.length === 0 ? (
+                <View style={styles.centered}>
+                  <ActivityIndicator color={COLORS.primary} size="large" />
+                </View>
+              ) : leavesList.length === 0 ? (
+                <ScrollView contentContainerStyle={styles.centeredScroll}>
+                  <Feather name="calendar" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
+                  <Text style={styles.emptyTitle}>No leave requests</Text>
+                  <Text style={styles.emptyDesc}>Want to request leave or vacation days? Click the + button to submit a leave request.</Text>
+                </ScrollView>
+              ) : (
+                <ScrollView 
+                  contentContainerStyle={styles.listContent} 
+                  refreshControl={<RefreshControl refreshing={leavesRefreshing} onRefresh={() => { setLeavesRefreshing(true); fetchLeaves(); }} colors={[COLORS.primary]} />}
+                >
+                  {leavesList.map((item) => {
+                    const typeDetails = getLeaveTypeDetails(item.leave_type);
+                    const statusDetails = getLeaveStatusDetails(item.status);
+                    const duration = calculateLeaveDuration(item.start_date, item.end_date);
+                    
+                    return (
+                      <View key={item.id} style={styles.ticketCard}>
+                        <View style={styles.cardHeader}>
+                          <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
+                            <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
+                            <Text style={[styles.catBadgeText, { color: typeDetails.color }]}>
+                              {typeDetails.label} Leave
+                            </Text>
+                          </View>
+                          <View style={[styles.catBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
+                            {statusDetails.isSync && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />}
+                            <Text style={[styles.catBadgeText, { color: statusDetails.color }]}>
+                              {statusDetails.label}
+                            </Text>
+                          </View>
                         </View>
-                        <View style={[styles.catBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
-                          {statusDetails.isSync && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />}
-                          <Text style={[styles.catBadgeText, { color: statusDetails.color }]}>
-                            {statusDetails.label}
-                          </Text>
+                        
+                        <Text style={styles.ticketTitle}>
+                          🗓️ {item.start_date} to {item.end_date}
+                        </Text>
+                        
+                        <Text style={[styles.ticketDesc, { marginBottom: 8 }]}>
+                          Duration: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{duration} {duration === 1 ? 'day' : 'days'}</Text>
+                        </Text>
+  
+                        <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic', lineHeight: 18 }}>“{item.reason}”</Text>
                         </View>
+  
+                        {item.status === 'sync_pending' && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                            <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
+                            <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
+                          </View>
+                        )}
                       </View>
-                      
-                      <Text style={styles.ticketTitle}>
-                        🗓️ {item.start_date} to {item.end_date}
-                      </Text>
-                      
-                      <Text style={[styles.ticketDesc, { marginBottom: 8 }]}>
-                        Duration: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{duration} {duration === 1 ? 'day' : 'days'}</Text>
-                      </Text>
-
-                      <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
-                        <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic', lineHeight: 18 }}>“{item.reason}”</Text>
-                      </View>
-
-                      {item.status === 'sync_pending' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
-                          <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
-                          <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            )
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
           )}
         </View>
       )}
@@ -1490,5 +1608,73 @@ const styles = {
   segmentedContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginHorizontal: 24, marginBottom: 16 } as ViewStyle,
   segmentedButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 } as ViewStyle,
   segmentedActive: { backgroundColor: COLORS.primary } as ViewStyle,
-  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle
+  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
+  balanceCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 24,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2
+  } as ViewStyle,
+  balanceCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14
+  } as ViewStyle,
+  balanceCardTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: COLORS.textMain,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  } as TextStyle,
+  balanceCardIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: COLORS.primaryDim,
+    justifyContent: 'center',
+    alignItems: 'center'
+  } as ViewStyle,
+  balanceGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14
+  } as ViewStyle,
+  balanceCol: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center'
+  } as ViewStyle,
+  balanceVal: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    marginBottom: 2
+  } as TextStyle,
+  balanceLbl: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase'
+  } as TextStyle,
+  progressBarBg: {
+    height: 6,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 3,
+    overflow: 'hidden'
+  } as ViewStyle,
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3
+  } as ViewStyle
 };
