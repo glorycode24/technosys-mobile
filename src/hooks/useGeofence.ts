@@ -7,18 +7,13 @@ import { withTimeout } from '../lib/timeout';
 
 interface GeofenceResult {
   status: 'idle' | 'checking' | 'inside' | 'outside' | 'error';
-  distance?: number | null; // meters from nearest office
-  latitude?: number | null;
-  longitude?: number | null;
-  matchingOfficeName?: string | null;
-  officeLatitude?: number | null;
-  officeLongitude?: number | null;
-  officeRadius?: number | null;
+  distance: number | null; // meters from nearest office
+  latitude: number | null;
+  longitude: number | null;
+  matchingOfficeName: string | null;
   error: string | null;
-  errorKey?: string;
   isMocked?: boolean;
   gpsAccuracy?: number | null;
-  timeDrift?: number | null;
 }
 
 export function useGeofence() {
@@ -28,16 +23,12 @@ export function useGeofence() {
     latitude: null, 
     longitude: null, 
     matchingOfficeName: null,
-    officeLatitude: null,
-    officeLongitude: null,
-    officeRadius: null,
     error: null,
-    errorKey: undefined,
     isMocked: false,
     gpsAccuracy: null
   });
 
-  const checkLocation = useCallback(async (): Promise<GeofenceResult> => {
+  const checkLocation = useCallback(async () => {
     setResult(prev => ({ ...prev, status: 'checking', error: null }));
 
     try {
@@ -45,8 +36,8 @@ export function useGeofence() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         const errorMsg = 'Location permission denied. Please enable it in your phone settings.';
-        setResult(prev => ({ ...prev, status: 'error', error: errorMsg, errorKey: 'locationPermissionDenied' }));
-        return { status: 'error', error: errorMsg, errorKey: 'locationPermissionDenied' } as const;
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
       }
 
       // 2. Get current position
@@ -57,27 +48,16 @@ export function useGeofence() {
       const isMocked = !!(location as any).mocked;
       const gpsAccuracy = location.coords.accuracy;
 
-      // Time Tampering Detection (Check system clock against GPS satellite timestamp)
-      const gpsTime = location.timestamp;
-      const deviceTime = Date.now();
-      const timeDelta = Math.abs(deviceTime - gpsTime);
-
-      if (timeDelta > 5 * 60 * 1000) { // 5 minutes tolerance
-        const errorMsg = 'Time manipulation detected. Please set your device clock to automatic network time.';
-        setResult(prev => ({ ...prev, status: 'error', error: errorMsg, errorKey: 'timeTamperingDetected' }));
-        return { status: 'error', error: errorMsg, errorKey: 'timeTamperingDetected' } as const;
-      }
-
       if (isMocked) {
         const errorMsg = 'Spoofing detected: Mock location provider active.';
-        setResult(prev => ({ ...prev, status: 'error', error: errorMsg, errorKey: 'mockLocationDetected' }));
-        return { status: 'error', error: errorMsg, errorKey: 'mockLocationDetected' } as const;
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
       }
 
       if (gpsAccuracy && gpsAccuracy > 50) {
         const errorMsg = `Poor GPS signal accuracy (${Math.round(gpsAccuracy)}m). Please step outside or find an open space.`;
-        setResult(prev => ({ ...prev, status: 'error', error: errorMsg, errorKey: 'poorGpsSignal' }));
-        return { status: 'error', error: errorMsg, errorKey: 'poorGpsSignal' } as const;
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
+        return { status: 'error', error: errorMsg } as const;
       }
 
       const userLat = location.coords.latitude;
@@ -144,13 +124,9 @@ export function useGeofence() {
           latitude: userLat,
           longitude: userLng,
           matchingOfficeName: nearestOffice.name,
-          officeLatitude: nearestOffice.latitude,
-          officeLongitude: nearestOffice.longitude,
-          officeRadius: nearestOffice.radius_meters,
           error: null,
           isMocked,
-          gpsAccuracy,
-          timeDrift: timeDelta
+          gpsAccuracy
         };
         setResult(finalResult);
         return finalResult;
@@ -164,14 +140,10 @@ export function useGeofence() {
           distance: nearestDistance,
           latitude: userLat,
           longitude: userLng,
-          matchingOfficeName: nearestName,
-          officeLatitude: nearestOffice ? nearestOffice.latitude : null,
-          officeLongitude: nearestOffice ? nearestOffice.longitude : null,
-          officeRadius: nearestRadius,
+          matchingOfficeName: null,
           error: errorMsg,
           isMocked,
-          gpsAccuracy,
-          timeDrift: timeDelta
+          gpsAccuracy
         };
         setResult(finalResult);
         return finalResult;
@@ -190,11 +162,7 @@ export function useGeofence() {
       latitude: null, 
       longitude: null, 
       matchingOfficeName: null,
-      officeLatitude: null,
-      officeLongitude: null,
-      officeRadius: null,
       error: null,
-      errorKey: undefined,
       isMocked: false,
       gpsAccuracy: null
     });

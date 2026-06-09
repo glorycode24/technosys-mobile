@@ -1,75 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
-import GeofenceMobileMap from '../components/GeofenceMobileMap';
 import { TicketsTab } from '../components/TicketsTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
-import { Locale, TRANSLATIONS } from '../lib/translations';
-import * as SecureStore from 'expo-secure-store';
-import * as LocalAuthentication from 'expo-local-authentication';
-import * as Location from 'expo-location';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false, // soft default
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
-
-async function registerForPushNotificationsAsync(userId: string) {
-  if (Platform.OS === 'web') {
-    console.log('Push notifications not supported on web platform.');
-    return;
-  }
-  if (!Device.isDevice) {
-    console.log('Must use physical device for Push Notifications');
-    return;
-  }
-  try {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
-      return;
-    }
-    // Fetch token
-    const projectId = require('../../app.json')?.expo?.extra?.eas?.projectId;
-    if (!projectId) {
-      console.warn('Expo Project ID not found in app.json. Cannot fetch push token.');
-      return;
-    }
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId
-    });
-    const token = tokenData.data;
-    console.log('Expo Push Token generated successfully:', token);
-    
-    // Save to Supabase profiles table
-    const { error } = await supabase
-      .from('profiles')
-      .update({ push_token: token })
-      .eq('id', userId);
-      
-    if (error) {
-      console.error('Failed to update push token in profile:', error.message);
-    }
-  } catch (e: any) {
-    console.warn('Error in push registration:', e.message || e);
-  }
-}
 
 // Clean White Professional Theme
 const COLORS = {
@@ -172,297 +110,30 @@ const LoginScreen = ({ onLogin }: any) => {
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
-  const [isLocked, setIsLocked] = useState(false);
-  const [isOnline, setIsOnline] = useState<boolean>(true);
-
-  // Helper functions for platform-agnostic Secure Storage
-  const getSecureItem = async (key: string): Promise<string | null> => {
-    try {
-      if (Platform.OS === 'web') {
-        return AsyncStorage.getItem(key);
-      }
-      return await SecureStore.getItemAsync(key);
-    } catch (e) {
-      console.warn("SecureStore get failed", e);
-      return null;
-    }
-  };
-
-  const setSecureItem = async (key: string, value: string): Promise<void> => {
-    try {
-      if (Platform.OS === 'web') {
-        await AsyncStorage.setItem(key, value);
-      } else {
-        await SecureStore.setItemAsync(key, value);
-      }
-    } catch (e) {
-      console.warn("SecureStore set failed", e);
-    }
-  };
-
-  const deleteSecureItem = async (key: string): Promise<void> => {
-    try {
-      if (Platform.OS === 'web') {
-        await AsyncStorage.removeItem(key);
-      } else {
-        await SecureStore.deleteItemAsync(key);
-      }
-    } catch (e) {
-      console.warn("SecureStore delete failed", e);
-    }
-  };
-
-  // Helper to verify server connectivity
-  const checkIsOnline = async (): Promise<boolean> => {
-    if (Platform.OS === 'web') {
-      return typeof navigator !== 'undefined' ? navigator.onLine : true;
-    }
-    try {
-      const response = await withTimeout(
-        fetch('https://ggknkdyuglzcnkwhvdak.supabase.co'),
-        2000
-      );
-      return !!response;
-    } catch (e) {
-      return false;
-    }
-  };
-
-  const authenticateBiometrics = async (): Promise<boolean> => {
-    try {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!hasHardware || !isEnrolled) {
-        return true;
-      }
-      
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: t('biometricPrompt') || 'Authenticate to unlock TechnoSys',
-        fallbackLabel: t('biometricFallback') || 'Use passcode',
-        disableDeviceFallback: false,
-      });
-      return result.success;
-    } catch (e) {
-      console.warn("Biometric authentication error:", e);
-      return false;
-    }
-  };
   const [profile, setProfile] = useState<any>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [payslip, setPayslip] = useState<any>(null);
-  const [leaveAlert, setLeaveAlert] = useState<any>(null);
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
 
-  // Phase 8: Two-Factor Biometric Scan States & Refs
-  const [isWaitingForScan, setIsWaitingForScan] = useState(false);
-  const [scanType, setScanType] = useState<'in' | 'out' | null>(null);
-  const [scanCountdown, setScanCountdown] = useState(180);
-  const scanTypeRef = React.useRef<'in' | 'out' | null>(null);
-  const pendingLocationRef = React.useRef<any>(null);
+  // Leaves alerts and refreshing states
+  const [recentLeaveAlerts, setRecentLeaveAlerts] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Phase 8: DMS Download States
-  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-
-  const startFormDownload = (filename: string) => {
-    if (downloadingFile) return;
-    setDownloadingFile(filename);
-    setDownloadProgress(0);
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += 20;
-      setDownloadProgress(currentProgress);
-      if (currentProgress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setDownloadingFile(null);
-          Alert.alert(
-            language === 'fil' ? 'Matagumpay' : 'Success',
-            language === 'fil'
-              ? `Matagumpay na na-download ang ${filename} at na-save sa iyong device.`
-              : `${filename} has been downloaded successfully and saved to your device.`
-          );
-        }, 300);
-      }
-    }, 450);
-  };
-
-  useEffect(() => {
-    let timer: any;
-    let pollInterval: any;
-    let channel: any;
-
-    if (isWaitingForScan && session) {
-      setScanCountdown(180);
-      const startTime = new Date().toISOString();
-
-      // Subscribe to Supabase Realtime for this user's scans
-      channel = supabase
-        .channel('biometric_scans_' + session.user.id)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'physical_biometric_scans',
-            filter: `employee_id=eq.${session.user.id}`
-          },
-          (payload) => {
-            console.log('Realtime fingerprint scan detected:', payload);
-            const scanTime = new Date(payload.new.scanned_at).getTime();
-            const startMs = new Date(startTime).getTime();
-            if (scanTime >= startMs - 5000) { // allow a 5s buffer
-              handleBiometricScanSuccess();
-            }
-          }
-        )
-        .subscribe();
-
-      // Polling fallback
-      pollInterval = setInterval(async () => {
-        const online = await checkIsOnline();
-        if (!online) return;
-        try {
-          const { data, error } = await supabase
-            .from('physical_biometric_scans')
-            .select('scanned_at')
-            .eq('employee_id', session.user.id)
-            .gte('scanned_at', startTime)
-            .order('scanned_at', { ascending: false })
-            .limit(1);
-
-          if (!error && data && data.length > 0) {
-            console.log("Polling detected fingerprint scan:", data[0]);
-            handleBiometricScanSuccess();
-          }
-        } catch (err) {
-          console.warn("Polling biometric scan error:", err);
-        }
-      }, 3000);
-
-      // 3-minute Countdown
-      timer = setInterval(() => {
-        setScanCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            clearInterval(pollInterval);
-            if (channel) supabase.removeChannel(channel);
-            setIsWaitingForScan(false);
-            setScanType(null);
-            scanTypeRef.current = null;
-            pendingLocationRef.current = null;
-            Alert.alert(t('biometricVerificationFailed'), t('biometricScanTimeout'));
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-
-    return () => {
-      if (timer) clearInterval(timer);
-      if (pollInterval) clearInterval(pollInterval);
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, [isWaitingForScan, session]);
-
-  const handleBiometricScanSuccess = async () => {
-    setIsWaitingForScan(false);
-    setScanType(null);
-    const type = scanTypeRef.current;
-    const locationResult = pendingLocationRef.current;
-    
-    scanTypeRef.current = null;
-    pendingLocationRef.current = null;
-    
-    if (type === 'in') {
-      await executeTimeIn(locationResult);
-    } else if (type === 'out') {
-      await executeTimeOut(locationResult);
-    }
-  };
-
-  const [language, setLanguage] = useState<Locale>('en');
-  const langAnim = React.useRef(new Animated.Value(0)).current;
-
-  const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
-    const currentLangDict = TRANSLATIONS[language] || TRANSLATIONS['en'];
-    let text = (currentLangDict as any)[key] || (TRANSLATIONS['en'] as any)[key] || key;
-    if (replaceParams) {
-      Object.entries(replaceParams).forEach(([k, v]) => {
-        text = text.replace(`{${k}}`, String(v));
-      });
-    }
-    return text;
-  };
-
-  const changeLanguage = async (newLang: Locale) => {
-    setLanguage(newLang);
-    await AsyncStorage.setItem('APP_LANGUAGE', newLang);
-    Animated.spring(langAnim, {
-      toValue: newLang === 'en' ? 0 : 1,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 50
-    }).start();
-  };
-
-  useEffect(() => {
-    AsyncStorage.getItem('APP_LANGUAGE').then((storedLang) => {
-      if (storedLang === 'en' || storedLang === 'fil') {
-        const lang = storedLang as Locale;
-        setLanguage(lang);
-        langAnim.setValue(lang === 'en' ? 0 : 1);
-      }
-    });
-  }, []);
-
-  const [dtrLogs, setDtrLogs] = useState<any[]>([]);
-  const [dtrLoading, setDtrLoading] = useState(false);
-  const [showDtrModal, setShowDtrModal] = useState(false);
-
-  const fetchDtrLogs = async () => {
-    if (!session) return;
-    const online = await checkIsOnline();
-    setIsOnline(online);
-
-    if (!online) {
-      console.log("App is offline, loading DTR logs from cache...");
-      try {
-        const cached = await AsyncStorage.getItem('CACHED_DTR_LOGS_' + session.user.id);
-        setDtrLogs(cached ? JSON.parse(cached) : []);
-      } catch (cacheErr) {
-        console.error("Failed to read DTR logs cache", cacheErr);
-      }
-      return;
-    }
-
-    setDtrLoading(true);
+  // Load recent alerts
+  const loadRecentAlerts = async (userId: string) => {
     try {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const { data, error } = await supabase.from('time_logs')
-        .select('*')
-        .eq('technician_id', session.user.id)
-        .gte('created_at', startOfMonth)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setDtrLogs(data || []);
-      await AsyncStorage.setItem('CACHED_DTR_LOGS_' + session.user.id, JSON.stringify(data || []));
-    } catch (e: any) {
-      console.warn("Failed to fetch DTR logs:", e.message);
-      setIsOnline(false);
-      try {
-        const cached = await AsyncStorage.getItem('CACHED_DTR_LOGS_' + session.user.id);
-        if (cached) setDtrLogs(JSON.parse(cached));
-      } catch (cacheErr) {}
-    } finally {
-      setDtrLoading(false);
+      const stored = await AsyncStorage.getItem('UNREAD_LEAVE_ALERTS_' + userId);
+      if (stored) {
+        setRecentLeaveAlerts(JSON.parse(stored));
+      } else {
+        setRecentLeaveAlerts([]);
+      }
+    } catch (err) {
+      console.error('Failed to load recent leave alerts:', err);
     }
   };
 
@@ -483,161 +154,59 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Check auth cache, TTL and trigger biometrics if offline
-    const initAuth = async () => {
-      try {
-        const storedSessionStr = await getSecureItem('USER_SESSION');
-        if (!storedSessionStr) {
-          return;
-        }
-
-        const storedSession = JSON.parse(storedSessionStr);
-        
-        // TTL Check: 24 hours
-        const lastOnlineStr = await AsyncStorage.getItem('LAST_ONLINE_TIMESTAMP');
-        const now = new Date();
-        let isExpired = false;
-        
-        if (lastOnlineStr) {
-          const lastOnline = new Date(lastOnlineStr);
-          const diffMs = now.getTime() - lastOnline.getTime();
-          if (diffMs > 24 * 60 * 60 * 1000) {
-            isExpired = true;
-          }
-        } else {
-          isExpired = true;
-        }
-
-        if (isExpired) {
-          await deleteSecureItem('USER_SESSION');
-          await AsyncStorage.removeItem('LAST_ONLINE_TIMESTAMP');
-          await supabase.auth.signOut();
-          
-          Alert.alert(
-            t('offlineSessionExpired'),
-            t('offlineSessionExpiredMsg')
-          );
-          return;
-        }
-
-        // Within 24-hour limit
-        const onlineStatus = await checkIsOnline();
-        setIsOnline(onlineStatus);
-        if (onlineStatus) {
-          setSession(storedSession);
-          try {
-            await supabase.auth.setSession({
-              access_token: storedSession.access_token,
-              refresh_token: storedSession.refresh_token
-            });
-          } catch (e) {
-            console.warn("Online setSession failed:", e);
-          }
-          await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', now.toISOString());
-        } else {
-          // Offline biometric gate
-          const authenticated = await authenticateBiometrics();
-          if (authenticated) {
-            setSession(storedSession);
-            try {
-              await supabase.auth.setSession({
-                access_token: storedSession.access_token,
-                refresh_token: storedSession.refresh_token
-              });
-            } catch (e) {
-              console.warn("Offline setSession failed:", e);
-            }
-            setIsLocked(false);
-          } else {
-            setIsLocked(true);
-          }
-        }
-      } catch (err) {
-        console.warn("Init auth error", err);
+    // 1. Fetch auth session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        fetchDashboardData(session.user.id);
+        loadRecentAlerts(session.user.id);
       }
-    };
+    });
 
-    const startupSequence = async () => {
-      // 1. Start logo entry animation
-      const animPromise = new Promise<void>((resolve) => {
-        Animated.parallel([
-          Animated.timing(logoOpacity, {
-            toValue: 1,
-            duration: 900,
-            useNativeDriver: true,
-          }),
-          Animated.spring(logoScale, {
-            toValue: 1,
-            friction: 6,
-            tension: 40,
-            useNativeDriver: true,
-          }),
-          Animated.timing(taglineOpacity, {
-            toValue: 1,
-            duration: 900,
-            useNativeDriver: true,
-          }),
-          Animated.timing(taglineTranslateY, {
-            toValue: 0,
-            duration: 900,
-            useNativeDriver: true,
-          }),
-        ]).start(() => resolve());
-      });
+    supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchDashboardData(session.user.id);
+        loadRecentAlerts(session.user.id);
+      } else {
+        setRecentLeaveAlerts([]);
+      }
+    });
 
-      // 2. Run auth checks in parallel
-      const authPromise = initAuth();
-
-      // 3. Wait for animation, auth check, and a minimum 1-second hold
-      await Promise.all([animPromise, authPromise, new Promise(r => setTimeout(r, 1000))]);
-
-      // 4. Fade out splash
+    // 2. Play opening transition animation
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(logoOpacity, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.spring(logoScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+        Animated.timing(taglineOpacity, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(taglineTranslateY, {
+          toValue: 0,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.delay(1000), // Hold for 1 second
       Animated.timing(splashOpacity, {
         toValue: 0,
         duration: 500,
         useNativeDriver: true,
-      }).start(() => {
-        setSplashVisible(false);
-      });
-    };
-
-    // Listen to Supabase auth events
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      setSession(currentSession);
-      if (currentSession) {
-        await setSecureItem('USER_SESSION', JSON.stringify(currentSession));
-        const onlineStatus = await checkIsOnline();
-        setIsOnline(onlineStatus);
-        if (onlineStatus) {
-          await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
-        }
-        await fetchDashboardData(currentSession.user.id);
-        registerForPushNotificationsAsync(currentSession.user.id);
-      } else if (event === 'SIGNED_OUT') {
-        await deleteSecureItem('USER_SESSION');
-        await AsyncStorage.removeItem('LAST_ONLINE_TIMESTAMP');
-      }
+      }),
+    ]).start(() => {
+      setSplashVisible(false);
     });
-
-    startupSequence();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Notification received in foreground:', notification);
-    });
-    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('Notification response received:', response);
-    });
-    return () => {
-      notificationListener.remove();
-      responseListener.remove();
-    };
   }, []);
 
   // Offline sync loop
@@ -645,11 +214,8 @@ export default function App() {
     checkQueueStatus();
 
     const interval = setInterval(async () => {
-      const online = await checkIsOnline();
-      setIsOnline(online);
-
       const queue = await syncQueue.getQueue();
-      if (queue.length > 0 && online) {
+      if (queue.length > 0) {
         console.log('Background checking connection to sync queue...');
         const res = await syncQueue.syncPendingQueue((item) => {
           if (item.type === 'time_in' || item.type === 'time_out') {
@@ -666,118 +232,25 @@ export default function App() {
     return () => clearInterval(interval);
   }, [session]);
 
-  // Web-specific online/offline window listeners
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      const handleOnline = () => {
-        setIsOnline(true);
-        if (session) {
-          fetchDashboardData(session.user.id);
-          syncQueue.getQueue().then(queue => {
-            if (queue.length > 0) {
-              syncQueue.syncPendingQueue((item) => {
-                if (item.type === 'time_in' || item.type === 'time_out') {
-                  fetchDashboardData(session.user.id);
-                }
-              }).then(res => {
-                checkQueueStatus();
-                if (res.syncedCount > 0) {
-                  Alert.alert('Sync Successful', `Synchronized ${res.syncedCount} offline transaction(s) with database.`);
-                }
-              });
-            }
-          });
-        }
-      };
-      const handleOffline = () => {
-        setIsOnline(false);
-      };
-
-      window.addEventListener('online', handleOnline);
-      window.addEventListener('offline', handleOffline);
-
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-      };
-    }
-  }, [session]);
-
-  const loadDashboardDataFromCache = async (userId: string) => {
-    try {
-      const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
-      if (cached) {
-        const dashboardCache = JSON.parse(cached);
-        if (dashboardCache.profile) setProfile(dashboardCache.profile);
-        setSchedules(dashboardCache.schedules || []);
-        setPayslip(dashboardCache.payslip);
-        setAnnouncements(dashboardCache.announcements || []);
-        
-        const cachedLogs = dashboardCache.logs || [];
-        
-        // Apply offline queue overrides to cached logs
-        const queue = await syncQueue.getQueue();
-        const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
-        
-        let finalActiveLog: any = null;
-        if (pendingTimeIn) {
-          finalActiveLog = {
-            id: 'offline-pending-' + pendingTimeIn.id,
-            technician_id: userId,
-            app_time_in: pendingTimeIn.payload.app_time_in,
-            app_time_out: pendingTimeIn.payload.app_time_out || null,
-            total_hours: pendingTimeIn.payload.total_hours || null,
-            latitude: pendingTimeIn.payload.latitude,
-            longitude: pendingTimeIn.payload.longitude,
-            geofence_status: 'inside',
-            is_offline_pending: true
-          };
-        } else if (cachedLogs.length > 0) {
-          finalActiveLog = { ...cachedLogs[0] };
-          const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
-          if (pendingTimeOut) {
-            finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
-            finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
-          }
-        }
-        setActiveTimeLog(finalActiveLog);
-      }
-    } catch (cacheErr) {
-      console.error("Failed to read dashboard cache", cacheErr);
-    }
-  };
-
   const fetchDashboardData = async (userId: string) => {
-    const online = await checkIsOnline();
-    setIsOnline(online);
-
-    if (!online) {
-      console.log("App is offline, loading dashboard data from cache directly...");
-      await loadDashboardDataFromCache(userId);
-      return;
-    }
-
     try {
       const today = new Date().toISOString().split('T')[0];
       
       const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
-      const fetchSchedulesPromise = supabase.from('schedules').select('*, senior_partner:profiles!senior_partner_id(full_name)').eq('technician_id', userId).order('start_time', { ascending: true });
+      const fetchSchedulesPromise = supabase.from('schedules').select('*').eq('technician_id', userId).order('start_time', { ascending: true });
       const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
         .gte('created_at', `${today}T00:00:00Z`)
         .order('created_at', { ascending: false });
-      const fetchAnnouncementsPromise = supabase.from('announcements')
-        .select('*')
-        .order('created_at', { ascending: false });
       const fetchLeavesPromise = supabase.from('leaves')
         .select('*')
         .eq('technician_id', userId)
         .order('created_at', { ascending: false });
 
-      const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult, leavesResult] = await withTimeout(
-        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise, fetchLeavesPromise]),
+      const [profResult, schedsResult, payslipsResult, logsResult, leavesResult] = await withTimeout(
+        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchLeavesPromise]),
         4000
       );
 
@@ -791,51 +264,17 @@ export default function App() {
       if (schedsResult.error && isNetworkErr(schedsResult.error)) throw schedsResult.error;
       if (payslipsResult.error && isNetworkErr(payslipsResult.error)) throw payslipsResult.error;
       if (logsResult.error && isNetworkErr(logsResult.error)) throw logsResult.error;
-      if (announcementsResult.error && isNetworkErr(announcementsResult.error)) throw announcementsResult.error;
       if (leavesResult.error && isNetworkErr(leavesResult.error)) throw leavesResult.error;
 
       const prof = profResult.data;
       const scheds = schedsResult.data || [];
       const pay = payslipsResult.data;
       const logs = logsResult.data || [];
-      const anns = announcementsResult.data || [];
       const leaves = leavesResult.data || [];
 
       if (prof) setProfile(prof);
       setSchedules(scheds);
       setPayslip(pay);
-      setAnnouncements(anns);
-
-      // Check for leave status changes
-      try {
-        const lastKnownLeavesStr = await AsyncStorage.getItem('LAST_KNOWN_LEAVES_' + userId);
-        if (lastKnownLeavesStr) {
-          const lastKnownLeaves = JSON.parse(lastKnownLeavesStr) as any[];
-          for (const newLeave of leaves) {
-            const matchingOld = lastKnownLeaves.find(o => o.id === newLeave.id);
-            if (matchingOld && matchingOld.status === 'pending' && newLeave.status !== 'pending') {
-              // Found status change!
-              setLeaveAlert({
-                id: newLeave.id,
-                type: newLeave.leave_type,
-                status: newLeave.status,
-                startDate: newLeave.start_date,
-                endDate: newLeave.end_date
-              });
-              
-              Alert.alert(
-                language === 'fil' ? 'Update sa Pagliban' : 'Leave Request Update',
-                language === 'fil'
-                  ? `Ang iyong hiling sa pagliban (${newLeave.leave_type}) mula ${newLeave.start_date} hanggang ${newLeave.end_date} ay naging ${newLeave.status === 'approved' ? 'INAPRUBAHAN' : 'TINANGGIHAN'}.`
-                  : `Your leave request (${newLeave.leave_type}) from ${newLeave.start_date} to ${newLeave.end_date} has been ${newLeave.status.toUpperCase()}.`
-              );
-            }
-          }
-        }
-        await AsyncStorage.setItem('LAST_KNOWN_LEAVES_' + userId, JSON.stringify(leaves));
-      } catch (leaveErr) {
-        console.warn("Error checking leave status changes:", leaveErr);
-      }
 
       // Process leaves transitions
       const cachedLeavesRaw = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
@@ -935,36 +374,122 @@ export default function App() {
         schedules: scheds,
         payslip: pay,
         logs: logs,
-        announcements: anns,
-        leaves: leaves,
         cachedAt: new Date().toISOString()
       };
       await AsyncStorage.setItem('CACHED_DASHBOARD_' + userId, JSON.stringify(dashboardCache));
-      await AsyncStorage.setItem('LAST_ONLINE_TIMESTAMP', new Date().toISOString());
     } catch (e: any) {
       console.warn("Failed to load dashboard data from network, trying cache:", e.message);
-      setIsOnline(false);
-      await loadDashboardDataFromCache(userId);
+      try {
+        const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
+        if (cached) {
+          const dashboardCache = JSON.parse(cached);
+          if (dashboardCache.profile) setProfile(dashboardCache.profile);
+          setSchedules(dashboardCache.schedules || []);
+          setPayslip(dashboardCache.payslip);
+          
+          const cachedLogs = dashboardCache.logs || [];
+          
+          // Apply offline queue overrides to cached logs
+          const queue = await syncQueue.getQueue();
+          const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
+          
+          let finalActiveLog: any = null;
+          if (pendingTimeIn) {
+            finalActiveLog = {
+              id: 'offline-pending-' + pendingTimeIn.id,
+              technician_id: userId,
+              app_time_in: pendingTimeIn.payload.app_time_in,
+              app_time_out: pendingTimeIn.payload.app_time_out || null,
+              total_hours: pendingTimeIn.payload.total_hours || null,
+              latitude: pendingTimeIn.payload.latitude,
+              longitude: pendingTimeIn.payload.longitude,
+              geofence_status: 'inside',
+              is_offline_pending: true
+            };
+          } else if (cachedLogs.length > 0) {
+            finalActiveLog = { ...cachedLogs[0] };
+            const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
+            if (pendingTimeOut) {
+              finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
+              finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+            }
+          }
+          setActiveTimeLog(finalActiveLog);
+        }
+      } catch (cacheErr) {
+        console.error("Failed to read dashboard cache", cacheErr);
+      }
     }
   };
 
-  const executeTimeIn = async (locationResult: any) => {
+  const handleTimeIn = async () => {
     if (!session) return;
     setTimeInLoading(true);
 
     try {
-      const isSuspicious = (locationResult.timeDrift && locationResult.timeDrift > 15 * 60 * 1000) || false;
+      // Find today's active schedule for DTR mode validation
+      const nowTime = new Date();
+      const activeSched = schedules.find(s => {
+        const start = new Date(s.start_time);
+        const end = new Date(s.end_time);
+        return nowTime >= start && nowTime <= end;
+      }) || schedules[0]; // Fallback to first schedule if none covers this exact second
+
+      const trackingMode = activeSched?.attendance_tracking_mode || 'pacita_hq';
+
+      // Step 1: Check geofence
+      const locationResult = await geofence.checkLocation();
+
+      let canClockIn = false;
+      let finalGeofenceStatus = 'unknown';
+
+      if (trackingMode === 'pacita_hq') {
+        if (locationResult && locationResult.status === 'inside') {
+          canClockIn = true;
+          finalGeofenceStatus = 'inside';
+        } else {
+          setTimeInLoading(false);
+          Alert.alert(
+            'Location Verification Failed',
+            locationResult?.error || 'You must be at Pacita HQ or QC Branch office to clock in.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'direct_on_site') {
+        if (locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside')) {
+          canClockIn = true;
+          finalGeofenceStatus = locationResult.status === 'inside' ? 'inside' : 'outside_override';
+        } else {
+          setTimeInLoading(false);
+          Alert.alert(
+            'Location Check Failed',
+            locationResult?.error || 'Could not verify GPS coordinates for Direct On-site clock-in.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'out_of_town') {
+        canClockIn = true;
+        if (locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside')) {
+          finalGeofenceStatus = locationResult.status === 'inside' ? 'inside' : 'outside_override';
+        } else {
+          finalGeofenceStatus = 'unknown';
+        }
+      }
+
+      const hasLocationData = locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside');
       const timeInPayload = {
         technician_id: session.user.id,
         app_time_in: new Date().toISOString(),
-        latitude: locationResult.latitude,
-        longitude: locationResult.longitude,
-        geofence_status: 'inside',
-        is_mocked: locationResult.isMocked || false,
-        gps_accuracy: locationResult.gpsAccuracy || null,
-        is_suspicious: isSuspicious
+        latitude: hasLocationData ? locationResult.latitude : null,
+        longitude: hasLocationData ? locationResult.longitude : null,
+        geofence_status: finalGeofenceStatus,
+        is_mocked: hasLocationData ? (locationResult.isMocked || false) : false,
+        gps_accuracy: hasLocationData ? (locationResult.gpsAccuracy || null) : null
       };
 
+      // Step 2: Insert time log with coordinates
       const { error } = await supabase.from('time_logs').insert(timeInPayload);
 
       if (error) {
@@ -973,11 +498,9 @@ export default function App() {
         const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
         
         if (isNetworkError) {
-          const queuePayload = {
-            ...timeInPayload,
-            time_drift_at_creation: locationResult.timeDrift || null
-          };
-          await syncQueue.addToQueue('time_in', queuePayload);
+          // Store in offline sync queue
+          await syncQueue.addToQueue('time_in', timeInPayload);
+          // Set mock time log locally so user is clocked in
           const mockLog = {
             id: 'offline-pending-' + Date.now(),
             technician_id: session.user.id,
@@ -988,206 +511,15 @@ export default function App() {
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
-          Alert.alert(t('biometricScanMatched'), t('syncPendingAlertDesc'));
+          Alert.alert('Offline Mode Active', 'Logged Clock-In locally. It will synchronize once you regain connectivity.');
           checkQueueStatus();
           return;
         }
         throw error;
       }
 
-      Alert.alert(t('biometricScanMatched'), t('locationVerified'));
+      // Refresh dashboard to pull active log
       await fetchDashboardData(session.user.id);
-    } catch (e: any) {
-      Alert.alert('Time In Failed', e.message || 'An error occurred.');
-    } finally {
-      setTimeInLoading(false);
-    }
-  };
-
-  const executeTimeOut = async (locationResult: any) => {
-    if (!session || !activeTimeLog) return;
-    setTimeOutLoading(true);
-
-    try {
-      const timeOutTime = new Date().toISOString();
-      const timeInMs = new Date(activeTimeLog.app_time_in).getTime();
-      const timeOutMs = new Date(timeOutTime).getTime();
-      const diffHours = Number(((timeOutMs - timeInMs) / (1000 * 60 * 60)).toFixed(2));
-
-      const isOfflinePending = activeTimeLog.is_offline_pending;
-      const isSuspicious = (locationResult?.timeDrift && locationResult.timeDrift > 15 * 60 * 1000) || false;
-
-      if (isOfflinePending) {
-        const queue = await syncQueue.getQueue();
-        const timeInItemIndex = queue.findIndex(item => item.type === 'time_in' && item.payload.app_time_in === activeTimeLog.app_time_in);
-        
-        if (timeInItemIndex !== -1) {
-          queue[timeInItemIndex].payload.app_time_out = timeOutTime;
-          queue[timeInItemIndex].payload.total_hours = diffHours;
-          queue[timeInItemIndex].payload.is_suspicious = queue[timeInItemIndex].payload.is_suspicious || isSuspicious;
-          await AsyncStorage.setItem('OFFLINE_TRANSACTION_QUEUE', JSON.stringify(queue));
-        } else {
-          await syncQueue.addToQueue('time_out', {
-            log_id: activeTimeLog.id,
-            app_time_out: timeOutTime,
-            total_hours: diffHours,
-            is_suspicious: isSuspicious,
-            time_drift_at_creation: locationResult?.timeDrift || null
-          });
-        }
-        
-        setActiveTimeLog((prev: any) => ({
-          ...prev,
-          app_time_out: timeOutTime,
-          total_hours: diffHours
-        }));
-        Alert.alert(t('biometricScanMatched'), t('syncPendingAlertOut', { hours: diffHours }));
-        checkQueueStatus();
-        return;
-      }
-
-      const { error } = await supabase.from('time_logs')
-        .update({
-          app_time_out: timeOutTime,
-          total_hours: diffHours,
-          is_suspicious: isSuspicious
-        })
-        .eq('id', activeTimeLog.id);
-
-      if (error) {
-        const errMessage = error.message || '';
-        const status = (error as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
-
-        if (isNetworkError) {
-          await syncQueue.addToQueue('time_out', {
-            log_id: activeTimeLog.id,
-            app_time_out: timeOutTime,
-            total_hours: diffHours,
-            is_suspicious: isSuspicious,
-            time_drift_at_creation: locationResult?.timeDrift || null
-          });
-          setActiveTimeLog((prev: any) => ({
-            ...prev,
-            app_time_out: timeOutTime,
-            total_hours: diffHours
-          }));
-          Alert.alert(t('biometricScanMatched'), t('syncPendingAlertOut', { hours: diffHours }));
-          checkQueueStatus();
-          return;
-        }
-        throw error;
-      }
-
-      Alert.alert(t('biometricScanMatched'), t('workedHours', { hours: diffHours }));
-      await fetchDashboardData(session.user.id);
-    } catch (e: any) {
-      Alert.alert('Time Out Failed', e.message || 'An error occurred.');
-    } finally {
-      setTimeOutLoading(false);
-    }
-  };
-
-  const getActiveDirectOrTravelSchedule = () => {
-    if (!schedules || schedules.length === 0) return null;
-    const todayStr = new Date().toDateString();
-    return schedules.find(s => {
-      const schedDateStr = new Date(s.start_time).toDateString();
-      return schedDateStr === todayStr && (s.attendance_mode === 'direct_dispatch' || s.attendance_mode === 'out_of_town');
-    });
-  };
-
-  const handleTimeIn = async () => {
-    if (!session) return;
-    setTimeInLoading(true);
-
-    try {
-      const activeSched = getActiveDirectOrTravelSchedule();
-      if (activeSched) {
-        // Bypass geofence check and biometric fingerprint scan
-        const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
-        const locationResult = {
-          status: 'inside',
-          latitude: currentLoc?.coords.latitude || 14.5995,
-          longitude: currentLoc?.coords.longitude || 120.9842,
-          isMocked: false,
-          gpsAccuracy: currentLoc?.coords.accuracy || 10,
-          timeDrift: 0
-        };
-        
-        // Execute DTR log using the scheduled start timeauthoritatively
-        const timeInPayload = {
-          technician_id: session.user.id,
-          app_time_in: activeSched.start_time, // scheduled start time!
-          latitude: locationResult.latitude,
-          longitude: locationResult.longitude,
-          geofence_status: 'inside',
-          is_mocked: false,
-          gps_accuracy: locationResult.gpsAccuracy || null,
-          is_suspicious: false
-        };
-
-        const { error } = await supabase.from('time_logs').insert(timeInPayload);
-
-        if (error) {
-          const errMessage = error.message || '';
-          const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
-          
-          if (isNetworkError) {
-            await syncQueue.addToQueue('time_in', {
-              ...timeInPayload,
-              time_drift_at_creation: 0
-            });
-            const mockLog = {
-              id: 'offline-pending-' + Date.now(),
-              technician_id: session.user.id,
-              app_time_in: timeInPayload.app_time_in,
-              latitude: timeInPayload.latitude,
-              longitude: timeInPayload.longitude,
-              geofence_status: 'inside',
-              is_offline_pending: true
-            };
-            setActiveTimeLog(mockLog);
-            Alert.alert(t('biometricScanMatched') || 'Success', t('syncPendingAlertDesc'));
-            checkQueueStatus();
-            return;
-          }
-          throw error;
-        }
-
-        Alert.alert(
-          language === 'fil' ? 'Matagumpay' : 'Success',
-          language === 'fil'
-            ? 'Awtomatikong na-verify ang iyong clock-in batay sa iyong direktang dispatch/out-of-town na schedule.'
-            : 'Your clock-in has been automatically verified based on your direct dispatch/out-of-town schedule.'
-        );
-        await fetchDashboardData(session.user.id);
-        return;
-      }
-
-      const locationResult = await geofence.checkLocation();
-
-      if (!locationResult || locationResult.status !== 'inside') {
-        setTimeInLoading(false);
-        const errMsg = locationResult?.errorKey 
-          ? (locationResult.errorKey === 'poorGpsSignal' && locationResult.gpsAccuracy 
-              ? t(locationResult.errorKey, { accuracy: Math.round(locationResult.gpsAccuracy) }) 
-              : t(locationResult.errorKey))
-          : (locationResult?.error || 'Could not verify your location. Please try again.');
-        Alert.alert(
-          t('locationVerificationFailed'),
-          errMsg,
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      // Proximity verified, transition to biometric waiting state
-      scanTypeRef.current = 'in';
-      pendingLocationRef.current = locationResult;
-      setIsWaitingForScan(true);
-      setScanType('in');
     } catch (e: any) {
       Alert.alert('Time In Failed', e.message || 'An error occurred.');
     } finally {
@@ -1200,48 +532,140 @@ export default function App() {
     setTimeOutLoading(true);
 
     try {
-      const activeSched = getActiveDirectOrTravelSchedule();
-      if (activeSched) {
-        // Bypass geofence check and biometric fingerprint scan
-        const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
-        const locationResult = {
-          status: 'inside',
-          latitude: currentLoc?.coords.latitude || 14.5995,
-          longitude: currentLoc?.coords.longitude || 120.9842,
-          isMocked: false,
-          gpsAccuracy: currentLoc?.coords.accuracy || 10,
-          timeDrift: 0
-        };
-        await executeTimeOut(locationResult);
-        return;
-      }
+      // Find today's active schedule for DTR mode validation
+      const nowTime = new Date();
+      const activeSched = schedules.find(s => {
+        const start = new Date(s.start_time);
+        const end = new Date(s.end_time);
+        return nowTime >= start && nowTime <= end;
+      }) || schedules[0];
 
+      const trackingMode = activeSched?.attendance_tracking_mode || 'pacita_hq';
+
+      // Step 1: Check geofence
       const locationResult = await geofence.checkLocation();
 
-      if (!locationResult || locationResult.status !== 'inside') {
-        setTimeOutLoading(false);
-        const errMsg = locationResult?.errorKey 
-          ? (locationResult.errorKey === 'poorGpsSignal' && locationResult.gpsAccuracy 
-              ? t(locationResult.errorKey, { accuracy: Math.round(locationResult.gpsAccuracy) }) 
-              : t(locationResult.errorKey))
-          : (locationResult?.error || 'Could not verify your location. Please try again.');
-        Alert.alert(
-          t('locationVerificationFailed'),
-          errMsg,
-          [{ text: 'OK' }]
-        );
+      let canClockOut = false;
+
+      if (trackingMode === 'pacita_hq') {
+        if (locationResult && locationResult.status === 'inside') {
+          canClockOut = true;
+        } else {
+          setTimeOutLoading(false);
+          Alert.alert(
+            'Location Verification Failed',
+            locationResult?.error || 'You must be at Pacita HQ or QC Branch office to clock out.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'direct_on_site') {
+        if (locationResult && (locationResult.status === 'inside' || locationResult.status === 'outside')) {
+          canClockOut = true;
+        } else {
+          setTimeOutLoading(false);
+          Alert.alert(
+            'Location Check Failed',
+            locationResult?.error || 'Could not verify GPS coordinates for Direct On-site clock-out.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } else if (trackingMode === 'out_of_town') {
+        canClockOut = true;
+      }
+
+      // Step 2: Calculate total hours
+      const timeOutTime = new Date().toISOString();
+      const timeInMs = new Date(activeTimeLog.app_time_in).getTime();
+      const timeOutMs = new Date(timeOutTime).getTime();
+      const diffHours = Number(((timeOutMs - timeInMs) / (1000 * 60 * 60)).toFixed(2));
+
+      const isOfflinePending = activeTimeLog.is_offline_pending;
+
+      if (isOfflinePending) {
+        // Find the queued time_in item and merge clock-out details
+        const queue = await syncQueue.getQueue();
+        const timeInItemIndex = queue.findIndex(item => item.type === 'time_in' && item.payload.app_time_in === activeTimeLog.app_time_in);
+        
+        if (timeInItemIndex !== -1) {
+          queue[timeInItemIndex].payload.app_time_out = timeOutTime;
+          queue[timeInItemIndex].payload.total_hours = diffHours;
+          await AsyncStorage.setItem('OFFLINE_TRANSACTION_QUEUE', JSON.stringify(queue));
+        } else {
+          // Fallback queue
+          await syncQueue.addToQueue('time_out', {
+            log_id: activeTimeLog.id,
+            app_time_out: timeOutTime,
+            total_hours: diffHours
+          });
+        }
+        
+        setActiveTimeLog((prev: any) => ({
+          ...prev,
+          app_time_out: timeOutTime,
+          total_hours: diffHours
+        }));
+        Alert.alert('Offline Mode Active', `Logged Clock-Out locally. Worked ${diffHours} hrs. Will sync on reconnection.`);
+        checkQueueStatus();
         return;
       }
 
-      // Proximity verified, transition to biometric waiting state
-      scanTypeRef.current = 'out';
-      pendingLocationRef.current = locationResult;
-      setIsWaitingForScan(true);
-      setScanType('out');
+      // Step 3: Update time log with coordinates, app_time_out and total_hours
+      const { error } = await supabase.from('time_logs')
+        .update({
+          app_time_out: timeOutTime,
+          total_hours: diffHours
+        })
+        .eq('id', activeTimeLog.id);
+
+      if (error) {
+        const errMessage = error.message || '';
+        const status = (error as any).status;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+
+        if (isNetworkError) {
+          await syncQueue.addToQueue('time_out', {
+            log_id: activeTimeLog.id,
+            app_time_out: timeOutTime,
+            total_hours: diffHours
+          });
+          setActiveTimeLog((prev: any) => ({
+            ...prev,
+            app_time_out: timeOutTime,
+            total_hours: diffHours
+          }));
+          Alert.alert('Offline Mode Active', `Logged Clock-Out locally. Worked ${diffHours} hrs. Will sync on reconnection.`);
+          checkQueueStatus();
+          return;
+        }
+        throw error;
+      }
+
+      Alert.alert('Time-Out Verified', `Shift completed. Total hours: ${diffHours} hrs.`);
+      await fetchDashboardData(session.user.id);
     } catch (e: any) {
       Alert.alert('Time Out Failed', e.message || 'An error occurred.');
     } finally {
       setTimeOutLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!session) return;
+    setRefreshing(true);
+    await fetchDashboardData(session.user.id);
+    setRefreshing(false);
+  };
+
+  const handleDismissAlert = async (id: string) => {
+    if (!session) return;
+    try {
+      const updated = recentLeaveAlerts.filter((a: any) => a.id !== id);
+      setRecentLeaveAlerts(updated);
+      await AsyncStorage.setItem('UNREAD_LEAVE_ALERTS_' + session.user.id, JSON.stringify(updated));
+    } catch (err) {
+      console.error('Failed to dismiss alert:', err);
     }
   };
 
@@ -1256,56 +680,6 @@ export default function App() {
   };
 
   const renderAppContent = () => {
-    if (isLocked) {
-      return (
-        <SafeAreaView style={styles.safeArea}>
-          <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
-            <Feather name="lock" size={64} color={COLORS.danger} style={{ marginBottom: 24 }} />
-            <Text style={{ fontSize: 24, fontWeight: '800', color: COLORS.textMain, marginBottom: 8 }}>
-              {t('lockedScreenTitle')}
-            </Text>
-            <Text style={{ fontSize: 14, color: COLORS.textMuted, textAlign: 'center', marginBottom: 32, paddingHorizontal: 20 }}>
-              {t('lockedScreenDesc')}
-            </Text>
-            <TouchableOpacity 
-              style={{ 
-                backgroundColor: COLORS.primary, 
-                paddingHorizontal: 24, 
-                paddingVertical: 14, 
-                borderRadius: 12, 
-                flexDirection: 'row', 
-                alignItems: 'center',
-                shadowColor: COLORS.primary,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.2,
-                shadowRadius: 8
-              }}
-              onPress={async () => {
-                const authenticated = await authenticateBiometrics();
-                if (authenticated) {
-                  setIsLocked(false);
-                  const storedSessionStr = await getSecureItem('USER_SESSION');
-                  if (storedSessionStr) {
-                    const storedSession = JSON.parse(storedSessionStr);
-                    setSession(storedSession);
-                    await supabase.auth.setSession({
-                      access_token: storedSession.access_token,
-                      refresh_token: storedSession.refresh_token
-                    });
-                  }
-                }
-              }}
-            >
-              <Feather name="shield" size={18} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
-                {t('retryAuth')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      );
-    }
-
     if (!session) {
       return <LoginScreen onLogin={setSession} />;
     }
@@ -1321,7 +695,7 @@ export default function App() {
           <View style={styles.offlineBanner}>
             <Feather name="wifi-off" size={14} color="#fff" style={{ marginRight: 6 }} />
             <Text style={styles.offlineBannerText}>
-              {t('syncBanner', { count: offlineQueueCount })}
+              Offline Mode: {offlineQueueCount} sync request{offlineQueueCount > 1 ? 's' : ''} pending...
             </Text>
           </View>
         )}
@@ -1342,48 +716,59 @@ export default function App() {
             >
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                 <View>
-                  <Text style={styles.greeting}>{t('welcomeBack')}</Text>
+                  <Text style={styles.greeting}>Welcome back,</Text>
                   <Text style={styles.name}>{profile?.full_name || 'Technician'}</Text>
                 </View>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
 
-              {leaveAlert && (
-                <View style={{
-                  backgroundColor: leaveAlert.status === 'approved' ? COLORS.primaryDim : 'rgba(239, 68, 68, 0.08)',
-                  borderColor: leaveAlert.status === 'approved' ? COLORS.primary : COLORS.danger,
-                  borderWidth: 1,
-                  borderRadius: 16,
-                  padding: 16,
-                  marginBottom: 20,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
-                }}>
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text style={{
-                      fontWeight: 'bold',
-                      fontSize: 14,
-                      color: leaveAlert.status === 'approved' ? COLORS.primary : COLORS.danger,
-                      marginBottom: 4
-                    }}>
-                      📢 {language === 'fil' ? 'Update sa Pagliban' : 'Leave Request Update'}
-                    </Text>
-                    <Text style={{
-                      fontSize: 12,
-                      color: COLORS.textMain,
-                      lineHeight: 18
-                    }}>
-                      {language === 'fil'
-                        ? `Ang iyong hiling sa pagliban (${leaveAlert.type}) mula ${leaveAlert.startDate} hanggang ${leaveAlert.endDate} ay ${leaveAlert.status === 'approved' ? 'INAPRUBAHAN' : 'TINANGGIHAN'}.`
-                        : `Your leave request (${leaveAlert.type}) from ${leaveAlert.startDate} to ${leaveAlert.endDate} has been ${leaveAlert.status.toUpperCase()}.`}
-                    </Text>
+              {recentLeaveAlerts.map((alert: any) => (
+                <View 
+                  key={alert.id} 
+                  style={[
+                    styles.alertCard, 
+                    alert.type === 'approved' ? styles.alertCardApproved : styles.alertCardRejected
+                  ]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1, paddingRight: 8 }}>
+                    <View style={[
+                      styles.alertIconContainer, 
+                      alert.type === 'approved' ? styles.alertIconContainerApproved : styles.alertIconContainerRejected
+                    ]}>
+                      <Feather 
+                        name={alert.type === 'approved' ? 'check-circle' : 'x-circle'} 
+                        size={20} 
+                        color={alert.type === 'approved' ? '#10b981' : '#ef4444'} 
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={[
+                        styles.alertTitle, 
+                        alert.type === 'approved' ? styles.alertTitleApproved : styles.alertTitleRejected
+                      ]}>
+                        {alert.type === 'approved' ? 'Leave Request Approved' : 'Leave Request Rejected'}
+                      </Text>
+                      <Text style={[
+                        styles.alertText, 
+                        alert.type === 'approved' ? styles.alertTextApproved : styles.alertTextRejected
+                      ]}>
+                        Your leave request for {alert.startDate} to {alert.endDate} has been {alert.type}.
+                        {alert.reason ? ` Reason: "${alert.reason}"` : ''}
+                      </Text>
+                    </View>
                   </View>
-                  <TouchableOpacity onPress={() => setLeaveAlert(null)} style={{ padding: 8 }}>
-                    <Feather name="x" size={16} color={leaveAlert.status === 'approved' ? COLORS.primary : COLORS.danger} />
+                  <TouchableOpacity 
+                    style={styles.alertCloseButton} 
+                    onPress={() => handleDismissAlert(alert.id)}
+                  >
+                    <Feather 
+                      name="x" 
+                      size={16} 
+                      color={alert.type === 'approved' ? '#047857' : '#b91c1c'} 
+                    />
                   </TouchableOpacity>
                 </View>
-              )}
+              ))}
 
               <View style={{ marginBottom: 32 }}>
                 {!activeTimeLog && (
@@ -1391,8 +776,8 @@ export default function App() {
                     {timeInLoading ? <ActivityIndicator color="#fff" /> : (
                       <>
                         <Feather name="map-pin" size={28} color="#fff" style={{ marginBottom: 8 }} />
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 20, marginBottom: 4 }}>{t('clockInNow')}</Text>
-                        <Text style={{ color: '#ecfdf5', fontSize: 12 }}>📍 {t('locationVerificationDetails')}</Text>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 20, marginBottom: 4 }}>CLOCK IN NOW</Text>
+                        <Text style={{ color: '#ecfdf5', fontSize: 12 }}>📍 Location will be verified</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -1402,9 +787,9 @@ export default function App() {
                   <View>
                     <View style={styles.timeInSuccess}>
                       <Feather name="check-circle" size={22} color={COLORS.primary} style={{ marginBottom: 6 }} />
-                      <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 15 }}>{t('locationVerified')}</Text>
+                      <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 15 }}>✅ Clock-In Verified</Text>
                       <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 2 }}>
-                        {t('loggedAt', { time: new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}
+                        Logged at {new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </Text>
                     </View>
                     
@@ -1416,8 +801,8 @@ export default function App() {
                       {timeOutLoading ? <ActivityIndicator color="#fff" /> : (
                         <>
                           <Feather name="log-out" size={24} color="#fff" style={{ marginBottom: 6 }} />
-                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, marginBottom: 2 }}>{t('clockOutNow')}</Text>
-                          <Text style={{ color: '#fee2e2', fontSize: 11 }}>📍 {t('locationVerificationDetails')}</Text>
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, marginBottom: 2 }}>CLOCK OUT NOW</Text>
+                          <Text style={{ color: '#fee2e2', fontSize: 11 }}>📍 Location will be verified</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -1427,213 +812,48 @@ export default function App() {
                 {activeTimeLog && activeTimeLog.app_time_out && (
                   <View style={[styles.timeInSuccess, { borderColor: COLORS.textMuted, backgroundColor: '#f1f5f9' }]}>
                     <Feather name="lock" size={22} color={COLORS.textMuted} style={{ marginBottom: 6 }} />
-                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 15 }}>{t('shiftCompleted')}</Text>
+                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 15 }}>🔒 Shift Completed Today</Text>
                     <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
-                      {t('workedHours', { hours: activeTimeLog.total_hours })} ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                      Worked {activeTimeLog.total_hours} hrs ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
                     </Text>
-                  </View>
-                )}
-
-                {/* Proximity / Map Section */}
-                {!geofence.latitude ? (
-                  <TouchableOpacity
-                    style={{
-                      marginTop: 12,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: COLORS.primary,
-                      backgroundColor: COLORS.primaryDim,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onPress={async () => {
-                      await geofence.checkLocation();
-                    }}
-                  >
-                    <Feather name="map" size={16} color={COLORS.primary} style={{ marginRight: 8 }} />
-                    <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>
-                      {t('checkProximity')}
-                    </Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={{ marginTop: 12 }}>
-                    <View style={{
-                      padding: 12,
-                      borderRadius: 12,
-                      backgroundColor: geofence.status === 'inside' ? COLORS.primaryDim : 'rgba(239, 68, 68, 0.08)',
-                      borderWidth: 1,
-                      borderColor: geofence.status === 'inside' ? COLORS.primary : COLORS.danger,
-                      marginBottom: 8,
-                      flexDirection: 'row',
-                      alignItems: 'center'
-                    }}>
-                      <Feather 
-                        name={geofence.status === 'inside' ? "check-circle" : "alert-triangle"} 
-                        size={16} 
-                        color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} 
-                        style={{ marginRight: 8 }} 
-                      />
-                      <Text style={{ 
-                        flex: 1, 
-                        fontSize: 12, 
-                        color: geofence.status === 'inside' ? COLORS.primary : COLORS.danger, 
-                        fontWeight: '600' 
-                      }}>
-                        {geofence.status === 'inside' 
-                          ? t('verifiedInside', { office: geofence.matchingOfficeName || '', distance: Math.round(geofence.distance || 0) })
-                          : (geofence.status === 'error' && geofence.errorKey
-                              ? (geofence.errorKey === 'poorGpsSignal' && geofence.gpsAccuracy
-                                  ? t(geofence.errorKey, { accuracy: Math.round(geofence.gpsAccuracy) })
-                                  : t(geofence.errorKey))
-                              : (geofence.error || t('outsideArea', { distance: Math.round(geofence.distance || 0) })))
-                        }
-                      </Text>
-                      <TouchableOpacity onPress={geofence.reset} style={{ padding: 4 }}>
-                        <Feather name="x" size={14} color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} />
-                      </TouchableOpacity>
-                    </View>
-                    <GeofenceMobileMap
-                      userLat={geofence.latitude || 0}
-                      userLng={geofence.longitude || 0}
-                      branchLat={geofence.officeLatitude || 0}
-                      branchLng={geofence.officeLongitude || 0}
-                      radius={geofence.officeRadius || 50}
-                      branchName={geofence.matchingOfficeName || 'Office'}
-                    />
                   </View>
                 )}
               </View>
 
-              {/* Announcements Section */}
-              {(() => {
-                const filteredAnnouncements = announcements.filter(ann => 
-                  !ann.target_branch_id || ann.target_branch_id === profile?.branch_id
-                );
-                
-                const getBilingualText = (text: string, lang: 'en' | 'fil') => {
-                  if (!text) return '';
-                  const parts = text.split('|');
-                  if (parts.length > 1) {
-                    return lang === 'fil' ? parts[1].trim() : parts[0].trim();
-                  }
-                  return text.trim();
-                };
-
-                if (filteredAnnouncements.length === 0) return null;
-
-                return (
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.sectionTitleMain}>{t('announcementsLabel')}</Text>
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      snapToInterval={280 + 16}
-                      decelerationRate="fast"
-                      contentContainerStyle={{ paddingRight: 16 }}
-                    >
-                      {filteredAnnouncements.map((ann) => (
-                        <View 
-                          key={ann.id} 
-                          style={{
-                            width: 280,
-                            backgroundColor: COLORS.card,
-                            borderRadius: 20,
-                            borderWidth: 1,
-                            borderColor: COLORS.border,
-                            padding: 16,
-                            marginRight: 16,
-                            position: 'relative',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          <View style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            width: 4,
-                            bottom: 0,
-                            backgroundColor: '#6366f1'
-                          }} />
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingLeft: 6 }}>
-                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                              📢 {ann.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
-                            </Text>
-                            <Text style={{ fontSize: 9, color: COLORS.textMuted }}>
-                              {new Date(ann.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { month: 'short', day: 'numeric' })}
-                            </Text>
-                          </View>
-                          <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6, paddingLeft: 6 }} numberOfLines={1}>
-                            {getBilingualText(ann.title, language)}
-                          </Text>
-                          <Text style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 18, paddingLeft: 6 }} numberOfLines={3}>
-                            {getBilingualText(ann.content, language)}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </View>
-                );
-              })()}
-
-              <Text style={styles.sectionTitleMain}>{t('priorityDispatch')}</Text>
-              {vipSchedules.length === 0 && <Text style={styles.emptyText}>{t('noVipSchedules')}</Text>}
+              <Text style={styles.sectionTitleMain}>Priority Dispatch</Text>
+              {vipSchedules.length === 0 && <Text style={styles.emptyText}>No VIP hooks active.</Text>}
               {vipSchedules.map(sched => (
                 <View key={sched.id} style={styles.vipCard}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <View style={styles.vipBadge}>
-                      <Text style={styles.vipBadgeText}>{t('urgent').toUpperCase()}</Text>
+                      <Text style={styles.vipBadgeText}>URGENT</Text>
                     </View>
-                    {sched.attendance_mode && (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.05)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'), borderWidth: 1, borderColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.1)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)') }}>
-                        <Text style={{ fontSize: 9, fontWeight: '800', textTransform: 'uppercase', color: sched.attendance_mode === 'hq' ? '#475569' : (sched.attendance_mode === 'direct_dispatch' ? COLORS.primary : '#d97706') }}>
-                          💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.vipTitle}>{sched.client_name}</Text>
-                  <Text style={styles.vipTime}>{formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
-                  <Text style={styles.vipLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
-                  {sched.senior_partner?.full_name && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: 'rgba(15, 23, 42, 0.03)', borderRadius: 8 }}>
-                      <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
-                      <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
-                        {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
-                        <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
+                    <View style={{ backgroundColor: 'rgba(6, 182, 212, 0.2)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ color: '#083344', fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {sched.attendance_tracking_mode ? sched.attendance_tracking_mode.replace(/_/g, ' ') : 'Pacita HQ'}
                       </Text>
                     </View>
-                  )}
+                  </View>
+                  <Text style={styles.vipTitle}>{sched.client_name}</Text>
+                  <Text style={styles.vipTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
+                  <Text style={styles.vipLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
                 </View>
               ))}
 
-              <Text style={[styles.sectionTitleMain, { marginTop: 24 }]}>{t('standardSchedule')}</Text>
-              {regularSchedules.length === 0 && <Text style={styles.emptyText}>{t('noSchedule')}</Text>}
+              <Text style={[styles.sectionTitleMain, { marginTop: 24 }]}>Standard Schedule</Text>
+              {regularSchedules.length === 0 && <Text style={styles.emptyText}>No standard schedules today.</Text>}
               {regularSchedules.map(sched => (
                 <View key={sched.id} style={styles.regularCard}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    {sched.attendance_mode && (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.05)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'), borderWidth: 1, borderColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.1)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)') }}>
-                        <Text style={{ fontSize: 9, fontWeight: '800', textTransform: 'uppercase', color: sched.attendance_mode === 'hq' ? '#475569' : (sched.attendance_mode === 'direct_dispatch' ? COLORS.primary : '#d97706') }}>
-                          💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.regularTitle}>{sched.client_name}</Text>
-                  <Text style={styles.regularTime}>{formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
-                  <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
-                  {sched.senior_partner?.full_name && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: 'rgba(15, 23, 42, 0.03)', borderRadius: 8 }}>
-                      <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
-                      <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
-                        {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
-                        <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={styles.regularTitle}>{sched.client_name}</Text>
+                    <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.05)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ color: COLORS.textMuted, fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {sched.attendance_tracking_mode ? sched.attendance_tracking_mode.replace(/_/g, ' ') : 'Pacita HQ'}
                       </Text>
                     </View>
-                  )}
+                  </View>
+                  <Text style={styles.regularTime}>{formatTime(sched.start_time)} - {formatTime(sched.end_time)}</Text>
+                  <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
                 </View>
               ))}
             </ScrollView>
@@ -1641,93 +861,88 @@ export default function App() {
 
           {activeTab === 'payslip' && (
             <ScrollView contentContainerStyle={styles.content}>
-              <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
-                <Text style={styles.name}>{t('payrollTab') || 'My Earnings'}</Text>
+              <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                <Text style={styles.name}>My Earnings</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
               {payslip ? (
-                (() => {
-                  // Calculate itemized details
-                  const cycleLogs = dtrLogs.filter(log => {
-                    const logDate = log.created_at ? log.created_at.split('T')[0] : '';
-                    return logDate >= payslip.period_start && logDate <= payslip.period_end;
-                  });
-                  const daysWorked = cycleLogs.length || 10;
-                  const totalHours = cycleLogs.reduce((sum, log) => sum + Number(log.total_hours || 0), 0) || (daysWorked * 8);
+                <View style={styles.payslipCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Feather name="file-text" size={20} color={COLORS.primary} />
+                    <Text style={styles.sectionTitle}>Latest Payslip</Text>
+                  </View>
+                  <Text style={styles.period}>Period: {payslip.period_start} to {payslip.period_end}</Text>
                   
-                  const baseHourlyRate = Number(profile?.base_salary || 20000) / 160;
-                  const expectedRegularPay = baseHourlyRate * totalHours;
-                  const holidayBonus = Math.max(0, Number(payslip.gross_pay) - expectedRegularPay);
-                  const holidayHours = holidayBonus > 0 ? Math.round(holidayBonus / (baseHourlyRate * 0.3)) : 0;
+                  <View style={styles.netPayBox}>
+                    <Text style={styles.netPayLabel}>Net Take-Home Pay</Text>
+                    <Text style={styles.netPayAmount}>{formatPhp(payslip.net_pay)}</Text>
+                  </View>
+
+                  {/* Section: Earnings & Benefits */}
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: COLORS.primary, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
+                    Earnings & Benefits
+                  </Text>
                   
-                  const withholdingTax = Math.max(0, Number(payslip.gross_pay) - Number(payslip.sss_deduction) - Number(payslip.philhealth_deduction) - Number(payslip.pagibig_deduction) - Number(payslip.net_pay));
-
-                  return (
-                    <View style={styles.payslipCard}>
-                      <Text style={styles.sectionTitle}>{language === 'fil' ? 'Huling Payslip' : 'Latest Payslip'}</Text>
-                      <Text style={styles.period}>{language === 'fil' ? 'Siklo' : 'Cycle'}: {payslip.period_start} to {payslip.period_end}</Text>
-                      
-                      <View style={styles.netPayBox}>
-                        <Text style={styles.netPayLabel}>{language === 'fil' ? 'Kabuuang Netong Sahod' : 'Net Take-Home Pay'}</Text>
-                        <Text style={styles.netPayAmount}>{formatPhp(payslip.net_pay)}</Text>
-                      </View>
-
-                      {/* Itemized Table */}
-                      <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginTop: 8 }}>
-                        {language === 'fil' ? 'PAGHAHATI-HATI NG KITA' : 'EARNINGS BREAKDOWN'}
-                      </Text>
-                      
-                      <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 20 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Mga Araw na Ipinasok' : 'Days Worked in Cycle'}</Text>
-                          <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 13 }}>{daysWorked} {language === 'fil' ? 'araw' : 'days'} ({totalHours.toFixed(1)} hrs)</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Kita sa Reglar na Oras' : 'Base Regular Pay'}</Text>
-                          <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 13 }}>{formatPhp(Math.min(Number(payslip.gross_pay), expectedRegularPay))}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Oras ng Holiday at Bonus' : 'Holiday Hours & Multiplier'}</Text>
-                          <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>+{formatPhp(holidayBonus)} ({holidayHours} hrs)</Text>
-                        </View>
-                      </View>
-
-                      <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
-                        {language === 'fil' ? 'MGA BINAWAS (DEDUCTIONS)' : 'DEDUCTIONS & ADJUSTMENTS'}
-                      </Text>
-
-                      <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>SSS Contribution</Text>
-                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.sss_deduction)}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>PhilHealth Contribution</Text>
-                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.philhealth_deduction)}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>Pag-IBIG Contribution</Text>
-                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.pagibig_deduction)}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Withholding Tax / Karagdagang Bawas' : 'Withholding Tax adjustments'}</Text>
-                          <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(withholdingTax)}</Text>
-                        </View>
-                      </View>
+                  <View style={styles.deductionRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="briefcase" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>Base Salary</Text>
                     </View>
-                  );
-                })()
-              ) : (
-                <View style={[styles.payslipCard, { alignItems: 'center', paddingVertical: 60 }]}>
-                  <Feather name="file-text" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
-                  <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
+                    <Text style={styles.grossAmount}>{formatPhp(payslip.gross_pay)}</Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  {/* Section: Statutory Deductions */}
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: COLORS.danger, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 }}>
+                    Deductions
+                  </Text>
+
+                  <View style={styles.deductionRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="shield" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>SSS Contribution</Text>
+                    </View>
+                    <Text style={styles.deductionAmount}>- {formatPhp(payslip.sss_deduction)}</Text>
+                  </View>
+
+                  <View style={styles.deductionRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="activity" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>PhilHealth</Text>
+                    </View>
+                    <Text style={styles.deductionAmount}>- {formatPhp(payslip.philhealth_deduction)}</Text>
+                  </View>
+
+                  <View style={styles.deductionRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name="home" size={14} color={COLORS.textMuted} />
+                      <Text style={styles.deductionLabel}>Pag-IBIG</Text>
+                    </View>
+                    <Text style={styles.deductionAmount}>- {formatPhp(payslip.pagibig_deduction)}</Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  {/* Breakdown summary */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>Total Deductions</Text>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.danger }}>
+                      - {formatPhp(Number(payslip.sss_deduction) + Number(payslip.philhealth_deduction) + Number(payslip.pagibig_deduction))}
+                    </Text>
+                  </View>
                 </View>
+              ) : (
+                 <View style={[styles.payslipCard, { alignItems: 'center', paddingVertical: 60 }]}>
+                   <Feather name="file-text" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
+                   <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
+                 </View>
               )}
             </ScrollView>
           )}
 
           {activeTab === 'tickets' && (
-            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} />
+            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} />
           )}
 
 
@@ -1735,190 +950,25 @@ export default function App() {
 
           {activeTab === 'profile' && (
             <ScrollView contentContainerStyle={styles.content}>
-               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
-                <Text style={styles.name}>{t('profileTitle')}</Text>
+               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                <Text style={styles.name}>Profile & Settings</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
-
-              {/* Avatar Header Row */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, marginBottom: 24 }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.primaryDim, alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-                  <Text style={{ color: COLORS.primary, fontSize: 24, fontWeight: 'bold' }}>{profile?.full_name?.charAt(0) || 'T'}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: COLORS.textMain, fontSize: 18, fontWeight: 'bold', marginBottom: 2 }}>{profile?.full_name}</Text>
-                  <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 6 }}>
-                    {profile?.role === 'technician' ? t('fieldTechnician') : profile?.role === 'helper' ? t('fieldHelper') : t('active')}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isOnline ? COLORS.primary : COLORS.danger, marginRight: 6 }} />
-                    <Text style={{ color: isOnline ? COLORS.primary : COLORS.danger, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      {isOnline ? t('online') : t('offline')}
-                    </Text>
+              <View style={styles.regularCard}>
+                <View style={{ alignItems: 'center', marginBottom: 24 }}>
+                  <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: COLORS.primaryDim, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                    <Text style={{ color: COLORS.primary, fontSize: 32, fontWeight: 'bold' }}>{profile?.full_name?.charAt(0) || 'T'}</Text>
                   </View>
-                </View>
-              </View>
-
-              {/* Account Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('accountSection')}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
-                <TouchableOpacity 
-                  onPress={() => { setShowDtrModal(true); fetchDtrLogs(); }}
-                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(16, 185, 129, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="clock" size={16} color={COLORS.primary} />
-                    </View>
-                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('dtrLabel')}</Text>
-                  </View>
-                  <Feather name="chevron-right" size={16} color={COLORS.textMuted} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Document Management System (DMS) Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('companyFormsLabel')}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
-                <TouchableOpacity 
-                  onPress={() => startFormDownload('Employee_Handbook_2026.pdf')}
-                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
-                  disabled={!!downloadingFile}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="book-open" size={16} color="#3b82f6" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>Employee Handbook.pdf</Text>
-                      {downloadingFile === 'Employee_Handbook_2026.pdf' && (
-                        <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{t('downloading')} {downloadProgress}%</Text>
-                      )}
-                    </View>
-                  </View>
-                  <Feather name="download" size={16} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  onPress={() => startFormDownload('Leave_Application_Form.pdf')}
-                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
-                  disabled={!!downloadingFile}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(16, 185, 129, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="file-text" size={16} color={COLORS.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>Leave Application Form.pdf</Text>
-                      {downloadingFile === 'Leave_Application_Form.pdf' && (
-                        <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{t('downloading')} {downloadProgress}%</Text>
-                      )}
-                    </View>
-                  </View>
-                  <Feather name="download" size={16} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  onPress={() => startFormDownload('Resignation_Template.pdf')}
-                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-                  disabled={!!downloadingFile}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="file-minus" size={16} color={COLORS.danger} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>Resignation Template.pdf</Text>
-                      {downloadingFile === 'Resignation_Template.pdf' && (
-                        <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{t('downloading')} {downloadProgress}%</Text>
-                      )}
-                    </View>
-                  </View>
-                  <Feather name="download" size={16} color={COLORS.textMuted} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Preferences Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('preferencesSection')}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
-                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="globe" size={16} color="#3b82f6" />
-                    </View>
-                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('languageLabel')}</Text>
-                  </View>
-                  
-                  {/* Segmented language switcher */}
-                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
-                    <Animated.View style={{
-                      position: 'absolute',
-                      top: 2,
-                      bottom: 2,
-                      left: 0,
-                      width: 56,
-                      backgroundColor: '#ffffff',
-                      borderRadius: 6,
-                      transform: [{
-                        translateX: langAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [2, 58]
-                        })
-                      }],
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 2,
-                      elevation: 2
-                    }} />
-                    <TouchableOpacity onPress={() => changeLanguage('en')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: language === 'en' ? COLORS.primary : COLORS.textMuted }}>EN</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => changeLanguage('fil')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 12, fontWeight: 'bold', color: language === 'fil' ? COLORS.primary : COLORS.textMuted }}>FIL</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {/* System Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('systemSection')}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 24 }}>
-                {/* Connection Status Row */}
-                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(71, 85, 105, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="activity" size={16} color="#475569" />
-                    </View>
-                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{t('syncStatus')}</Text>
-                  </View>
-                  <Text style={{ color: isOnline ? COLORS.primary : COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>
-                    {isOnline ? t('online') : t('offline')}
-                  </Text>
+                  <Text style={{ color: COLORS.textMain, fontSize: 20, fontWeight: 'bold' }}>{profile?.full_name}</Text>
+                  <Text style={{ color: COLORS.primary, fontSize: 14 }}>{profile?.role === 'technician' ? 'Field Technician' : 'Staff'}</Text>
                 </View>
 
-                {/* Highly Accessible Log Out Row */}
-                <TouchableOpacity 
-                  onPress={async () => {
-                    setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
-                    try { await supabase.auth.signOut(); } catch(e) {}
-                  }}
-                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="log-out" size={16} color={COLORS.danger} />
-                    </View>
-                    <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 14 }}>{t('logOut')}</Text>
-                  </View>
-                  <Feather name="chevron-right" size={16} color={COLORS.danger} style={{ opacity: 0.5 }} />
+                <TouchableOpacity onPress={async () => {
+                  setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
+                  try { await supabase.auth.signOut(); } catch(e) {}
+                }} style={{ backgroundColor: 'rgba(244, 63, 94, 0.1)', padding: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(244, 63, 94, 0.2)', flexDirection: 'row', justifyContent: 'center' }}>
+                  <Feather name="log-out" size={20} color={COLORS.danger} style={{ marginRight: 8 }} />
+                  <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 16 }}>Log Out</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1929,13 +979,18 @@ export default function App() {
         <View style={styles.bottomNav}>
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('home')}>
             <Feather name="home" size={24} color={activeTab === 'home' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'home' ? COLORS.primary : COLORS.textMuted }]}>{t('homeTab')}</Text>
+            <Text style={[styles.navText, { color: activeTab === 'home' ? COLORS.primary : COLORS.textMuted }]}>Home</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'home' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('tickets')}>
-            <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>{t('supportTab')}</Text>
+            <View style={{ position: 'relative' }}>
+              <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
+              {recentLeaveAlerts.length > 0 && (
+                <View style={styles.navBadge} />
+              )}
+            </View>
+            <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>Support</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'tickets' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
@@ -1943,13 +998,13 @@ export default function App() {
           
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('payslip')}>
             <Feather name="dollar-sign" size={24} color={activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted }]}>{t('payrollTab')}</Text>
+            <Text style={[styles.navText, { color: activeTab === 'payslip' ? COLORS.primary : COLORS.textMuted }]}>Payroll</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'payslip' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('profile')}>
             <Feather name="user" size={24} color={activeTab === 'profile' ? COLORS.primary : COLORS.textMuted} />
-            <Text style={[styles.navText, { color: activeTab === 'profile' ? COLORS.primary : COLORS.textMuted }]}>{t('profileTab')}</Text>
+            <Text style={[styles.navText, { color: activeTab === 'profile' ? COLORS.primary : COLORS.textMuted }]}>Profile</Text>
             <View style={[styles.navDot, { backgroundColor: activeTab === 'profile' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
         </View>
@@ -1962,121 +1017,6 @@ export default function App() {
   const renderedContent = (
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
-      
-      {isWaitingForScan && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(15, 23, 42, 0.85)', zIndex: 99999, justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 24, padding: 32, alignItems: 'center', width: '100%', maxWidth: 340, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16 }}>
-            <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primaryDim, justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
-              <MaterialCommunityIcons name="fingerprint" size={56} color={COLORS.primary} />
-            </View>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain, textAlign: 'center', marginBottom: 12 }}>
-              {t('waitingForBiometricTerminal')}
-            </Text>
-            <Text style={{ fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 24 }}>
-              {t('scanBiometricTerminalInstructions')}
-            </Text>
-            <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.danger, marginBottom: 20 }}>
-              ⏱️ {Math.floor(scanCountdown / 60)}:{(scanCountdown % 60).toString().padStart(2, '0')}
-            </Text>
-            <TouchableOpacity 
-              onPress={() => {
-                setIsWaitingForScan(false);
-                setScanType(null);
-                scanTypeRef.current = null;
-                pendingLocationRef.current = null;
-              }}
-              style={{
-                width: '100%',
-                paddingVertical: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                alignItems: 'center',
-                backgroundColor: COLORS.card
-              }}
-            >
-              <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 14 }}>
-                {t('cancelButton')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {showDtrModal && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <TouchableOpacity onPress={() => setShowDtrModal(false)} style={{ padding: 8, marginLeft: -8 }}>
-              <Feather name="arrow-left" size={24} color={COLORS.textMain} />
-            </TouchableOpacity>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>{t('dtrHistoryTitle')}</Text>
-            <TouchableOpacity onPress={fetchDtrLogs} style={{ padding: 8, marginRight: -8 }} disabled={dtrLoading}>
-              {dtrLoading ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Feather name="refresh-cw" size={18} color={COLORS.primary} />}
-            </TouchableOpacity>
-          </View>
-          
-          <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
-            {t('currentMonthLogs')} ({dtrLogs.length})
-          </Text>
-
-          {dtrLogs.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 60 }}>
-              <Feather name="clock" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
-              <Text style={{ color: COLORS.textMuted, fontStyle: 'italic' }}>
-                {dtrLoading ? t('loadingLogs') : t('noLogs')}
-              </Text>
-            </View>
-          ) : (
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
-              {dtrLogs.map((log) => {
-                const logDate = new Date(log.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                const timeInStr = log.app_time_in ? formatTime(log.app_time_in) : '--:--';
-                const timeOutStr = log.app_time_out ? formatTime(log.app_time_out) : '--:--';
-                const hours = log.total_hours !== null ? `${log.total_hours} hrs` : t('active');
-                const isManual = log.is_manual_entry || log.geofence_status === 'manual_override';
-
-                return (
-                  <View key={log.id} style={{ backgroundColor: COLORS.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 12 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>📅 {logDate}</Text>
-                      {isManual ? (
-                        <View style={{ backgroundColor: '#e2e8f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, color: '#475569', fontWeight: '800' }}>{t('manualEntry')}</Text>
-                        </View>
-                      ) : (
-                        <View style={{ backgroundColor: COLORS.primaryDim, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                          <Text style={{ fontSize: 10, color: COLORS.primary, fontWeight: '800' }}>{t('gpsVerified')}</Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>{t('clockIn')}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginTop: 2 }}>{timeInStr}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>{t('clockOut')}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginTop: 2 }}>{timeOutStr}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end', flex: 1 }}>
-                        <Text style={{ fontSize: 10, color: COLORS.textMuted, textTransform: 'uppercase' }}>{t('duration')}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: COLORS.primary, marginTop: 2 }}>{hours}</Text>
-                      </View>
-                    </View>
-                    
-                    {log.gps_accuracy && !isManual && (
-                      <Text style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 8 }}>
-                        📍 {t('accuracy')}: {log.gps_accuracy.toFixed(1)}m {log.is_mocked ? ` | ⚠️ ${t('mockGps')}` : ''}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )}
-        </View>
-      )}
       {splashVisible && (
         <Animated.View style={[styles.splashContainer, { opacity: splashOpacity }]} pointerEvents={splashVisible ? 'auto' : 'none'}>
           <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity, alignItems: 'center' }}>
