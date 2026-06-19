@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -915,6 +915,71 @@ export default function App() {
         console.warn("Error checking leave status changes:", leaveErr);
       }
 
+      // Process leaves transitions
+      const cachedLeavesRaw = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
+      const cachedLeaves = cachedLeavesRaw ? JSON.parse(cachedLeavesRaw) : null;
+
+      if (cachedLeaves !== null) {
+        const newAlerts: any[] = [];
+        
+        leaves.forEach((newLeave: any) => {
+          const matchedCached = cachedLeaves.find((c: any) => c.id === newLeave.id);
+          if (matchedCached) {
+            const isApprovedTransition = matchedCached.status === 'pending' && newLeave.status === 'approved';
+            const isRejectedTransition = matchedCached.status === 'pending' && newLeave.status === 'rejected';
+            
+            if (isApprovedTransition || isRejectedTransition) {
+              newAlerts.push({
+                id: newLeave.id,
+                type: newLeave.status,
+                startDate: newLeave.start_date,
+                endDate: newLeave.end_date,
+                reason: newLeave.reason || '',
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        });
+
+        if (newAlerts.length > 0) {
+          const currentStoredRaw = await AsyncStorage.getItem('UNREAD_LEAVE_ALERTS_' + userId);
+          const currentStored = currentStoredRaw ? JSON.parse(currentStoredRaw) : [];
+          
+          const updatedStored = [...currentStored];
+          newAlerts.forEach(alert => {
+            if (!updatedStored.some(existing => existing.id === alert.id)) {
+              updatedStored.unshift(alert);
+            }
+          });
+
+          await AsyncStorage.setItem('UNREAD_LEAVE_ALERTS_' + userId, JSON.stringify(updatedStored));
+          setRecentLeaveAlerts(updatedStored);
+
+          if (newAlerts.length === 1) {
+            const alertItem = newAlerts[0];
+            const title = alertItem.type === 'approved' ? 'Leave Approved! 🎉' : 'Leave Request Update ⚠️';
+            const message = alertItem.type === 'approved'
+              ? `Your leave request for ${alertItem.startDate} to ${alertItem.endDate} has been approved.`
+              : `Your leave request for ${alertItem.startDate} to ${alertItem.endDate} has been rejected. Check Support tickets for comments.`;
+            Alert.alert(title, message);
+          } else {
+            const approvedCount = newAlerts.filter(a => a.type === 'approved').length;
+            const rejectedCount = newAlerts.filter(a => a.type === 'rejected').length;
+            let msg = '';
+            if (approvedCount > 0 && rejectedCount > 0) {
+              msg = `You have ${approvedCount} approved leave request(s) and ${rejectedCount} rejected leave request(s).`;
+            } else if (approvedCount > 0) {
+              msg = `You have ${approvedCount} new approved leave request(s).`;
+            } else {
+              msg = `You have ${rejectedCount} new rejected leave request(s).`;
+            }
+            Alert.alert('Leave Status Updates', msg);
+          }
+        }
+      }
+
+      await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(leaves));
+
       // Apply offline queue overrides to time logs
       const queue = await syncQueue.getQueue();
       const pendingTimeIn = queue.find(item => item.type === 'time_in' && item.payload.technician_id === userId);
@@ -997,7 +1062,7 @@ export default function App() {
             app_time_in: timeInPayload.app_time_in,
             latitude: timeInPayload.latitude,
             longitude: timeInPayload.longitude,
-            geofence_status: 'inside',
+            geofence_status: finalGeofenceStatus,
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
@@ -1342,7 +1407,17 @@ export default function App() {
         {/* Dynamic Main Content Based on Tab */}
         <FadeInView currentTab={activeTab}>
           {activeTab === 'home' && (
-            <ScrollView contentContainerStyle={styles.content}>
+            <ScrollView 
+              contentContainerStyle={styles.content}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[COLORS.primary]}
+                  tintColor={COLORS.primary}
+                />
+              }
+            >
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                 <View>
                   <Text style={styles.greeting}>{t('welcomeBack')}</Text>
@@ -2254,5 +2329,77 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase'
-  } as TextStyle
+  } as TextStyle,
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  } as ViewStyle,
+  alertCardApproved: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+  } as ViewStyle,
+  alertCardRejected: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  } as ViewStyle,
+  alertIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as ViewStyle,
+  alertIconContainerApproved: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  } as ViewStyle,
+  alertIconContainerRejected: {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+  } as ViewStyle,
+  alertTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  } as TextStyle,
+  alertTitleApproved: {
+    color: '#065f46',
+  } as TextStyle,
+  alertTitleRejected: {
+    color: '#92400e',
+  } as TextStyle,
+  alertText: {
+    fontSize: 12,
+    lineHeight: 16,
+  } as TextStyle,
+  alertTextApproved: {
+    color: '#047857',
+  } as TextStyle,
+  alertTextRejected: {
+    color: '#b45309',
+  } as TextStyle,
+  alertCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 4,
+    borderRadius: 12,
+  } as ViewStyle,
+  navBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ef4444',
+  } as ViewStyle
 });
