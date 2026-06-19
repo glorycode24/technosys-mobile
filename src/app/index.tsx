@@ -170,17 +170,6 @@ export default function App() {
     }
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    if (session) {
-      await Promise.all([
-        fetchDashboardData(session.user.id),
-        fetchDtrLogs()
-      ]);
-    }
-    setRefreshing(false);
-  };
-
   // Opening splash transition states
   const splashOpacity = React.useRef(new Animated.Value(1)).current;
   const logoOpacity = React.useRef(new Animated.Value(0)).current;
