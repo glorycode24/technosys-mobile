@@ -54,12 +54,14 @@ const LoginScreen = ({ onLogin }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setLoading(true);
+    setErrorMsg(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      Alert.alert('Login Failed', error.message);
+      setErrorMsg(error.message || 'Invalid email or password. Please try again.');
     } else {
       onLogin(data.session);
     }
@@ -94,6 +96,26 @@ const LoginScreen = ({ onLogin }: any) => {
             value={password}
             onChangeText={setPassword}
           />
+
+          {errorMsg ? (
+            <View style={{
+              backgroundColor: '#FEF2F2',
+              borderWidth: 1,
+              borderColor: '#FECACA',
+              borderRadius: 10,
+              padding: 12,
+              marginBottom: 16,
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              gap: 8,
+            }}>
+              <Text style={{ fontSize: 16, lineHeight: 20 }}>⚠️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#991B1B', fontWeight: '700', fontSize: 13, marginBottom: 2 }}>Login Failed</Text>
+                <Text style={{ color: '#B91C1C', fontSize: 12, lineHeight: 18 }}>{errorMsg}</Text>
+              </View>
+            </View>
+          ) : null}
 
           <TouchableOpacity 
             style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }}
@@ -146,6 +168,17 @@ export default function App() {
     } catch (err) {
       console.error('Failed to load recent leave alerts:', err);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (session) {
+      await Promise.all([
+        fetchDashboardData(session.user.id),
+        fetchDtrLogs()
+      ]);
+    }
+    setRefreshing(false);
   };
 
   // Opening splash transition states
@@ -533,6 +566,34 @@ export default function App() {
     if (!session) return;
     setTimeInLoading(true);
 
+    // Check if employee is on approved leave today
+    try {
+      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const { data: activeLeaves, error: leaveCheckErr } = await supabase
+        .from('leaves')
+        .select('start_date, end_date, leave_type')
+        .eq('technician_id', session.user.id)
+        .eq('status', 'approved')
+        .lte('start_date', todayDate)
+        .gte('end_date', todayDate);
+
+      if (leaveCheckErr) {
+        // Log but don't block — if the check fails (RLS, network), allow clock-in to proceed
+        // The server-side time_logs RLS will still protect data integrity
+        console.warn('Leave conflict check failed (non-fatal):', leaveCheckErr.message, 'code:', leaveCheckErr.code);
+      } else if (activeLeaves && activeLeaves.length > 0) {
+        const leave = activeLeaves[0];
+        Alert.alert(
+          'Clock-In Blocked',
+          `You have an approved ${leave.leave_type} leave covering today (${leave.start_date} to ${leave.end_date}). You cannot clock in while on leave. Please contact your admin if this is an error.`
+        );
+        setTimeInLoading(false);
+        return;
+      }
+    } catch (leaveCheckException) {
+      console.warn('Leave conflict check threw unexpectedly (non-fatal):', leaveCheckException);
+    }
+
     try {
       // Find today's active schedule for DTR mode validation
       const nowTime = new Date();
@@ -601,7 +662,7 @@ export default function App() {
 
       if (error) {
         const errMessage = error.message || '';
-        const status = (error as any).status;
+        const status = (error as any).status || (error as any).code;
         const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
         
         if (isNetworkError) {
@@ -614,7 +675,7 @@ export default function App() {
             app_time_in: timeInPayload.app_time_in,
             latitude: timeInPayload.latitude,
             longitude: timeInPayload.longitude,
-            geofence_status: finalGeofenceStatus,
+            geofence_status: timeInPayload.geofence_status,
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
