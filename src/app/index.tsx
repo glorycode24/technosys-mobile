@@ -251,6 +251,8 @@ export default function App() {
   const [schedules, setSchedules] = useState<any[]>([]);
   const [payslip, setPayslip] = useState<any>(null);
   const [leaveAlert, setLeaveAlert] = useState<any>(null);
+  const [recentLeaveAlerts, setRecentLeaveAlerts] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
@@ -473,6 +475,17 @@ export default function App() {
     } finally {
       setDtrLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (session) {
+      await Promise.all([
+        fetchDashboardData(session.user.id),
+        fetchDtrLogs()
+      ]);
+    }
+    setRefreshing(false);
   };
 
   // Opening splash transition states
@@ -1062,7 +1075,7 @@ export default function App() {
             app_time_in: timeInPayload.app_time_in,
             latitude: timeInPayload.latitude,
             longitude: timeInPayload.longitude,
-            geofence_status: finalGeofenceStatus,
+            geofence_status: timeInPayload.geofence_status,
             is_offline_pending: true
           };
           setActiveTimeLog(mockLog);
