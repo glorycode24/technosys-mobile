@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl, Modal } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, RefreshControl, Modal, Linking } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -122,6 +122,12 @@ export default function App() {
   // Leaves alerts and refreshing states
   const [recentLeaveAlerts, setRecentLeaveAlerts] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Documents / Forms states
+  const [docsModalVisible, setDocsModalVisible] = useState(false);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [docsSearchQuery, setDocsSearchQuery] = useState('');
 
   // Load recent alerts
   const loadRecentAlerts = async (userId: string) => {
@@ -767,6 +773,38 @@ export default function App() {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const fetchDocuments = async () => {
+    setLoadingDocs(true);
+    try {
+      const { data, error } = await supabase
+        .from('documents')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching documents:', error.message);
+      } else {
+        const userBranchId = profile?.branch_id;
+        const filtered = (data || []).filter((doc: any) => {
+          return !doc.branch_id || doc.branch_id === userBranchId;
+        });
+        setDocuments(filtered);
+      }
+    } catch (err) {
+      console.error('Exception fetching documents:', err);
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
   const renderAppContent = () => {
     if (!session) {
       return <LoginScreen onLogin={setSession} />;
@@ -1085,6 +1123,17 @@ export default function App() {
 
                 <TouchableOpacity 
                   onPress={() => {
+                    fetchDocuments();
+                    setDocsModalVisible(true);
+                  }} 
+                  style={{ backgroundColor: COLORS.card, padding: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'center', marginBottom: 12 }}
+                >
+                  <Feather name="file-text" size={20} color={COLORS.primary} style={{ marginRight: 8 }} />
+                  <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 16 }}>Forms & Documents</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  onPress={() => {
                     loadSyncData();
                     setSyncModalVisible(true);
                   }} 
@@ -1149,6 +1198,125 @@ export default function App() {
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
       
+      {/* FORMS & DOCUMENTS MODAL */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={docsModalVisible}
+        onRequestClose={() => setDocsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Feather name="file-text" size={20} color={COLORS.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>Forms & Documents</Text>
+              </View>
+              <TouchableOpacity onPress={() => setDocsModalVisible(false)} style={styles.modalCloseButton}>
+                <Feather name="x" size={20} color={COLORS.textMain} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.searchContainer}>
+              <Feather name="search" size={16} color={COLORS.textMuted} style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search documents by name or category..."
+                placeholderTextColor={COLORS.textMuted}
+                value={docsSearchQuery}
+                onChangeText={setDocsSearchQuery}
+              />
+              {docsSearchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setDocsSearchQuery('')}>
+                  <Feather name="x-circle" size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ScrollView 
+              contentContainerStyle={styles.modalScrollContent}
+              refreshControl={
+                <RefreshControl
+                  refreshing={loadingDocs}
+                  onRefresh={fetchDocuments}
+                  colors={[COLORS.primary]}
+                  tintColor={COLORS.primary}
+                />
+              }
+            >
+              {loadingDocs && documents.length === 0 ? (
+                <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 24 }} />
+              ) : (
+                (() => {
+                  const filtered = documents.filter((doc: any) => {
+                    const query = docsSearchQuery.toLowerCase();
+                    return doc.name.toLowerCase().includes(query) || doc.category.toLowerCase().includes(query);
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <View style={styles.emptySyncState}>
+                        <Feather name="file" size={24} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
+                        <Text style={styles.emptySyncText}>No documents found.</Text>
+                      </View>
+                    );
+                  }
+
+                  return filtered.map((doc: any) => {
+                    let tagColor = 'rgba(100, 116, 139, 0.1)';
+                    let textColor = COLORS.textMuted;
+                    if (doc.category === 'Leave Form') {
+                      tagColor = 'rgba(16, 185, 129, 0.1)';
+                      textColor = COLORS.primary;
+                    } else if (doc.category === 'Resignation Form') {
+                      tagColor = 'rgba(245, 158, 11, 0.1)';
+                      textColor = '#f59e0b';
+                    } else if (doc.category === 'Company Policy') {
+                      tagColor = 'rgba(239, 68, 68, 0.1)';
+                      textColor = COLORS.danger;
+                    } else if (doc.category === 'Handbook') {
+                      tagColor = 'rgba(139, 92, 246, 0.1)';
+                      textColor = '#8b5cf6';
+                    }
+
+                    return (
+                      <View key={doc.id} style={styles.docCard}>
+                        <View style={styles.docInfo}>
+                          <Text style={styles.docName} numberOfLines={2}>{doc.name}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8 }}>
+                            <View style={[styles.docCategoryTag, { backgroundColor: tagColor }]}>
+                              <Text style={[styles.docCategoryText, { color: textColor }]}>{doc.category}</Text>
+                            </View>
+                            <Text style={styles.docSizeText}>{formatBytes(doc.file_size)}</Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity 
+                          style={styles.docDownloadBtn} 
+                          onPress={async () => {
+                            try {
+                              const supported = await Linking.canOpenURL(doc.file_url);
+                              if (supported) {
+                                await Linking.openURL(doc.file_url);
+                              } else {
+                                Alert.alert('Error', 'Cannot open the file URL: ' + doc.file_url);
+                              }
+                            } catch (err: any) {
+                              Alert.alert('Download Error', err.message || 'Failed to open file.');
+                            }
+                          }}
+                        >
+                          <Feather name="download" size={18} color={COLORS.primary} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  });
+                })()
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* OFFLINE SYNC CENTER MODAL */}
       <Modal
         animationType="slide"
@@ -1678,5 +1846,73 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.5,
     shadowOpacity: 0,
+  } as ViewStyle,
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 12,
+    marginHorizontal: 24,
+    marginTop: 16,
+    height: 44,
+  } as ViewStyle,
+  searchInput: {
+    flex: 1,
+    color: COLORS.textMain,
+    fontSize: 14,
+    padding: 0,
+  } as TextStyle,
+  docCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  } as ViewStyle,
+  docInfo: {
+    flex: 1,
+    marginRight: 12,
+  } as ViewStyle,
+  docName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textMain,
+  } as TextStyle,
+  docCategoryTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  } as ViewStyle,
+  docCategoryText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  } as TextStyle,
+  docSizeText: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  } as TextStyle,
+  docDownloadBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   } as ViewStyle,
 });
