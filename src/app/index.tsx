@@ -170,6 +170,14 @@ export default function App() {
     }
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (session) {
+      await fetchDashboardData(session.user.id);
+    }
+    setRefreshing(false);
+  };
+
   // Opening splash transition states
   const splashOpacity = React.useRef(new Animated.Value(1)).current;
   const logoOpacity = React.useRef(new Animated.Value(0)).current;
@@ -806,13 +814,6 @@ export default function App() {
     } finally {
       setTimeOutLoading(false);
     }
-  };
-
-  const handleRefresh = async () => {
-    if (!session) return;
-    setRefreshing(true);
-    await fetchDashboardData(session.user.id);
-    setRefreshing(false);
   };
 
   const handleDismissAlert = async (id: string) => {
