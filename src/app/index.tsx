@@ -116,12 +116,14 @@ const LoginScreen = ({ onLogin }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setLoading(true);
+    setErrorMsg(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      Alert.alert('Login Failed', error.message);
+      setErrorMsg(error.message || 'Invalid email or password. Please try again.');
     } else {
       onLogin(data.session);
     }
@@ -156,6 +158,26 @@ const LoginScreen = ({ onLogin }: any) => {
             value={password}
             onChangeText={setPassword}
           />
+
+          {errorMsg ? (
+            <View style={{
+              backgroundColor: '#FEF2F2',
+              borderWidth: 1,
+              borderColor: '#FECACA',
+              borderRadius: 10,
+              padding: 12,
+              marginBottom: 16,
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              gap: 8,
+            }}>
+              <Text style={{ fontSize: 16, lineHeight: 20 }}>⚠️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#991B1B', fontWeight: '700', fontSize: 13, marginBottom: 2 }}>Login Failed</Text>
+                <Text style={{ color: '#B91C1C', fontSize: 12, lineHeight: 18 }}>{errorMsg}</Text>
+              </View>
+            </View>
+          ) : null}
 
           <TouchableOpacity 
             style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }}
