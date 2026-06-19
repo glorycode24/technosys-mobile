@@ -1065,6 +1065,26 @@ export default function App() {
     if (!session) return;
     setTimeInLoading(true);
 
+    // Check if employee is on approved leave today
+    const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const { data: activeLeaves } = await supabase
+      .from('leaves')
+      .select('start_date, end_date, leave_type')
+      .eq('technician_id', session.user.id)
+      .eq('status', 'approved')
+      .lte('start_date', todayDate)
+      .gte('end_date', todayDate);
+
+    if (activeLeaves && activeLeaves.length > 0) {
+      const leave = activeLeaves[0];
+      Alert.alert(
+        'Clock-In Blocked',
+        `You have an approved ${leave.leave_type} leave covering today (${leave.start_date} to ${leave.end_date}). You cannot clock in while on leave. Please contact your admin if this is an error.`
+      );
+      setTimeInLoading(false);
+      return;
+    }
+
     try {
       const isSuspicious = (locationResult.timeDrift && locationResult.timeDrift > 15 * 60 * 1000) || false;
       const timeInPayload = {

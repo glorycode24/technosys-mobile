@@ -402,6 +402,29 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         return;
       }
 
+      // Check for overlapping existing leave requests
+      try {
+        const { data: overlappingLeaves } = await supabase
+          .from('leaves')
+          .select('start_date, end_date, leave_type, status')
+          .eq('technician_id', userId)
+          .in('status', ['pending', 'approved'])
+          .lte('start_date', endDate)
+          .gte('end_date', startDate);
+
+        if (overlappingLeaves && overlappingLeaves.length > 0) {
+          const conflict = overlappingLeaves[0];
+          Alert.alert(
+            'Leave Conflict Detected',
+            `You already have a ${conflict.status} ${conflict.leave_type} leave request from ${conflict.start_date} to ${conflict.end_date} that overlaps with your requested dates. Please adjust your dates or cancel the existing request first.`
+          );
+          return;
+        }
+      } catch (overlapErr) {
+        // Non-fatal: if check fails (offline), allow submission to proceed
+        console.warn('Could not check for overlapping leaves (possibly offline):', overlapErr);
+      }
+
       const payload = {
         technician_id: userId,
         start_date: startDate,
