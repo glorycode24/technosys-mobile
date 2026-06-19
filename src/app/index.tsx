@@ -1066,23 +1066,31 @@ export default function App() {
     setTimeInLoading(true);
 
     // Check if employee is on approved leave today
-    const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const { data: activeLeaves } = await supabase
-      .from('leaves')
-      .select('start_date, end_date, leave_type')
-      .eq('technician_id', session.user.id)
-      .eq('status', 'approved')
-      .lte('start_date', todayDate)
-      .gte('end_date', todayDate);
+    try {
+      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const { data: activeLeaves, error: leaveCheckErr } = await supabase
+        .from('leaves')
+        .select('start_date, end_date, leave_type')
+        .eq('technician_id', session.user.id)
+        .eq('status', 'approved')
+        .lte('start_date', todayDate)
+        .gte('end_date', todayDate);
 
-    if (activeLeaves && activeLeaves.length > 0) {
-      const leave = activeLeaves[0];
-      Alert.alert(
-        'Clock-In Blocked',
-        `You have an approved ${leave.leave_type} leave covering today (${leave.start_date} to ${leave.end_date}). You cannot clock in while on leave. Please contact your admin if this is an error.`
-      );
-      setTimeInLoading(false);
-      return;
+      if (leaveCheckErr) {
+        // Log but don't block — if the check fails (RLS, network), allow clock-in to proceed
+        // The server-side time_logs RLS will still protect data integrity
+        console.warn('Leave conflict check failed (non-fatal):', leaveCheckErr.message, 'code:', leaveCheckErr.code);
+      } else if (activeLeaves && activeLeaves.length > 0) {
+        const leave = activeLeaves[0];
+        Alert.alert(
+          'Clock-In Blocked',
+          `You have an approved ${leave.leave_type} leave covering today (${leave.start_date} to ${leave.end_date}). You cannot clock in while on leave. Please contact your admin if this is an error.`
+        );
+        setTimeInLoading(false);
+        return;
+      }
+    } catch (leaveCheckException) {
+      console.warn('Leave conflict check threw unexpectedly (non-fatal):', leaveCheckException);
     }
 
     try {
@@ -1102,7 +1110,7 @@ export default function App() {
 
       if (error) {
         const errMessage = error.message || '';
-        const status = (error as any).status;
+        const status = (error as any).status || (error as any).code;
         const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
         
         if (isNetworkError) {
