@@ -129,6 +129,11 @@ export default function App() {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [docsSearchQuery, setDocsSearchQuery] = useState('');
 
+  // Holidays Calendar states
+  const [holidays, setHolidays] = useState<any[]>([]);
+  const [currentCalendarDate, setCurrentCalendarDate] = useState<Date>(new Date());
+  const [selectedDateString, setSelectedDateString] = useState<string | null>(null);
+
   // Load recent alerts
   const loadRecentAlerts = async (userId: string) => {
     try {
@@ -341,9 +346,13 @@ export default function App() {
         .select('*')
         .eq('technician_id', userId)
         .order('created_at', { ascending: false });
+      const fetchHolidaysPromise = supabase.from('holidays')
+        .select('*')
+        .eq('is_active', true)
+        .order('holiday_date', { ascending: true });
 
-      const [profResult, schedsResult, payslipsResult, logsResult, leavesResult] = await withTimeout(
-        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchLeavesPromise]),
+      const [profResult, schedsResult, payslipsResult, logsResult, leavesResult, holidaysResult] = await withTimeout(
+        Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchLeavesPromise, fetchHolidaysPromise]),
         4000
       );
 
@@ -358,16 +367,19 @@ export default function App() {
       if (payslipsResult.error && isNetworkErr(payslipsResult.error)) throw payslipsResult.error;
       if (logsResult.error && isNetworkErr(logsResult.error)) throw logsResult.error;
       if (leavesResult.error && isNetworkErr(leavesResult.error)) throw leavesResult.error;
+      if (holidaysResult.error && isNetworkErr(holidaysResult.error)) throw holidaysResult.error;
 
       const prof = profResult.data;
       const scheds = schedsResult.data || [];
       const pay = payslipsResult.data;
       const logs = logsResult.data || [];
       const leaves = leavesResult.data || [];
+      const hols = holidaysResult.data || [];
 
       if (prof) setProfile(prof);
       setSchedules(scheds);
       setPayslip(pay);
+      setHolidays(hols);
 
       // Process leaves transitions
       const cachedLeavesRaw = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
@@ -467,7 +479,8 @@ export default function App() {
         schedules: scheds,
         payslip: pay,
         logs: logs,
-        cachedAt: new Date().toISOString()
+        cachedAt: new Date().toISOString(),
+        holidays: hols
       };
       await AsyncStorage.setItem('CACHED_DASHBOARD_' + userId, JSON.stringify(dashboardCache));
     } catch (e: any) {
@@ -479,6 +492,7 @@ export default function App() {
           if (dashboardCache.profile) setProfile(dashboardCache.profile);
           setSchedules(dashboardCache.schedules || []);
           setPayslip(dashboardCache.payslip);
+          setHolidays(dashboardCache.holidays || []);
           
           const cachedLogs = dashboardCache.logs || [];
           
@@ -805,6 +819,34 @@ export default function App() {
     }
   };
 
+  const getDaysInMonth = (year: number, month: number) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (year: number, month: number) => {
+    return new Date(year, month, 1).getDay();
+  };
+
+  const getHolidayForDate = (dateStr: string) => {
+    return holidays.find(h => h.holiday_date === dateStr);
+  };
+
+  const handlePrevMonth = () => {
+    setCurrentCalendarDate(prev => {
+      const year = prev.getFullYear();
+      const month = prev.getMonth();
+      return new Date(year, month - 1, 1);
+    });
+  };
+
+  const handleNextMonth = () => {
+    setCurrentCalendarDate(prev => {
+      const year = prev.getFullYear();
+      const month = prev.getMonth();
+      return new Date(year, month + 1, 1);
+    });
+  };
+
   const renderAppContent = () => {
     if (!session) {
       return <LoginScreen onLogin={setSession} />;
@@ -1014,6 +1056,236 @@ export default function App() {
                   )}
                 </View>
               ))}
+
+              {/* HOLIDAYS CALENDAR SECTION */}
+              <Text style={[styles.sectionTitleMain, { marginTop: 32 }]}>Holiday & Payroll Calendar</Text>
+              <View style={styles.calendarCard}>
+                {/* Month switcher header */}
+                <View style={styles.calendarHeader}>
+                  <TouchableOpacity onPress={handlePrevMonth} style={styles.monthNavBtn}>
+                    <Feather name="chevron-left" size={20} color={COLORS.textMain} />
+                  </TouchableOpacity>
+                  <Text style={styles.calendarHeaderTitle}>
+                    {currentCalendarDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                  </Text>
+                  <TouchableOpacity onPress={handleNextMonth} style={styles.monthNavBtn}>
+                    <Feather name="chevron-right" size={20} color={COLORS.textMain} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Weekdays Row */}
+                <View style={styles.weekdaysRow}>
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                    <Text key={idx} style={styles.weekdayText}>{day}</Text>
+                  ))}
+                </View>
+
+                {/* Days Grid */}
+                <View style={styles.daysGrid}>
+                  {(() => {
+                    const year = currentCalendarDate.getFullYear();
+                    const month = currentCalendarDate.getMonth();
+                    const daysInMonth = getDaysInMonth(year, month);
+                    const firstDayIndex = getFirstDayOfMonth(year, month);
+
+                    const cells = [];
+                    // Padding cells
+                    for (let i = 0; i < firstDayIndex; i++) {
+                      cells.push(<View key={`pad-${i}`} style={styles.calendarCellEmpty} />);
+                    }
+
+                    // Active days
+                    for (let day = 1; day <= daysInMonth; day++) {
+                      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                      const holiday = getHolidayForDate(dateStr);
+                      const isSelected = selectedDateString === dateStr;
+
+                      const todayObj = new Date();
+                      const isToday = todayObj.getFullYear() === year && 
+                                      todayObj.getMonth() === month && 
+                                      todayObj.getDate() === day;
+
+                      let cellStyle: any[] = [styles.calendarCell];
+                      let textStyle: any[] = [styles.calendarCellText];
+
+                      if (holiday) {
+                        if (Number(holiday.multiplier) >= 2.00) {
+                          cellStyle.push(styles.calendarCellRegularHoliday);
+                          textStyle.push(styles.calendarCellTextHoliday);
+                        } else {
+                          cellStyle.push(styles.calendarCellSpecialHoliday);
+                          textStyle.push(styles.calendarCellTextHoliday);
+                        }
+                      } else if (isToday) {
+                        cellStyle.push(styles.calendarCellToday);
+                        textStyle.push(styles.calendarCellTextToday);
+                      }
+
+                      if (isSelected) {
+                        cellStyle.push(styles.calendarCellSelected);
+                      }
+
+                      cells.push(
+                        <TouchableOpacity
+                          key={`day-${day}`}
+                          style={cellStyle}
+                          onPress={() => setSelectedDateString(dateStr)}
+                        >
+                          <Text style={textStyle}>{day}</Text>
+                          {holiday && (
+                            <View style={[
+                              styles.holidayDot,
+                              { backgroundColor: Number(holiday.multiplier) >= 2.00 ? COLORS.primary : '#d97706' }
+                            ]} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    }
+
+                    return cells;
+                  })()}
+                </View>
+              </View>
+
+              {/* Selected date multiplier details */}
+              {selectedDateString && (() => {
+                const holiday = getHolidayForDate(selectedDateString);
+                const displayDate = new Date(selectedDateString).toLocaleDateString('en-US', { 
+                  month: 'long', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                });
+                const hasBaseSalary = profile?.base_salary && Number(profile.base_salary) > 0;
+                const baseSalary = hasBaseSalary ? Number(profile.base_salary) : 0;
+                const dailyRate = Number((baseSalary / 22).toFixed(2));
+                const multiplier = holiday ? Number(holiday.multiplier) : 1.00;
+                const expectedPay = Number((dailyRate * multiplier).toFixed(2));
+
+                return (
+                  <View style={styles.multiplierDetailCard}>
+                    <View style={styles.multiplierDetailHeader}>
+                      <Text style={styles.multiplierDetailDate}>{displayDate}</Text>
+                      <TouchableOpacity onPress={() => setSelectedDateString(null)}>
+                        <Feather name="x" size={16} color={COLORS.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+
+                    {holiday ? (
+                      <View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                          <View style={[
+                            styles.holidayBadge,
+                            { backgroundColor: multiplier >= 2.00 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)' }
+                          ]}>
+                            <Text style={[
+                              styles.holidayBadgeText,
+                              { color: multiplier >= 2.00 ? COLORS.primary : '#d97706' }
+                            ]}>
+                              {holiday.name} ({multiplier.toFixed(2)}x)
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.multiplierDesc}>
+                          This is a designated company holiday. Working on this day qualifies for a {((multiplier - 1) * 100).toFixed(0)}% salary multiplier premium ({multiplier.toFixed(2)}x base rate).
+                        </Text>
+                      </View>
+                    ) : (
+                      <View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                          <View style={[styles.holidayBadge, { backgroundColor: 'rgba(100, 116, 139, 0.1)' }]}>
+                            <Text style={[styles.holidayBadgeText, { color: COLORS.textMuted }]}>
+                              Standard Working Day (1.00x)
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.multiplierDesc}>
+                          Standard working day. Hours worked on this day are calculated at regular standard base pay.
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={styles.divider} />
+
+                    <Text style={styles.calculatorTitle}>Estimated Holiday Pay</Text>
+                    {hasBaseSalary ? (
+                      <View>
+                        <View style={styles.calcRow}>
+                          <Text style={styles.calcLabel}>Monthly Base Salary:</Text>
+                          <Text style={styles.calcValue}>₱ {baseSalary.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                        </View>
+                        <View style={styles.calcRow}>
+                          <Text style={styles.calcLabel}>Est. Daily Base Rate (Base ÷ 22 days):</Text>
+                          <Text style={styles.calcValue}>₱ {dailyRate.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                        </View>
+                        <View style={styles.calcRow}>
+                          <Text style={styles.calcLabel}>Salary Multiplier Coefficient:</Text>
+                          <Text style={styles.calcValue}>{multiplier.toFixed(2)}x</Text>
+                        </View>
+                        <View style={[styles.calcRow, { borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10, marginTop: 10 }]}>
+                          <Text style={[styles.calcLabel, { fontWeight: '800', color: COLORS.textMain }]}>Expected Holiday Pay Rate:</Text>
+                          <Text style={[styles.calcValue, { fontWeight: '800', color: COLORS.primary }]}>
+                            ₱ {expectedPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </Text>
+                        </View>
+                        <Text style={styles.rateCalculationTip}>
+                          * Formula: ₱ {dailyRate.toLocaleString('en-US', { minimumFractionDigits: 2 })} × {multiplier.toFixed(2)} = ₱ {expectedPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}. This is an estimate based on standard 22 working days per month. Actual payroll calculations may vary.
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={{ backgroundColor: '#f1f5f9', padding: 12, borderRadius: 8, marginTop: 4 }}>
+                        <Text style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 16 }}>
+                          ⚠️ Base salary is not set in your employee profile. Set your base salary in the administrator panel to see estimated daily rate calculator details.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
+
+              {/* UPCOMING HOLIDAYS AGENDA VIEW */}
+              <View style={styles.upcomingHolidaysCard}>
+                <Text style={styles.upcomingHolidaysTitle}>Upcoming Holidays</Text>
+                {(() => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const upcoming = holidays
+                    .filter(h => h.holiday_date >= todayStr)
+                    .slice(0, 2);
+
+                  if (upcoming.length === 0) {
+                    return (
+                      <Text style={{ fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic' }}>
+                        No upcoming holidays scheduled.
+                      </Text>
+                    );
+                  }
+
+                  return upcoming.map(h => {
+                    const hDate = new Date(h.holiday_date);
+                    const formattedDate = hDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                    const mult = Number(h.multiplier);
+
+                    return (
+                      <View key={h.id} style={styles.upcomingHolidayRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.upcomingHolidayName}>{h.name}</Text>
+                          <Text style={styles.upcomingHolidayDate}>{formattedDate}</Text>
+                        </View>
+                        <View style={[
+                          styles.upcomingHolidayMultiplier,
+                          { backgroundColor: mult >= 2.00 ? COLORS.primaryDim : 'rgba(245, 158, 11, 0.1)' }
+                        ]}>
+                          <Text style={[
+                            styles.upcomingHolidayMultiplierText,
+                            { color: mult >= 2.00 ? COLORS.primary : '#d97706' }
+                          ]}>
+                            {mult.toFixed(2)}x
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  });
+                })()}
+              </View>
             </ScrollView>
           )}
 
@@ -1915,4 +2187,204 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   } as ViewStyle,
+  calendarCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    marginBottom: 16,
+  } as ViewStyle,
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  } as ViewStyle,
+  calendarHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    letterSpacing: -0.5,
+  } as TextStyle,
+  monthNavBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  } as ViewStyle,
+  weekdaysRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingBottom: 8,
+    marginBottom: 8,
+  } as ViewStyle,
+  weekdayText: {
+    width: '14.28%',
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+  } as TextStyle,
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  } as ViewStyle,
+  calendarCell: {
+    width: '14.28%',
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 4,
+    borderRadius: 20,
+    position: 'relative',
+  } as ViewStyle,
+  calendarCellEmpty: {
+    width: '14.28%',
+    height: 40,
+  } as ViewStyle,
+  calendarCellText: {
+    fontSize: 13,
+    color: COLORS.textMain,
+    fontWeight: '600',
+  } as TextStyle,
+  calendarCellRegularHoliday: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  } as ViewStyle,
+  calendarCellSpecialHoliday: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  } as ViewStyle,
+  calendarCellToday: {
+    borderWidth: 1.5,
+    borderColor: COLORS.textMain,
+  } as ViewStyle,
+  calendarCellSelected: {
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+  } as ViewStyle,
+  calendarCellTextHoliday: {
+    fontWeight: '800',
+  } as TextStyle,
+  calendarCellTextToday: {
+    fontWeight: '800',
+  } as TextStyle,
+  holidayDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    position: 'absolute',
+    bottom: 4,
+  } as ViewStyle,
+  multiplierDetailCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    marginBottom: 16,
+  } as ViewStyle,
+  multiplierDetailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  } as ViewStyle,
+  multiplierDetailDate: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: COLORS.textMain,
+  } as TextStyle,
+  holidayBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  } as ViewStyle,
+  holidayBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  } as TextStyle,
+  multiplierDesc: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    lineHeight: 18,
+  } as TextStyle,
+  calculatorTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    marginBottom: 10,
+  } as TextStyle,
+  calcRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  } as ViewStyle,
+  calcLabel: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+  } as TextStyle,
+  calcValue: {
+    fontSize: 13,
+    color: COLORS.textMain,
+    fontWeight: '600',
+  } as TextStyle,
+  rateCalculationTip: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 8,
+    fontStyle: 'italic',
+    lineHeight: 15,
+  } as TextStyle,
+  upcomingHolidaysCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    marginBottom: 32,
+  } as ViewStyle,
+  upcomingHolidaysTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    marginBottom: 12,
+  } as TextStyle,
+  upcomingHolidayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingVertical: 10,
+  } as ViewStyle,
+  upcomingHolidayName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textMain,
+  } as TextStyle,
+  upcomingHolidayDate: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  } as TextStyle,
+  upcomingHolidayMultiplier: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  } as ViewStyle,
+  upcomingHolidayMultiplierText: {
+    fontSize: 11,
+    fontWeight: '800',
+  } as TextStyle,
 });
