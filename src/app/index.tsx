@@ -173,10 +173,7 @@ export default function App() {
   const handleRefresh = async () => {
     setRefreshing(true);
     if (session) {
-      await Promise.all([
-        fetchDashboardData(session.user.id),
-        fetchDtrLogs()
-      ]);
+      await fetchDashboardData(session.user.id);
     }
     setRefreshing(false);
   };
@@ -817,13 +814,6 @@ export default function App() {
     } finally {
       setTimeOutLoading(false);
     }
-  };
-
-  const handleRefresh = async () => {
-    if (!session) return;
-    setRefreshing(true);
-    await fetchDashboardData(session.user.id);
-    setRefreshing(false);
   };
 
   const handleDismissAlert = async (id: string) => {
