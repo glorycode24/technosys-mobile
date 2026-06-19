@@ -401,6 +401,15 @@ export default function App() {
     return text;
   };
 
+  const getBilingualText = (text: string, lang: 'en' | 'fil') => {
+    if (!text) return '';
+    const parts = text.split('|');
+    if (parts.length > 1) {
+      return lang === 'fil' ? parts[1].trim() : parts[0].trim();
+    }
+    return text.trim();
+  };
+
   const changeLanguage = async (newLang: Locale) => {
     setLanguage(newLang);
     await AsyncStorage.setItem('APP_LANGUAGE', newLang);
@@ -702,6 +711,75 @@ export default function App() {
       };
     }
   }, [session]);
+
+  // Real-time Announcements Sync
+  useEffect(() => {
+    let channel: any;
+    if (session) {
+      channel = supabase
+        .channel('announcements_realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'announcements' },
+          async (payload) => {
+            console.log('Realtime announcement change detected:', payload);
+            try {
+              // Re-fetch latest announcements to ensure correct sorting and details
+              const { data, error } = await supabase
+                .from('announcements')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+              if (error) {
+                console.error("Failed to fetch announcements in realtime update:", error.message);
+                return;
+              }
+
+              if (data) {
+                setAnnouncements(data);
+
+                // Update AsyncStorage cache
+                try {
+                  const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + session.user.id);
+                  if (cached) {
+                    const dashboardCache = JSON.parse(cached);
+                    dashboardCache.announcements = data;
+                    await AsyncStorage.setItem('CACHED_DASHBOARD_' + session.user.id, JSON.stringify(dashboardCache));
+                  }
+                } catch (cacheErr: any) {
+                  console.warn("Failed to update dashboard announcements cache:", cacheErr.message);
+                }
+
+                // Alert user of new announcement if event is INSERT
+                if (payload.eventType === 'INSERT') {
+                  const newAnn = payload.new;
+                  const userBranchId = profile?.branch_id;
+                  
+                  // Only alert if global or targets user's branch
+                  if (!newAnn.target_branch_id || newAnn.target_branch_id === userBranchId) {
+                    const title = getBilingualText(newAnn.title, language);
+                    const content = getBilingualText(newAnn.content, language);
+                    Alert.alert(
+                      language === 'fil' ? 'Bagong Anunsyo!' : 'New Announcement!',
+                      `${title}\n\n${content}`
+                    );
+                  }
+                }
+              }
+            } catch (err: any) {
+              console.error("Error handling realtime announcement change:", err.message || err);
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [session, profile, language]);
 
   const loadDashboardDataFromCache = async (userId: string) => {
     try {
@@ -1437,16 +1515,6 @@ export default function App() {
                 const filteredAnnouncements = announcements.filter(ann => 
                   !ann.target_branch_id || ann.target_branch_id === profile?.branch_id
                 );
-                
-                const getBilingualText = (text: string, lang: 'en' | 'fil') => {
-                  if (!text) return '';
-                  const parts = text.split('|');
-                  if (parts.length > 1) {
-                    return lang === 'fil' ? parts[1].trim() : parts[0].trim();
-                  }
-                  return text.trim();
-                };
-
                 if (filteredAnnouncements.length === 0) return null;
 
                 return (
