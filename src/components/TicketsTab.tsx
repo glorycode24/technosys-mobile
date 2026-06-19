@@ -703,7 +703,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
       // 1. Double check current stock
       const { data: item, error: fetchErr } = await supabase
         .from('inventory_items')
-        .select('quantity, name, unit')
+        .select('quantity, low_stock_threshold, name, sku, unit')
         .eq('id', selectedPart.id)
         .single();
       
@@ -776,6 +776,44 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
         author_id: userId,
         content: `🔧 [System DTR Log]: Technician checked out ${qtyNum} ${item.unit} of "${item.name}" for dispatch. Memo: ${checkoutNotes.trim() || 'None'}`
       });
+
+      // 5. Send low stock push notification alerts if it transitioned below threshold
+      const wasAbove = item.quantity > item.low_stock_threshold;
+      const isNowBelow = (item.quantity - qtyNum) <= item.low_stock_threshold;
+      if (wasAbove && isNowBelow) {
+        try {
+          const { data: admins } = await supabase
+            .from('profiles')
+            .select('push_token')
+            .in('role', ['admin', 'super_admin'])
+            .not('push_token', 'is', null);
+
+          if (admins && admins.length > 0) {
+            const tokens = admins.map(a => a.push_token).filter(Boolean);
+            if (tokens.length > 0) {
+              const messages = tokens.map(token => ({
+                to: token,
+                sound: 'default',
+                title: '⚠️ Low Stock Alert',
+                body: `Inventory item "${item.name}" (SKU: ${item.sku}) has fallen below its safety threshold. Current stock: ${item.quantity - qtyNum} ${item.unit} (Limit: ${item.low_stock_threshold} ${item.unit}).`,
+                data: { itemId: item.sku }
+              }));
+
+              await fetch('https://exp.host/--/api/v2/push/send', {
+                method: 'POST',
+                headers: {
+                  'Accept': 'application/json',
+                  'Accept-encoding': 'gzip, deflate',
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(messages)
+              });
+            }
+          }
+        } catch (pushErr) {
+          console.error('Failed to send push notification from mobile checkout:', pushErr);
+        }
+      }
 
       Alert.alert('Parts Checkout Successful', `Logged checkout of ${qtyNum} ${item.unit} of ${item.name}.`);
       setSelectedPart(null);

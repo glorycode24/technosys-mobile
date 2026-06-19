@@ -130,7 +130,7 @@ export const syncQueue = {
           // 1. Double check current stock level from Supabase
           const { data: dbItem, error: fetchErr } = await supabase
             .from('inventory_items')
-            .select('quantity')
+            .select('quantity, low_stock_threshold, name, sku, unit')
             .eq('id', item.payload.item_id)
             .single();
 
@@ -171,6 +171,48 @@ export const syncQueue = {
                   content: `🔧 [System DTR Log - Offline Sync]: Technician checked out ${checkoutQty} ${item.payload.unit ?? 'pcs'} of "${item.payload.name}". Memo: ${item.payload.notes}`
                 });
                 error = commentErr;
+
+                // 5. Send low stock push notification alerts if it transitioned below threshold during sync
+                if (!error && dbItem) {
+                  const wasAbove = dbItem.quantity > dbItem.low_stock_threshold;
+                  const newQty = Math.max(0, dbItem.quantity - checkoutQty);
+                  const isNowBelow = newQty <= dbItem.low_stock_threshold;
+
+                  if (wasAbove && isNowBelow) {
+                    try {
+                      const { data: admins } = await supabase
+                        .from('profiles')
+                        .select('push_token')
+                        .in('role', ['admin', 'super_admin'])
+                        .not('push_token', 'is', null);
+
+                      if (admins && admins.length > 0) {
+                        const tokens = admins.map(a => a.push_token).filter(Boolean);
+                        if (tokens.length > 0) {
+                          const messages = tokens.map(token => ({
+                            to: token,
+                            sound: 'default',
+                            title: '⚠️ Low Stock Alert',
+                            body: `Inventory item "${dbItem.name}" (SKU: ${dbItem.sku}) has fallen below its safety threshold. Current stock: ${newQty} ${dbItem.unit} (Limit: ${dbItem.low_stock_threshold} ${dbItem.unit}).`,
+                            data: { itemId: dbItem.sku }
+                          }));
+
+                          await fetch('https://exp.host/--/api/v2/push/send', {
+                            method: 'POST',
+                            headers: {
+                              'Accept': 'application/json',
+                              'Accept-encoding': 'gzip, deflate',
+                              'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(messages)
+                          });
+                        }
+                      }
+                    } catch (pushErr) {
+                      console.error('Failed to send push notification from offline sync:', pushErr);
+                    }
+                  }
+                }
               }
             }
           }
