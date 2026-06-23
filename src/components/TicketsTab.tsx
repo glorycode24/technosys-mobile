@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
+import Pagination from './Pagination';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -37,9 +38,10 @@ const COLORS = {
 interface TicketsTabProps {
   userId: string;
   fullName: string;
+  language?: 'en' | 'fil';
 }
 
-export function TicketsTab({ userId, fullName }: TicketsTabProps) {
+export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProps) {
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
   const [tickets, setTickets] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
@@ -75,6 +77,16 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
 
   // Sub-navigation sub-tab
   const [subTab, setSubTab] = useState<'tickets' | 'leaves'>('tickets');
+
+  // Pagination states
+  const [ticketsPage, setTicketsPage] = useState(1);
+  const [leavesPage, setLeavesPage] = useState(1);
+  const itemsPerPage = 5;
+
+  useEffect(() => {
+    setTicketsPage(1);
+    setLeavesPage(1);
+  }, [subTab]);
 
   // Leaves states
   const [leavesList, setLeavesList] = useState<any[]>([]);
@@ -912,8 +924,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             const label = key.replace('_', ' ').toUpperCase();
             return (
               <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#f8fafc', borderColor: COLORS.border, borderWidth: 1, padding: 8, borderRadius: 8 }}>
-                <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMuted }}>{label}</Text>
-                <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMain }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMuted }}>{label}</Text>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>
                   {key.includes('amount') ? `₱${Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : String(val)}
                 </Text>
               </View>
@@ -921,7 +933,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
           })}
           {parsed.details && (
             <View style={{ marginTop: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textMuted, textTransform: 'uppercase', marginBottom: 4 }}>Explanation</Text>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMuted, textTransform: 'uppercase', marginBottom: 4 }}>Explanation</Text>
               <Text style={styles.detailDescText}>{parsed.details}</Text>
             </View>
           )}
@@ -996,7 +1008,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                 <RefreshControl refreshing={loading} onRefresh={fetchTickets} colors={[COLORS.primary]} />
               }
               >
-                {tickets.map(ticket => {
+                {tickets.slice((ticketsPage - 1) * itemsPerPage, ticketsPage * itemsPerPage).map(ticket => {
                   const catTheme = getCategoryTheme(ticket.category);
                   return (
                     <TouchableOpacity 
@@ -1035,6 +1047,14 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                     </TouchableOpacity>
                   );
                 })}
+                <Pagination
+                  currentPage={ticketsPage}
+                  totalPages={Math.ceil(tickets.length / itemsPerPage)}
+                  totalItems={tickets.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setTicketsPage}
+                  language={language}
+                />
               </ScrollView>
             )
           ) : (
@@ -1055,7 +1075,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   contentContainerStyle={styles.listContent} 
                   refreshControl={<RefreshControl refreshing={leavesRefreshing} onRefresh={() => { setLeavesRefreshing(true); fetchLeaves(); }} colors={[COLORS.primary]} />}
                 >
-                  {leavesList.map((item) => {
+                  {leavesList.slice((leavesPage - 1) * itemsPerPage, leavesPage * itemsPerPage).map((item) => {
                     const typeDetails = getLeaveTypeDetails(item.leave_type);
                     const statusDetails = getLeaveStatusDetails(item.status);
                     const duration = calculateLeaveDuration(item.start_date, item.end_date);
@@ -1086,18 +1106,26 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                         </Text>
   
                         <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic', lineHeight: 18 }}>“{item.reason}”</Text>
+                          <Text style={{ color: COLORS.textMuted, fontSize: 15, fontStyle: 'italic', lineHeight: 20 }}>“{item.reason}”</Text>
                         </View>
   
                         {item.status === 'sync_pending' && (
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
                             <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
+                            <Text style={{ color: '#3b82f6', fontSize: 13, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
                           </View>
                         )}
                       </View>
                     );
                   })}
+                  <Pagination
+                    currentPage={leavesPage}
+                    totalPages={Math.ceil(leavesList.length / itemsPerPage)}
+                    totalItems={leavesList.length}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setLeavesPage}
+                    language={language}
+                  />
                 </ScrollView>
               )}
             </View>
@@ -1168,19 +1196,19 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(1, 1)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>Tomorrow</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '700' }}>Tomorrow</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(1, 3)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>3 Days (Next Week)</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '700' }}>3 Days (Next Week)</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(0, 1)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>Today Only</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '700' }}>Today Only</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1373,7 +1401,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             </TouchableOpacity>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.detailTitle} numberOfLines={1}>{selectedTicket.title}</Text>
-              <Text style={{ color: getStatusColor(selectedTicket.status), fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>
+              <Text style={{ color: getStatusColor(selectedTicket.status), fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase' }}>
                 ● {selectedTicket.status.replace('_', ' ')}
               </Text>
             </View>
@@ -1381,7 +1409,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
             {selectedTicket.status !== 'closed' && (
               <TouchableOpacity onPress={handleCloseTicket} style={styles.closeTicketBtn}>
                 <Feather name="check" size={16} color={COLORS.danger} style={{ marginRight: 4 }} />
-                <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>Close</Text>
+                <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 15 }}>Close</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1401,7 +1429,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                     {selectedTicket.category}
                   </Text>
                 </View>
-                <Text style={{ fontSize: 11, color: COLORS.textMuted }}>
+                <Text style={{ fontSize: 13, color: COLORS.textMuted }}>
                   Priority: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{selectedTicket.priority.toUpperCase()}</Text>
                 </Text>
               </View>
@@ -1420,7 +1448,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                   onPress={toggleCheckout}
                   style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                 >
-                  <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.indigo, flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.indigo, flex: 1 }}>
                     🔧 Inventory Spare Parts Checkout
                   </Text>
                   <Feather name={showCheckout ? "chevron-up" : "chevron-down"} size={18} color={COLORS.indigo} />
@@ -1434,7 +1462,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       onPress={() => setShowPartList(!showPartList)}
                       style={{ padding: 12, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     >
-                      <Text style={{ fontSize: 13, color: selectedPart ? COLORS.textMain : COLORS.textMuted }}>
+                      <Text style={{ fontSize: 15, color: selectedPart ? COLORS.textMain : COLORS.textMuted }}>
                         {selectedPart ? `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} left)` : '-- Choose Spare Part --'}
                       </Text>
                       <Feather name="chevron-down" size={16} color={COLORS.textMuted} />
@@ -1444,7 +1472,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       <View style={{ maxHeight: 150, borderRadius: 10, backgroundColor: '#fff', marginBottom: 12, borderWidth: 1, borderColor: COLORS.border, padding: 4 }}>
                         <ScrollView nestedScrollEnabled style={{ flexGrow: 0 }}>
                           {inventoryItems.length === 0 ? (
-                            <Text style={{ padding: 10, fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic' }}>No parts available in stock</Text>
+                            <Text style={{ padding: 10, fontSize: 15, color: COLORS.textMuted, fontStyle: 'italic' }}>No parts available in stock</Text>
                           ) : (
                             inventoryItems.map(item => (
                               <TouchableOpacity 
@@ -1452,8 +1480,8 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                                 onPress={() => { setSelectedPart(item); setShowPartList(false); }}
                                 style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: selectedPart?.id === item.id ? '#f5f3ff' : '#fff' }}
                               >
-                                <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain }}>{item.name}</Text>
-                                <Text style={{ fontSize: 11, color: COLORS.textMuted }}>SKU: {item.sku} • {item.quantity} {item.unit} available</Text>
+                                <Text style={{ fontSize: 15, fontWeight: 'bold', color: COLORS.textMain }}>{item.name}</Text>
+                                <Text style={{ fontSize: 13, color: COLORS.textMuted }}>SKU: {item.sku} • {item.quantity} {item.unit} available</Text>
                               </TouchableOpacity>
                             ))
                           )}
@@ -1488,7 +1516,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
                       onPress={handleCheckoutParts}
                     >
                       <Feather name="package" size={14} color="#fff" style={{ marginRight: 6 }} />
-                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Verify & Checkout Parts</Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Verify & Checkout Parts</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1557,7 +1585,7 @@ export function TicketsTab({ userId, fullName }: TicketsTabProps) {
           ) : (
             <View style={styles.closedFooter}>
               <Feather name="lock" size={14} color={COLORS.textMuted} style={{ marginRight: 6 }} />
-              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '500' }}>This request has been resolved and closed.</Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: 15, fontWeight: '500' }}>This request has been resolved and closed.</Text>
             </View>
           )}
         </View>
@@ -1573,72 +1601,72 @@ const styles = {
   centeredScroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 40 } as ViewStyle,
   
   tabHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 20, marginBottom: 20 } as ViewStyle,
-  title: { fontSize: 32, fontWeight: '900', color: COLORS.textMain, letterSpacing: -0.5 } as TextStyle,
-  subtitle: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 } as TextStyle,
+  title: { fontSize: 34, fontWeight: '900', color: COLORS.textMain, letterSpacing: -0.5 } as TextStyle,
+  subtitle: { fontSize: 15, color: COLORS.textMuted, marginTop: 2 } as TextStyle,
   createButton: { backgroundColor: COLORS.primary, width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 } as ViewStyle,
   
-  emptyTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 } as TextStyle,
-  emptyDesc: { fontSize: 14, color: COLORS.textMuted, textAlign: 'center', lineHeight: 20 } as TextStyle,
+  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 } as TextStyle,
+  emptyDesc: { fontSize: 16, color: COLORS.textMuted, textAlign: 'center', lineHeight: 22 } as TextStyle,
   
   listContent: { paddingHorizontal: 24, paddingBottom: 40 } as ViewStyle,
   ticketCard: { backgroundColor: COLORS.card, borderRadius: 18, padding: 18, marginBottom: 16, borderStyle: 'solid', borderWidth: 1, borderColor: COLORS.border } as ViewStyle,
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 } as ViewStyle,
   
   catBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 } as ViewStyle,
-  catBadgeText: { fontSize: 11, fontWeight: 'bold' } as TextStyle,
+  catBadgeText: { fontSize: 13, fontWeight: 'bold' } as TextStyle,
   
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 } as ViewStyle,
-  statusText: { fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
+  statusText: { fontSize: 13, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
   
-  ticketTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 } as TextStyle,
-  ticketDesc: { fontSize: 13, color: COLORS.textMuted, lineHeight: 18, marginBottom: 12 } as TextStyle,
+  ticketTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 } as TextStyle,
+  ticketDesc: { fontSize: 15, color: COLORS.textMuted, lineHeight: 20, marginBottom: 12 } as TextStyle,
   
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 } as ViewStyle,
-  footerTime: { fontSize: 11, color: COLORS.textMuted } as TextStyle,
-  assigneeText: { fontSize: 11, color: COLORS.textMuted } as TextStyle,
+  footerTime: { fontSize: 13, color: COLORS.textMuted } as TextStyle,
+  assigneeText: { fontSize: 13, color: COLORS.textMuted } as TextStyle,
 
   // Form styling
   createScroll: { padding: 24, paddingBottom: 60 } as ViewStyle,
   formHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 } as ViewStyle,
   backButton: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border } as ViewStyle,
-  formTitle: { fontSize: 20, fontWeight: '900', color: COLORS.textMain, marginLeft: 16 } as TextStyle,
+  formTitle: { fontSize: 22, fontWeight: '900', color: COLORS.textMain, marginLeft: 16 } as TextStyle,
   formCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: COLORS.border } as ViewStyle,
   
-  label: { fontSize: 12, fontWeight: '900', color: COLORS.textMain, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 } as TextStyle,
+  label: { fontSize: 14, fontWeight: '900', color: COLORS.textMain, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 } as TextStyle,
   categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 } as ViewStyle,
   categoryOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
-  categoryOptionText: { fontSize: 12, color: COLORS.textMain } as TextStyle,
+  categoryOptionText: { fontSize: 14, color: COLORS.textMain } as TextStyle,
   
   priorityRow: { flexDirection: 'row', gap: 8, marginBottom: 20 } as ViewStyle,
   priorityOption: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff', alignItems: 'center' } as ViewStyle,
-  priorityTextOption: { fontSize: 11, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
+  priorityTextOption: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 14, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
   textArea: { height: 120 } as TextStyle,
   
   submitButton: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 } as ViewStyle,
-  submitButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 15 } as TextStyle,
+  submitButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 17 } as TextStyle,
 
   // Detail view styling
   detailHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
-  detailTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.textMain } as TextStyle,
+  detailTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain } as TextStyle,
   closeTicketBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239, 68, 68, 0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.15)' } as ViewStyle,
   
   detailDescCard: { backgroundColor: COLORS.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 20 } as ViewStyle,
-  detailDescText: { fontSize: 14, color: COLORS.textMain, lineHeight: 22, marginVertical: 8 } as TextStyle,
-  detailDateText: { fontSize: 11, color: COLORS.textMuted } as TextStyle,
+  detailDescText: { fontSize: 16, color: COLORS.textMain, lineHeight: 24, marginVertical: 8 } as TextStyle,
+  detailDateText: { fontSize: 13, color: COLORS.textMuted } as TextStyle,
   
-  discussionHeading: { fontSize: 12, fontWeight: '900', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 } as TextStyle,
-  noCommentsText: { fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic', textAlign: 'center', marginVertical: 20 } as TextStyle,
+  discussionHeading: { fontSize: 14, fontWeight: '900', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 } as TextStyle,
+  noCommentsText: { fontSize: 15, color: COLORS.textMuted, fontStyle: 'italic', textAlign: 'center', marginVertical: 20 } as TextStyle,
   
   commentBubbleContainer: { maxWidth: '85%', marginBottom: 12 } as ViewStyle,
-  commentAuthor: { fontSize: 10, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 4 } as TextStyle,
+  commentAuthor: { fontSize: 12, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 4 } as TextStyle,
   commentBubble: { padding: 12, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 } as ViewStyle,
-  commentText: { fontSize: 13, lineHeight: 18 } as TextStyle,
-  commentTime: { fontSize: 9, color: COLORS.textMuted, marginTop: 4 } as TextStyle,
+  commentText: { fontSize: 15, lineHeight: 20 } as TextStyle,
+  commentTime: { fontSize: 11, color: COLORS.textMuted, marginTop: 4 } as TextStyle,
   
   composer: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: '#fff', alignItems: 'flex-end', gap: 10 } as ViewStyle,
-  composerInput: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: COLORS.textMain, maxHeight: 100 } as TextStyle,
+  composerInput: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 16, color: COLORS.textMain, maxHeight: 100 } as TextStyle,
   composerSendBtn: { backgroundColor: COLORS.primary, width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', flexShrink: 0 } as ViewStyle,
   
   closedFooter: { flexDirection: 'row', padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.card, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
@@ -1646,7 +1674,7 @@ const styles = {
   segmentedContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginHorizontal: 24, marginBottom: 16 } as ViewStyle,
   segmentedButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 } as ViewStyle,
   segmentedActive: { backgroundColor: COLORS.primary } as ViewStyle,
-  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
+  segmentedText: { fontSize: 15, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   balanceCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1668,7 +1696,7 @@ const styles = {
     marginBottom: 14
   } as ViewStyle,
   balanceCardTitle: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '900',
     color: COLORS.textMain,
     textTransform: 'uppercase',
@@ -1694,13 +1722,13 @@ const styles = {
     justifyContent: 'center'
   } as ViewStyle,
   balanceVal: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 2
   } as TextStyle,
   balanceLbl: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '600',
     color: COLORS.textMuted,
     textTransform: 'uppercase'
