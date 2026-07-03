@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -194,6 +194,64 @@ const getCountdownText = (sched: any) => {
   };
 };
 
+const openDirections = (location: string) => {
+  if (!location) return;
+  const encodedLocation = encodeURIComponent(location);
+  const url = Platform.select({
+    ios: `maps://app?daddr=${encodedLocation}`,
+    android: `google.navigation:q=${encodedLocation}`,
+    default: `https://www.google.com/maps/search/?api=1&query=${encodedLocation}`
+  });
+  Linking.canOpenURL(url).then(supported => {
+    if (supported) {
+      Linking.openURL(url);
+    } else {
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodedLocation}`);
+    }
+  }).catch(() => {
+    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodedLocation}`);
+  });
+};
+
+interface ActiveShiftTimerProps {
+  startTime: string;
+}
+
+function ActiveShiftTimer({ startTime }: ActiveShiftTimerProps) {
+  const [elapsed, setElapsed] = useState('');
+
+  useEffect(() => {
+    const calculateElapsed = () => {
+      const startMs = new Date(startTime).getTime();
+      const nowMs = Date.now();
+      const diffMs = Math.max(0, nowMs - startMs);
+      const totalSecs = Math.floor(diffMs / 1000);
+      const hrs = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      const secs = totalSecs % 60;
+      return [
+        hrs.toString().padStart(2, '0'),
+        mins.toString().padStart(2, '0'),
+        secs.toString().padStart(2, '0')
+      ].join(':');
+    };
+
+    setElapsed(calculateElapsed());
+
+    const timer = setInterval(() => {
+      setElapsed(calculateElapsed());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [startTime]);
+
+  return (
+    <Text style={{ fontSize: 32, fontWeight: '800', color: COLORS.primary, marginVertical: 8 }}>
+      {elapsed}
+    </Text>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
@@ -277,6 +335,64 @@ export default function App() {
   // Phase 8: DMS Download States
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+
+  // Animations for new premium DTR states
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  const breathingAnim = React.useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    let loop: Animated.CompositeAnimation | null = null;
+    if (isWaitingForScan) {
+      pulseAnim.setValue(1);
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.15,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+    return () => {
+      if (loop) loop.stop();
+    };
+  }, [isWaitingForScan]);
+
+  useEffect(() => {
+    let loop: Animated.CompositeAnimation | null = null;
+    if (activeTimeLog && !activeTimeLog.app_time_out) {
+      breathingAnim.setValue(0.4);
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(breathingAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(breathingAnim, {
+            toValue: 0.4,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+    } else {
+      breathingAnim.setValue(0.4);
+    }
+    return () => {
+      if (loop) loop.stop();
+    };
+  }, [activeTimeLog]);
 
   const startFormDownload = (filename: string) => {
     if (downloadingFile) return;
@@ -1361,14 +1477,46 @@ export default function App() {
         <FadeInView currentTab={activeTab}>
           {activeTab === 'home' && (
             <ScrollView contentContainerStyle={styles.content}>
+              {/* Premium Header widget */}
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                 <View>
                   <Text style={styles.greeting}>{t('welcomeBack')}</Text>
                   <Text style={styles.name}>{profile?.full_name || 'Technician'}</Text>
+                  {(() => {
+                    const isTechnician = profile?.role === 'technician';
+                    const isHelper = profile?.role === 'helper';
+                    const badgeBg = isTechnician ? 'rgba(99, 102, 241, 0.1)' : isHelper ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)';
+                    const badgeBorder = isTechnician ? 'rgba(99, 102, 241, 0.2)' : isHelper ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)';
+                    const badgeText = isTechnician ? '#4f46e5' : isHelper ? '#d97706' : '#059669';
+                    const badgeLabel = isTechnician ? t('fieldTechnician') : isHelper ? t('fieldHelper') : t('active');
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                        <View style={{ backgroundColor: badgeBg, borderColor: badgeBorder, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: badgeText, textTransform: 'uppercase' }}>
+                            {badgeLabel}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
                 </View>
-                <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                <View style={{ position: 'relative' }}>
+                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                  <View style={{
+                    position: 'absolute',
+                    bottom: 2,
+                    right: 2,
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    borderWidth: 2,
+                    borderColor: '#ffffff',
+                    backgroundColor: isOnline ? COLORS.primary : COLORS.danger
+                  }} />
+                </View>
               </View>
 
+              {/* Leave alert and Deployment info */}
               {leaveAlert && (
                 <View style={{
                   backgroundColor: leaveAlert.status === 'approved' ? COLORS.primaryDim : 'rgba(239, 68, 68, 0.08)',
@@ -1443,56 +1591,142 @@ export default function App() {
                 );
               })()}
 
-              <View style={{ marginBottom: 32 }}>
-                {!activeTimeLog && (
-                  <TouchableOpacity style={styles.timeInButton} onPress={handleTimeIn} disabled={timeInLoading}>
-                    {timeInLoading ? <ActivityIndicator color="#fff" /> : (
-                      <>
-                        <Feather name="map-pin" size={28} color="#fff" style={{ marginBottom: 8 }} />
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 20, marginBottom: 4 }}>{t('clockInNow')}</Text>
-                        <Text style={{ color: '#ecfdf5', fontSize: 12 }}>📍 {t('locationVerificationDetails')}</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
+              {/* Redesigned DTR Console Card */}
+              <View style={{ marginBottom: 24 }}>
+                {(() => {
+                  if (isWaitingForScan) {
+                    return (
+                      <View style={styles.scanningCard}>
+                        <Animated.View style={{ transform: [{ scale: pulseAnim }], width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                          <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(16, 185, 129, 0.2)', justifyContent: 'center', alignItems: 'center' }}>
+                            <MaterialCommunityIcons name="fingerprint" size={36} color={COLORS.primary} />
+                          </View>
+                        </Animated.View>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain, textAlign: 'center', marginBottom: 6 }}>
+                          {language === 'fil' ? 'Naghihintay ng Biometric Swipe...' : 'Awaiting Biometric Swipe...'}
+                        </Text>
+                        <Text style={{ fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 16, paddingHorizontal: 12 }}>
+                          {language === 'fil' ? 'Paki-swipe ang iyong daliri sa wall reader terminal upang makumpleto ang pag-verify.' : 'Please place your registered finger on the physical biometric machine terminal.'}
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.danger, marginBottom: 16 }}>
+                          ⏱️ {Math.floor(scanCountdown / 60)}:{(scanCountdown % 60).toString().padStart(2, '0')}
+                        </Text>
+                        
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setIsWaitingForScan(false);
+                            setScanType(null);
+                            scanTypeRef.current = null;
+                            pendingLocationRef.current = null;
+                          }}
+                          style={styles.cancelScanButton}
+                        >
+                          <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 13 }}>
+                            {t('cancel')}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
 
-                {activeTimeLog && !activeTimeLog.app_time_out && (
-                  <View>
-                    <View style={styles.timeInSuccess}>
-                      <Feather name="check-circle" size={22} color={COLORS.primary} style={{ marginBottom: 6 }} />
-                      <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 15 }}>{t('locationVerified')}</Text>
-                      <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 2 }}>
-                        {t('loggedAt', { time: new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}
+                  if (!activeTimeLog) {
+                    return (
+                      <TouchableOpacity 
+                        style={styles.readyCard} 
+                        onPress={handleTimeIn} 
+                        disabled={timeInLoading}
+                      >
+                        {timeInLoading ? (
+                          <ActivityIndicator color={COLORS.primary} />
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+                            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                              <Feather name="map-pin" size={24} color={COLORS.primary} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: COLORS.textMain, fontWeight: '800', fontSize: 18, marginBottom: 4 }}>
+                                {language === 'fil' ? 'Mag-Clock In' : 'Locate Office & Check In'}
+                              </Text>
+                              <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
+                                📍 {t('locationVerificationDetails')}
+                              </Text>
+                            </View>
+                            <Feather name="chevron-right" size={20} color={COLORS.textMuted} />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  }
+
+                  if (activeTimeLog && !activeTimeLog.app_time_out) {
+                    return (
+                      <View style={styles.activeCard}>
+                        <Animated.View style={[StyleSheet.absoluteFill, {
+                          borderWidth: 2,
+                          borderColor: COLORS.primary,
+                          borderRadius: 20,
+                          opacity: breathingAnim
+                        }]} pointerEvents="none" />
+                        
+                        <View style={{ alignItems: 'center', width: '100%' }}>
+                          <Feather name="activity" size={24} color={COLORS.primary} style={{ marginBottom: 6 }} />
+                          <Text style={{ color: COLORS.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            {language === 'fil' ? 'KASALUKUYANG SHIFT' : 'ACTIVE SHIFT'}
+                          </Text>
+                          
+                          <ActiveShiftTimer startTime={activeTimeLog.app_time_in} />
+                          
+                          <Text style={{ color: COLORS.textMuted, fontSize: 11, marginBottom: 16 }}>
+                            {t('loggedAt', { time: new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}
+                          </Text>
+
+                          <TouchableOpacity 
+                            style={styles.timeOutSecondaryButton} 
+                            onPress={() => {
+                              Alert.alert(
+                                t('confirmClockOut'),
+                                t('clockOutWarningDesc'),
+                                [
+                                  { text: t('cancel'), style: 'cancel' },
+                                  { text: t('confirm'), onPress: () => handleTimeOut() }
+                                ]
+                              );
+                            }} 
+                            disabled={timeOutLoading}
+                          >
+                            {timeOutLoading ? (
+                              <ActivityIndicator color="#fff" />
+                            ) : (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                                <Feather name="log-out" size={16} color="#fff" style={{ marginRight: 6 }} />
+                                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>
+                                  {t('clockOutNow')}
+                                </Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View style={styles.completedCard}>
+                      <Feather name="check-circle" size={28} color={COLORS.textMuted} style={{ marginBottom: 8 }} />
+                      <Text style={{ color: COLORS.textMain, fontWeight: '800', fontSize: 18, marginBottom: 4 }}>
+                        {t('shiftCompleted')}
+                      </Text>
+                      <Text style={{ color: COLORS.textMuted, fontSize: 13, textAlign: 'center' }}>
+                        {t('workedHours', { hours: activeTimeLog.total_hours })}
+                      </Text>
+                      <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 4 }}>
+                        ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
                       </Text>
                     </View>
-                    
-                    <TouchableOpacity 
-                      style={[styles.timeInButton, { backgroundColor: COLORS.danger, shadowColor: COLORS.danger, marginTop: 12 }]} 
-                      onPress={handleTimeOut} 
-                      disabled={timeOutLoading}
-                    >
-                      {timeOutLoading ? <ActivityIndicator color="#fff" /> : (
-                        <>
-                          <Feather name="log-out" size={24} color="#fff" style={{ marginBottom: 6 }} />
-                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, marginBottom: 2 }}>{t('clockOutNow')}</Text>
-                          <Text style={{ color: '#fee2e2', fontSize: 11 }}>📍 {t('locationVerificationDetails')}</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  );
+                })()}
 
-                {activeTimeLog && activeTimeLog.app_time_out && (
-                  <View style={[styles.timeInSuccess, { borderColor: COLORS.textMuted, backgroundColor: '#f1f5f9' }]}>
-                    <Feather name="lock" size={22} color={COLORS.textMuted} style={{ marginBottom: 6 }} />
-                    <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 15 }}>{t('shiftCompleted')}</Text>
-                    <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
-                      {t('workedHours', { hours: activeTimeLog.total_hours })} ({new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(activeTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                    </Text>
-                  </View>
-                )}
-
-                {/* Proximity / Map Section */}
+                {/* Collapsible Proximity / Map Section */}
                 {!geofence.latitude ? (
                   <TouchableOpacity
                     style={{
@@ -1565,7 +1799,7 @@ export default function App() {
                 )}
               </View>
 
-              {/* Announcements Section */}
+              {/* Premium Styled Announcements Section */}
               {(() => {
                 const filteredAnnouncements = announcements.filter(ann => 
                   !ann.target_branch_id || ann.target_branch_id === profile?.branch_id
@@ -1626,64 +1860,103 @@ export default function App() {
                 );
               })()}
 
+              {/* Redesigned Priority Dispatch Cards */}
               <Text style={styles.sectionTitleMain}>{t('priorityDispatch')}</Text>
-              {vipSchedules.length === 0 && <Text style={styles.emptyText}>{t('noVipSchedules')}</Text>}
-              {vipSchedules.map(sched => (
-                <View key={sched.id} style={styles.vipCard}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <View style={styles.vipBadge}>
-                      <Text style={styles.vipBadgeText}>{t('urgent').toUpperCase()}</Text>
-                    </View>
-                    {sched.attendance_mode && (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.05)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'), borderWidth: 1, borderColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.1)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)') }}>
-                        <Text style={{ fontSize: 9, fontWeight: '800', textTransform: 'uppercase', color: sched.attendance_mode === 'hq' ? '#475569' : (sched.attendance_mode === 'direct_dispatch' ? COLORS.primary : '#d97706') }}>
-                          💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.vipTitle}>{sched.client_name}</Text>
-                  <Text style={styles.vipTime}>{formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
-                  <Text style={styles.vipLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
-                  {sched.senior_partner?.full_name && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: 'rgba(15, 23, 42, 0.03)', borderRadius: 8 }}>
-                      <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
-                      <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
-                        {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
-                        <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
-                      </Text>
-                    </View>
-                  )}
+              {vipSchedules.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Feather name="check-square" size={32} color={COLORS.textMuted} style={{ marginBottom: 12 }} />
+                  <Text style={{ color: COLORS.textMain, fontWeight: '700', fontSize: 15, marginBottom: 4 }}>
+                    {language === 'fil' ? 'Lahat ay Naisagawa!' : 'All caught up!'}
+                  </Text>
+                  <Text style={{ color: COLORS.textMuted, fontSize: 13, textAlign: 'center' }}>
+                    {language === 'fil' ? 'Walang nakatakdang priority dispatch para sa araw na ito.' : 'No priority dispatches scheduled for today.'}
+                  </Text>
                 </View>
-              ))}
+              ) : (
+                vipSchedules.map(sched => (
+                  <View key={sched.id} style={[styles.dispatchCard, { borderLeftColor: '#ef4444', borderLeftWidth: 4 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <View style={[styles.dispatchBadge, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', borderWidth: 1 }]}>
+                        <Text style={[styles.dispatchBadgeText, { color: '#ef4444' }]}>{t('urgent').toUpperCase()}</Text>
+                      </View>
+                      {sched.attendance_mode && (
+                        <View style={styles.attendanceBadge}>
+                          <Text style={styles.attendanceBadgeText}>
+                            💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.dispatchTitle}>{sched.client_name}</Text>
+                    <Text style={styles.dispatchTime}><Feather name="clock" size={12}/> {formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
+                    
+                    <TouchableOpacity onPress={() => openDirections(sched.location)} style={styles.directionsButton}>
+                      <Feather name="map-pin" size={12} color={COLORS.primary} style={{ marginRight: 6 }} />
+                      <Text style={styles.directionsButtonText} numberOfLines={1}>{sched.location}</Text>
+                      <Feather name="corner-up-right" size={14} color={COLORS.primary} style={{ marginLeft: 'auto' }} />
+                    </TouchableOpacity>
 
-              <Text style={[styles.sectionTitleMain, { marginTop: 24 }]}>{t('standardSchedule')}</Text>
-              {regularSchedules.length === 0 && <Text style={styles.emptyText}>{t('noSchedule')}</Text>}
-              {regularSchedules.map(sched => (
-                <View key={sched.id} style={styles.regularCard}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    {sched.attendance_mode && (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.05)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'), borderWidth: 1, borderColor: sched.attendance_mode === 'hq' ? 'rgba(15, 23, 42, 0.1)' : (sched.attendance_mode === 'direct_dispatch' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)') }}>
-                        <Text style={{ fontSize: 9, fontWeight: '800', textTransform: 'uppercase', color: sched.attendance_mode === 'hq' ? '#475569' : (sched.attendance_mode === 'direct_dispatch' ? COLORS.primary : '#d97706') }}>
-                          💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
+                    {sched.senior_partner?.full_name && (
+                      <View style={styles.partnerRow}>
+                        <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
+                        <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
+                          {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
+                          <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
                         </Text>
                       </View>
                     )}
                   </View>
-                  <Text style={styles.regularTitle}>{sched.client_name}</Text>
-                  <Text style={styles.regularTime}>{formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
-                  <Text style={styles.regularLocation}><Feather name="map-pin" size={12}/> {sched.location}</Text>
-                  {sched.senior_partner?.full_name && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: 'rgba(15, 23, 42, 0.03)', borderRadius: 8 }}>
-                      <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
-                      <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
-                        {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
-                        <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
-                      </Text>
-                    </View>
-                  )}
+                ))
+              )}
+
+              {/* Redesigned Standard Schedule Cards */}
+              <Text style={[styles.sectionTitleMain, { marginTop: 24 }]}>{t('standardSchedule')}</Text>
+              {regularSchedules.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Feather name="check-square" size={32} color={COLORS.textMuted} style={{ marginBottom: 12 }} />
+                  <Text style={{ color: COLORS.textMain, fontWeight: '700', fontSize: 15, marginBottom: 4 }}>
+                    {language === 'fil' ? 'Lahat ay Naisagawa!' : 'All caught up!'}
+                  </Text>
+                  <Text style={{ color: COLORS.textMuted, fontSize: 13, textAlign: 'center' }}>
+                    {language === 'fil' ? 'Walang nakatakdang dispatch para sa araw na ito.' : 'No dispatches scheduled for today.'}
+                  </Text>
                 </View>
-              ))}
+              ) : (
+                regularSchedules.map(sched => (
+                  <View key={sched.id} style={[styles.dispatchCard, { borderLeftColor: '#64748b', borderLeftWidth: 4 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <View style={[styles.dispatchBadge, { backgroundColor: 'rgba(100, 116, 139, 0.1)', borderColor: 'rgba(100, 116, 139, 0.2)', borderWidth: 1 }]}>
+                        <Text style={[styles.dispatchBadgeText, { color: '#64748b' }]}>{language === 'fil' ? 'KARANIWAN' : 'STANDARD'}</Text>
+                      </View>
+                      {sched.attendance_mode && (
+                        <View style={styles.attendanceBadge}>
+                          <Text style={styles.attendanceBadgeText}>
+                            💼 {sched.attendance_mode === 'hq' ? 'HQ Standard' : (sched.attendance_mode === 'direct_dispatch' ? (language === 'fil' ? 'Direktang Dispatch' : 'Direct Dispatch') : (language === 'fil' ? 'Labas ng Bayan' : 'Out-of-Town'))}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.dispatchTitle}>{sched.client_name}</Text>
+                    <Text style={styles.dispatchTime}><Feather name="clock" size={12}/> {formatTime(sched.start_time)}{sched.end_time ? ` - ${formatTime(sched.end_time)}` : ''}</Text>
+                    
+                    <TouchableOpacity onPress={() => openDirections(sched.location)} style={styles.directionsButton}>
+                      <Feather name="map-pin" size={12} color={COLORS.primary} style={{ marginRight: 6 }} />
+                      <Text style={styles.directionsButtonText} numberOfLines={1}>{sched.location}</Text>
+                      <Feather name="corner-up-right" size={14} color={COLORS.primary} style={{ marginLeft: 'auto' }} />
+                    </TouchableOpacity>
+
+                    {sched.senior_partner?.full_name && (
+                      <View style={styles.partnerRow}>
+                        <Feather name="user" size={12} color={COLORS.textMain} style={{ marginRight: 6 }} />
+                        <Text style={{ fontSize: 12, color: COLORS.textMain, fontWeight: '700' }}>
+                          {language === 'fil' ? 'Senior Tech: ' : 'Senior Partner: '}
+                          <Text style={{ fontWeight: 'normal' }}>{sched.senior_partner.full_name}</Text>
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
             </ScrollView>
           )}
 
@@ -2010,46 +2283,6 @@ export default function App() {
   const renderedContent = (
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
-      
-      {isWaitingForScan && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(15, 23, 42, 0.85)', zIndex: 99999, justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 24, padding: 32, alignItems: 'center', width: '100%', maxWidth: 340, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16 }}>
-            <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.primaryDim, justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
-              <MaterialCommunityIcons name="fingerprint" size={56} color={COLORS.primary} />
-            </View>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain, textAlign: 'center', marginBottom: 12 }}>
-              {t('waitingForBiometricTerminal')}
-            </Text>
-            <Text style={{ fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 24 }}>
-              {t('scanBiometricTerminalInstructions')}
-            </Text>
-            <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.danger, marginBottom: 20 }}>
-              ⏱️ {Math.floor(scanCountdown / 60)}:{(scanCountdown % 60).toString().padStart(2, '0')}
-            </Text>
-            <TouchableOpacity 
-              onPress={() => {
-                setIsWaitingForScan(false);
-                setScanType(null);
-                scanTypeRef.current = null;
-                pendingLocationRef.current = null;
-              }}
-              style={{
-                width: '100%',
-                paddingVertical: 12,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                alignItems: 'center',
-                backgroundColor: COLORS.card
-              }}
-            >
-              <Text style={{ color: COLORS.textMain, fontWeight: 'bold', fontSize: 14 }}>
-                {t('cancelButton')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       {showDtrModal && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
@@ -2157,14 +2390,160 @@ const styles = StyleSheet.create({
   timeInButton: { backgroundColor: COLORS.primary, padding: 24, borderRadius: 20, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16 },
   timeInSuccess: { backgroundColor: COLORS.primaryDim, padding: 24, borderRadius: 20, alignItems: 'center', borderColor: COLORS.primary, borderWidth: 1 },
   
-  emptyText: { color: COLORS.textMuted, fontStyle: 'italic', marginBottom: 16 },
-  
-  vipCard: { backgroundColor: 'rgba(6, 182, 212, 0.1)', borderColor: '#06b6d4', borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 16 },
-  vipBadge: { backgroundColor: '#0e7490', alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 6, marginBottom: 12 },
-  vipBadgeText: { color: '#ffffff', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  vipTitle: { color: '#083344', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  vipTime: { color: '#0e7490', fontSize: 14, marginBottom: 4 },
-  vipLocation: { color: '#0e7490', fontSize: 14 },
+  readyCard: {
+    backgroundColor: '#f0fdf4',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  scanningCard: {
+    backgroundColor: '#ffffff',
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  activeCard: {
+    backgroundColor: '#ffffff',
+    borderColor: 'transparent',
+    borderWidth: 2,
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  completedCard: {
+    backgroundColor: '#f1f5f9',
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+  },
+  cancelScanButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#ffffff',
+    marginTop: 8,
+  },
+  timeOutSecondaryButton: {
+    backgroundColor: COLORS.danger,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: COLORS.danger,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
+  dispatchCard: {
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  dispatchBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  dispatchBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  attendanceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.1)',
+  },
+  attendanceBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    color: '#475569',
+  },
+  dispatchTitle: {
+    color: COLORS.textMain,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  dispatchTime: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  directionsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  directionsButtonText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  partnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    padding: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.03)',
+    borderRadius: 8,
+  },
+  emptyCard: {
+    backgroundColor: '#ffffff',
+    borderColor: COLORS.border,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   
   payslipCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: COLORS.border },
   sectionTitle: { color: COLORS.textMain, fontSize: 20, fontWeight: '800', marginBottom: 4, letterSpacing: -0.5 },
@@ -2179,10 +2558,6 @@ const styles = StyleSheet.create({
   deductionAmount: { color: COLORS.danger, fontSize: 15, fontWeight: 'bold' },
  
   sectionTitleMain: { color: COLORS.textMain, fontSize: 14, fontWeight: '800', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 },
-  regularCard: { backgroundColor: COLORS.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: COLORS.border, marginBottom: 12 },
-  regularTitle: { color: COLORS.textMain, fontSize: 16, fontWeight: 'bold', marginBottom: 8 },
-  regularTime: { color: COLORS.textMuted, fontSize: 14, marginBottom: 4 },
-  regularLocation: { color: COLORS.textMuted, fontSize: 14 },
 
   bottomNav: { flexDirection: 'row', backgroundColor: COLORS.card, paddingBottom: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border, justifyContent: 'space-around' },
   navItem: { alignItems: 'center', justifyContent: 'center' },
