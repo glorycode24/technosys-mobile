@@ -116,11 +116,14 @@ const LoginScreen = ({ onLogin }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setLoading(true);
+    setErrorMsg(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      setErrorMsg(error.message);
       Alert.alert('Login Failed', error.message);
     } else {
       onLogin(data.session);
@@ -137,6 +140,24 @@ const LoginScreen = ({ onLogin }: any) => {
         </View>
         
         <View style={{ backgroundColor: COLORS.card, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 }}>
+          {errorMsg && (
+            <View style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              borderColor: COLORS.danger,
+              borderWidth: 1,
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 16,
+              flexDirection: 'row',
+              alignItems: 'center'
+            }}>
+              <Feather name="alert-triangle" size={16} color={COLORS.danger} style={{ marginRight: 8 }} />
+              <Text style={{ color: COLORS.danger, fontSize: 13, fontWeight: 'bold', flex: 1 }}>
+                {errorMsg}
+              </Text>
+            </View>
+          )}
+
           <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Email Address</Text>
           <TextInput 
             style={styles.input}
