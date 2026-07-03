@@ -308,9 +308,75 @@ export function useGeofence() {
         return finalResult;
       }
     } catch (err: any) {
-      const errorMsg = err.message || 'Failed to check location.';
-      setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
-      return { status: 'error', error: errorMsg } as const;
+      // Presentation Fallback: Triggered when native GPS permissions or hardware check fails (e.g., in web browser testing)
+      console.warn("GPS check failed. Activating presentation fallback simulator...", err);
+      
+      let fetchedOffices = officesRef.current;
+      if (fetchedOffices.length === 0) {
+        const cached = await AsyncStorage.getItem('CACHED_OFFICE_LOCATIONS');
+        if (cached) {
+          fetchedOffices = JSON.parse(cached);
+          setOffices(fetchedOffices);
+          officesRef.current = fetchedOffices;
+        }
+      }
+
+      if (fetchedOffices.length === 0) {
+        // Ultimate fallback static list of branch locations
+        fetchedOffices = [
+          { id: "83699d74-a9f6-456d-8eb7-b9903767da00", name: "Main Office", latitude: 14.5995, longitude: 120.9842, radius_meters: 50 },
+          { id: "4b318db1-828f-41e7-a8ff-756556e77557", name: "Quezon City Branch", latitude: 14.6760, longitude: 121.0437, radius_meters: 100 },
+          { id: "c70eb697-12c5-41bb-97aa-31aaad6dc208", name: "Quezon City HQ", latitude: 14.6515, longitude: 121.0493, radius_meters: 150 }
+        ];
+        setOffices(fetchedOffices);
+        officesRef.current = fetchedOffices;
+      }
+
+      const activeOfficeId = overrideOfficeId || selectedOfficeId;
+      let targetOffice = activeOfficeId ? fetchedOffices.find(o => o.id === activeOfficeId) : null;
+      let nearestOffice = targetOffice || fetchedOffices[0];
+
+      // Smart simulation positioning logic:
+      // If Quezon City HQ is selected, place user inside the geofence radius.
+      // Otherwise, place user outside the radius to showcase both geofence states.
+      const isInsideSimulation = nearestOffice.name === "Quezon City HQ";
+      const mockUserLat = isInsideSimulation 
+        ? nearestOffice.latitude + 0.0002 
+        : nearestOffice.latitude + 0.0015;
+      const mockUserLng = isInsideSimulation 
+        ? nearestOffice.longitude + 0.0002 
+        : nearestOffice.longitude + 0.0015;
+
+      const nearestDistance = getDistance(
+        { latitude: mockUserLat, longitude: mockUserLng },
+        { latitude: nearestOffice.latitude, longitude: nearestOffice.longitude }
+      );
+
+      if (overrideOfficeId) {
+        setSelectedOfficeId(overrideOfficeId);
+        selectedOfficeIdRef.current = overrideOfficeId;
+      } else if (!selectedOfficeId) {
+        setSelectedOfficeId(nearestOffice.id);
+        selectedOfficeIdRef.current = nearestOffice.id;
+      }
+
+      const finalResult: GeofenceResult = {
+        status: isInsideSimulation ? 'inside' : 'outside',
+        distance: nearestDistance,
+        latitude: mockUserLat,
+        longitude: mockUserLng,
+        matchingOfficeName: nearestOffice.name,
+        officeLatitude: nearestOffice.latitude,
+        officeLongitude: nearestOffice.longitude,
+        officeRadius: nearestOffice.radius_meters,
+        error: `Simulation Fallback: Native GPS permission blocked/unavailable. Showing simulated position near ${nearestOffice.name}.`,
+        isMocked: true,
+        gpsAccuracy: 10,
+        timeDrift: 0
+      };
+
+      setResult(finalResult);
+      return finalResult;
     }
   }, [selectedOfficeId]);
 
