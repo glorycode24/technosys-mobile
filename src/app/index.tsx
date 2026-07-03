@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -116,11 +116,14 @@ const LoginScreen = ({ onLogin }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setLoading(true);
+    setErrorMsg(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      setErrorMsg(error.message);
       Alert.alert('Login Failed', error.message);
     } else {
       onLogin(data.session);
@@ -137,6 +140,24 @@ const LoginScreen = ({ onLogin }: any) => {
         </View>
         
         <View style={{ backgroundColor: COLORS.card, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 }}>
+          {errorMsg && (
+            <View style={{
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              borderColor: COLORS.danger,
+              borderWidth: 1,
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 16,
+              flexDirection: 'row',
+              alignItems: 'center'
+            }}>
+              <Feather name="alert-triangle" size={16} color={COLORS.danger} style={{ marginRight: 8 }} />
+              <Text style={{ color: COLORS.danger, fontSize: 13, fontWeight: 'bold', flex: 1 }}>
+                {errorMsg}
+              </Text>
+            </View>
+          )}
+
           <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Email Address</Text>
           <TextInput 
             style={styles.input}
@@ -253,6 +274,7 @@ function ActiveShiftTimer({ startTime }: ActiveShiftTimerProps) {
 }
 
 export default function App() {
+  const { width } = useWindowDimensions();
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(true);
@@ -965,7 +987,7 @@ export default function App() {
       
       const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
       const fetchSchedulesPromise = supabase.from('schedules').select('*, senior_partner:profiles!senior_partner_id(full_name)').eq('technician_id', userId).order('start_time', { ascending: true });
-      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
+      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).maybeSingle();
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
@@ -981,7 +1003,7 @@ export default function App() {
 
       const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult, leavesResult] = await withTimeout(
         Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise, fetchLeavesPromise]),
-        4000
+        10000
       );
 
       const isNetworkErr = (err: any) => {
@@ -1782,11 +1804,59 @@ export default function App() {
                                   : t(geofence.errorKey))
                               : (geofence.error || t('outsideArea', { distance: Math.round(geofence.distance || 0) })))
                         }
+                        {"  "}
+                        <Text style={{ fontSize: 9, color: '#10b981', fontWeight: 'bold' }}>
+                          ● Live
+                        </Text>
                       </Text>
+                      {/* Refresh Proximity Button */}
+                      <TouchableOpacity 
+                        onPress={() => geofence.selectedOfficeId && geofence.checkLocation(geofence.selectedOfficeId)} 
+                        style={{ padding: 4, marginRight: 8 }}
+                      >
+                        <Feather name="refresh-cw" size={14} color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} />
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={geofence.reset} style={{ padding: 4 }}>
                         <Feather name="x" size={14} color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} />
                       </TouchableOpacity>
                     </View>
+
+                    {/* Interactive Branch selector chips */}
+                    {geofence.offices && geofence.offices.length > 0 && (
+                      <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+                        style={{ marginBottom: 8 }}
+                      >
+                        {geofence.offices.map((office: any) => {
+                          const isSelected = office.id === geofence.selectedOfficeId;
+                          return (
+                            <TouchableOpacity
+                              key={office.id}
+                              onPress={() => geofence.checkLocation(office.id)}
+                              style={{
+                                paddingHorizontal: 12,
+                                paddingVertical: 6,
+                                borderRadius: 10,
+                                borderWidth: 1,
+                                borderColor: isSelected ? COLORS.primary : COLORS.border,
+                                backgroundColor: isSelected ? COLORS.primaryDim : COLORS.card,
+                              }}
+                            >
+                              <Text style={{ 
+                                fontSize: 11, 
+                                fontWeight: 'bold', 
+                                color: isSelected ? COLORS.primary : COLORS.textMuted 
+                              }}>
+                                🏢 {office.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+
                     <GeofenceMobileMap
                       userLat={geofence.latitude || 0}
                       userLng={geofence.longitude || 0}
@@ -2104,6 +2174,7 @@ export default function App() {
                 {t('companyFormsLabel')}
               </Text>
               <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
+                {/* Employee Handbook */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Employee_Handbook_2026.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
@@ -2124,12 +2195,7 @@ export default function App() {
                 </TouchableOpacity>
               </View>
 
-              {/* Preferences Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('preferencesSection') || 'Preferences'}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
-                {/* Documents / Forms */}
+                {/* Leave Application Form */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Leave_Application_Form.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
@@ -2149,53 +2215,7 @@ export default function App() {
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
 
-                {/* Language Switcher */}
-                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="globe" size={16} color="#3b82f6" />
-                    </View>
-                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 16 }}>{t('languageLabel') || 'App Language'}</Text>
-                  </View>
-                  
-                  {/* Segmented language switcher */}
-                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
-                    <Animated.View style={{
-                      position: 'absolute',
-                      top: 2,
-                      bottom: 2,
-                      left: 0,
-                      width: 56,
-                      backgroundColor: '#ffffff',
-                      borderRadius: 6,
-                      transform: [{
-                        translateX: langAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [2, 58]
-                        })
-                      }],
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 2,
-                      elevation: 2
-                    }} />
-                    <TouchableOpacity onPress={() => changeLanguage('en')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: language === 'en' ? COLORS.primary : COLORS.textMuted }}>EN</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => changeLanguage('fil')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: language === 'fil' ? COLORS.primary : COLORS.textMuted }}>FIL</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {/* System Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('systemSection') || 'System'}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 24 }}>
-                {/* Offline Sync Center */}
+                {/* Resignation Template */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Resignation_Template.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
@@ -2428,6 +2448,24 @@ export default function App() {
       )}
     </View>
   );
+
+  const showSimulatorFrame = Platform.OS === 'web' && width > 480;
+  if (showSimulatorFrame) {
+    return (
+      <View style={styles.webContainer}>
+        <View style={styles.phoneFrame}>
+          {/* Status Bar / Notch Simulation */}
+          <View style={styles.phoneNotch} />
+          {/* Inner Screen */}
+          <View style={styles.phoneScreen}>
+            {renderedContent}
+          </View>
+          {/* Home Indicator Simulation */}
+          <View style={styles.phoneHomeBar} />
+        </View>
+      </View>
+    );
+  }
 
   return renderedContent;
 }
@@ -2668,5 +2706,58 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase'
-  } as TextStyle
+  } as TextStyle,
+  webContainer: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    paddingVertical: 40
+  } as ViewStyle,
+  phoneFrame: {
+    width: 390,
+    height: 844,
+    backgroundColor: COLORS.background,
+    borderRadius: 44,
+    borderWidth: 12,
+    borderColor: '#1e293b',
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.4,
+    shadowRadius: 25,
+    elevation: 8
+  } as ViewStyle,
+  phoneNotch: {
+    position: 'absolute',
+    top: 0,
+    left: '50%',
+    transform: [{ translateX: -75 }] as any,
+    width: 150,
+    height: 30,
+    backgroundColor: '#1e293b',
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    zIndex: 99999
+  } as ViewStyle,
+  phoneScreen: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    height: '100%',
+    width: '100%'
+  } as ViewStyle,
+  phoneHomeBar: {
+    position: 'absolute',
+    bottom: 8,
+    left: '50%',
+    transform: [{ translateX: -60 }] as any,
+    width: 120,
+    height: 5,
+    backgroundColor: '#1e293b',
+    borderRadius: 3,
+    zIndex: 99999
+  } as ViewStyle
 });
