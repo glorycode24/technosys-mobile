@@ -37,7 +37,10 @@ export function useGeofence() {
     gpsAccuracy: null
   });
 
-  const checkLocation = useCallback(async (): Promise<GeofenceResult> => {
+  const [offices, setOffices] = useState<any[]>([]);
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(null);
+
+  const checkLocation = useCallback(async (overrideOfficeId?: string): Promise<GeofenceResult> => {
     setResult(prev => ({ ...prev, status: 'checking', error: null }));
 
     try {
@@ -84,7 +87,7 @@ export function useGeofence() {
       const userLng = location.coords.longitude;
 
       // 3. Fetch ALL active office locations from Supabase (with cache fallback)
-      let offices: any[] = [];
+      let fetchedOffices: any[] = [];
       try {
         const fetchPromise = supabase
           .from('office_locations')
@@ -95,7 +98,8 @@ export function useGeofence() {
         if (dbError) throw dbError;
         
         if (data && data.length > 0) {
-          offices = data;
+          fetchedOffices = data;
+          setOffices(data);
           await AsyncStorage.setItem('CACHED_OFFICE_LOCATIONS', JSON.stringify(data));
         } else {
           throw new Error('No active office locations in database.');
@@ -104,7 +108,8 @@ export function useGeofence() {
         console.warn('DB geofence fetch failed. Loading cached locations...', err);
         const cached = await AsyncStorage.getItem('CACHED_OFFICE_LOCATIONS');
         if (cached) {
-          offices = JSON.parse(cached);
+          fetchedOffices = JSON.parse(cached);
+          setOffices(fetchedOffices);
         } else {
           const errorMsg = 'No office locations found in cache or database. Connect to network to download coordinates.';
           setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
@@ -112,27 +117,45 @@ export function useGeofence() {
         }
       }
 
-      // 4. Calculate distance to each and find if user is inside any
-      let nearestOffice = null;
+      // 4. Calculate distance to target selected office, or find nearest
+      const activeOfficeId = overrideOfficeId || selectedOfficeId;
+      let targetOffice = activeOfficeId ? fetchedOffices.find(o => o.id === activeOfficeId) : null;
+      
+      let nearestOffice = targetOffice || null;
       let nearestDistance = Infinity;
       let isInsideAny = false;
 
-      for (const office of offices) {
-        const distanceMeters = getDistance(
+      if (targetOffice) {
+        nearestDistance = getDistance(
           { latitude: userLat, longitude: userLng },
-          { latitude: office.latitude, longitude: office.longitude }
+          { latitude: targetOffice.latitude, longitude: targetOffice.longitude }
         );
-
-        if (distanceMeters <= office.radius_meters) {
-          isInsideAny = true;
-          nearestOffice = office;
-          nearestDistance = distanceMeters;
-          break; // Stop immediately since they are inside an allowed zone
+        isInsideAny = nearestDistance <= targetOffice.radius_meters;
+        if (overrideOfficeId) {
+          setSelectedOfficeId(overrideOfficeId);
         }
+      } else {
+        // Find nearest office automatically
+        for (const office of fetchedOffices) {
+          const distanceMeters = getDistance(
+            { latitude: userLat, longitude: userLng },
+            { latitude: office.latitude, longitude: office.longitude }
+          );
 
-        if (distanceMeters < nearestDistance) {
-          nearestDistance = distanceMeters;
-          nearestOffice = office;
+          if (distanceMeters <= office.radius_meters) {
+            isInsideAny = true;
+            nearestOffice = office;
+            nearestDistance = distanceMeters;
+            break; // Stop immediately since they are inside an allowed zone
+          }
+
+          if (distanceMeters < nearestDistance) {
+            nearestDistance = distanceMeters;
+            nearestOffice = office;
+          }
+        }
+        if (nearestOffice) {
+          setSelectedOfficeId(nearestOffice.id);
         }
       }
 
@@ -181,7 +204,7 @@ export function useGeofence() {
       setResult(prev => ({ ...prev, status: 'error', error: errorMsg }));
       return { status: 'error', error: errorMsg } as const;
     }
-  }, []);
+  }, [selectedOfficeId]);
 
   const reset = useCallback(() => {
     setResult({ 
@@ -198,7 +221,8 @@ export function useGeofence() {
       isMocked: false,
       gpsAccuracy: null
     });
+    setSelectedOfficeId(null);
   }, []);
 
-  return { ...result, checkLocation, reset };
+  return { ...result, offices, selectedOfficeId, setSelectedOfficeId, checkLocation, reset };
 }

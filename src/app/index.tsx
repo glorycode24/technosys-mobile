@@ -1783,10 +1783,54 @@ export default function App() {
                               : (geofence.error || t('outsideArea', { distance: Math.round(geofence.distance || 0) })))
                         }
                       </Text>
+                      {/* Refresh Proximity Button */}
+                      <TouchableOpacity 
+                        onPress={() => geofence.selectedOfficeId && geofence.checkLocation(geofence.selectedOfficeId)} 
+                        style={{ padding: 4, marginRight: 8 }}
+                      >
+                        <Feather name="refresh-cw" size={14} color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} />
+                      </TouchableOpacity>
                       <TouchableOpacity onPress={geofence.reset} style={{ padding: 4 }}>
                         <Feather name="x" size={14} color={geofence.status === 'inside' ? COLORS.primary : COLORS.danger} />
                       </TouchableOpacity>
                     </View>
+
+                    {/* Interactive Branch selector chips */}
+                    {geofence.offices && geofence.offices.length > 0 && (
+                      <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+                        style={{ marginBottom: 8 }}
+                      >
+                        {geofence.offices.map((office: any) => {
+                          const isSelected = office.id === geofence.selectedOfficeId;
+                          return (
+                            <TouchableOpacity
+                              key={office.id}
+                              onPress={() => geofence.checkLocation(office.id)}
+                              style={{
+                                paddingHorizontal: 12,
+                                paddingVertical: 6,
+                                borderRadius: 10,
+                                borderWidth: 1,
+                                borderColor: isSelected ? COLORS.primary : COLORS.border,
+                                backgroundColor: isSelected ? COLORS.primaryDim : COLORS.card,
+                              }}
+                            >
+                              <Text style={{ 
+                                fontSize: 11, 
+                                fontWeight: 'bold', 
+                                color: isSelected ? COLORS.primary : COLORS.textMuted 
+                              }}>
+                                🏢 {office.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+
                     <GeofenceMobileMap
                       userLat={geofence.latitude || 0}
                       userLng={geofence.longitude || 0}
