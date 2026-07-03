@@ -3,14 +3,14 @@ import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
   ViewStyle, TextStyle, ImageStyle, RefreshControl,
-  LayoutAnimation, UIManager
+  LayoutAnimation, UIManager, Modal
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
-import { syncQueue } from '../lib/syncQueue';
+import { syncQueue, generateUUID } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
-import Pagination from './Pagination';
+import { Locale, TRANSLATIONS } from '../lib/translations';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -38,10 +38,21 @@ const COLORS = {
 interface TicketsTabProps {
   userId: string;
   fullName: string;
-  language?: 'en' | 'fil';
+  language: string;
+  isOnline: boolean;
 }
 
-export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProps) {
+export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabProps) {
+  const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
+    const currentLangDict = TRANSLATIONS[language as Locale] || TRANSLATIONS['en'];
+    let text = (currentLangDict as any)[key] || (TRANSLATIONS['en'] as any)[key] || key;
+    if (replaceParams) {
+      Object.entries(replaceParams).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, String(v));
+      });
+    }
+    return text;
+  };
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
   const [tickets, setTickets] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
@@ -96,8 +107,12 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
   // Create leave request form states
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'emergency' | 'unpaid'>('sick');
+  const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'wedding' | 'paternal' | 'maternal' | 'emergency' | 'unpaid'>('sick');
   const [reason, setReason] = useState('');
+
+  // Calendar picker states
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [selectingDateType, setSelectingDateType] = useState<'start' | 'end' | null>(null);
 
   // Create payroll dispute states
   const [disputedMonth, setDisputedMonth] = useState('');
@@ -114,22 +129,28 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
     setLeavesLoading(true);
     try {
       let dbLeaves = [];
-      try {
-        const fetchPromise = supabase
-          .from('leaves')
-          .select('*')
-          .eq('technician_id', userId)
-          .order('created_at', { ascending: false });
-
-        const { data, error } = await withTimeout(fetchPromise, 4000);
-        if (error) throw error;
-        dbLeaves = data || [];
-        // Save to cache
-        await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(dbLeaves));
-      } catch (networkErr: any) {
-        console.warn('Could not fetch leaves from DB, falling back to cache:', networkErr.message);
+      if (!isOnline) {
+        console.log('App is offline, loading leaves from cache directly...');
         const cached = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
         dbLeaves = cached ? JSON.parse(cached) : [];
+      } else {
+        try {
+          const fetchPromise = supabase
+            .from('leaves')
+            .select('*')
+            .eq('technician_id', userId)
+            .order('created_at', { ascending: false });
+
+          const { data, error } = await withTimeout(fetchPromise, 4000);
+          if (error) throw error;
+          dbLeaves = data || [];
+          // Save to cache
+          await AsyncStorage.setItem('CACHED_LEAVES_' + userId, JSON.stringify(dbLeaves));
+        } catch (networkErr: any) {
+          console.warn('Could not fetch leaves from DB, falling back to cache:', networkErr.message);
+          const cached = await AsyncStorage.getItem('CACHED_LEAVES_' + userId);
+          dbLeaves = cached ? JSON.parse(cached) : [];
+        }
       }
 
       // 2. Fetch offline queue items
@@ -179,28 +200,34 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
   const getLeaveTypeDetails = (type: string) => {
     switch (type) {
       case 'sick':
-        return { label: 'Sick', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' };
+        return { label: t('sick'), color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' };
       case 'vacation':
-        return { label: 'Vacation', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+        return { label: t('vacation'), color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+      case 'wedding':
+        return { label: t('wedding'), color: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)' };
+      case 'paternal':
+        return { label: t('paternal'), color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)' };
+      case 'maternal':
+        return { label: t('maternal'), color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)' };
       case 'emergency':
-        return { label: 'Emergency', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
+        return { label: t('emergency'), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
       case 'unpaid':
       default:
-        return { label: 'Unpaid', color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)' };
+        return { label: t('unpaid'), color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)' };
     }
   };
 
   const getLeaveStatusDetails = (status: string) => {
     switch (status) {
       case 'approved':
-        return { label: 'Approved', color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
+        return { label: t('approved'), color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)' };
       case 'rejected':
-        return { label: 'Rejected', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' };
+        return { label: t('rejected'), color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' };
       case 'sync_pending':
-        return { label: 'Sync Pending', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', isSync: true };
+        return { label: t('syncPending'), color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', isSync: true };
       case 'pending':
       default:
-        return { label: 'Pending', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
+        return { label: t('pending'), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' };
     }
   };
 
@@ -211,127 +238,57 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
     return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1;
   };
 
-  const calculateLeaveCredits = () => {
-    const totalAllowance = 15;
-    const currentYear = new Date().getFullYear();
-    
-    // Filter approved paid leaves ('sick', 'vacation', 'emergency') for current year
-    const approvedPaidLeaves = leavesList.filter(item => 
-      item.status === 'approved' && 
-      ['sick', 'vacation', 'emergency'].includes(item.leave_type) &&
-      new Date(item.start_date).getFullYear() === currentYear
-    );
-    
-    // Filter pending paid leaves (including offline sync_pending) for current year
-    const pendingPaidLeaves = leavesList.filter(item => 
-      (item.status === 'pending' || item.status === 'sync_pending') && 
-      ['sick', 'vacation', 'emergency'].includes(item.leave_type) &&
-      new Date(item.start_date).getFullYear() === currentYear
-    );
-    
-    const usedCredits = approvedPaidLeaves.reduce((acc, item) => {
-      return acc + calculateLeaveDuration(item.start_date, item.end_date);
-    }, 0);
-
-    const pendingCredits = pendingPaidLeaves.reduce((acc, item) => {
-      return acc + calculateLeaveDuration(item.start_date, item.end_date);
-    }, 0);
-    
-    // remaining is allowance minus approved used (clamped at 0)
-    const remainingBalance = Math.max(0, totalAllowance - usedCredits);
-
-    // available is remaining minus pending requested (clamped at 0)
-    const availableBalance = Math.max(0, remainingBalance - pendingCredits);
-    
-    return {
-      totalAllowance,
-      usedCredits,
-      pendingCredits,
-      remainingBalance,
-      availableBalance
-    };
-  };
-
-  const renderLeaveBalanceCard = () => {
-    const { totalAllowance, usedCredits, pendingCredits, availableBalance } = calculateLeaveCredits();
-    
-    return (
-      <View style={styles.balanceCard}>
-        <View style={styles.balanceCardHeader}>
-          <Text style={styles.balanceCardTitle}>Leave Credits Balance</Text>
-          <View style={styles.balanceCardIconBg}>
-            <Feather name="activity" size={14} color={COLORS.primary} />
-          </View>
-        </View>
-        
-        <View style={styles.balanceGrid}>
-          <View style={styles.balanceCol}>
-            <Text style={styles.balanceVal}>{totalAllowance}d</Text>
-            <Text style={styles.balanceLbl}>Allowance</Text>
-          </View>
-          <View style={[styles.balanceCol, { borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.border }]}>
-            <Text style={[styles.balanceVal, { color: COLORS.indigo }]}>{usedCredits}d</Text>
-            <Text style={styles.balanceLbl}>Approved</Text>
-          </View>
-          <View style={[styles.balanceCol, { borderRightWidth: 1, borderColor: COLORS.border }]}>
-            <Text style={[styles.balanceVal, { color: '#f59e0b' }]}>{pendingCredits}d</Text>
-            <Text style={styles.balanceLbl}>Pending</Text>
-          </View>
-          <View style={styles.balanceCol}>
-            <Text style={[styles.balanceVal, { color: availableBalance > 0 ? COLORS.primary : COLORS.danger }]}>
-              {availableBalance}d
-            </Text>
-            <Text style={styles.balanceLbl}>Available</Text>
-          </View>
-        </View>
-
-        {/* Dynamic Progress indicator */}
-        <View style={styles.progressBarBg}>
-          <View 
-            style={[
-              styles.progressBarFill, 
-              { 
-                width: `${Math.min(100, (availableBalance / totalAllowance) * 100)}%`,
-                backgroundColor: availableBalance > 5 ? COLORS.primary : availableBalance > 2 ? '#f59e0b' : COLORS.danger
-              }
-            ]} 
-          />
-        </View>
-      </View>
-    );
-  };
-
-
   // Fetch technician's tickets (with cache fallback)
   const fetchTickets = async () => {
     setLoading(true);
     try {
-      const fetchPromise = supabase
-        .from('tickets')
-        .select(`
-          *,
-          assignee:profiles!assigned_to(full_name)
-        `)
-        .eq('employee_id', userId)
-        .order('created_at', { ascending: false });
-
-      const { data, error } = await withTimeout(fetchPromise, 4000);
-
-      if (error) throw error;
-      setTickets(data || []);
-      await AsyncStorage.setItem('CACHED_TICKETS_' + userId, JSON.stringify(data || []));
-    } catch (e: any) {
-      console.warn('Failed to load tickets from network, loading cached...', e.message);
-      try {
+      let dbTickets = [];
+      if (!isOnline) {
+        console.log('App is offline, loading tickets from cache directly...');
         const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
-        if (cached) {
-          setTickets(JSON.parse(cached));
-        } else {
-          setTickets([]);
+        dbTickets = cached ? JSON.parse(cached) : [];
+      } else {
+        try {
+          const fetchPromise = supabase
+            .from('tickets')
+            .select(`
+              *,
+              assignee:profiles!assigned_to(full_name)
+            `)
+            .eq('employee_id', userId)
+            .order('created_at', { ascending: false });
+
+          const { data, error } = await withTimeout(fetchPromise, 4000);
+
+          if (error) throw error;
+          dbTickets = data || [];
+          await AsyncStorage.setItem('CACHED_TICKETS_' + userId, JSON.stringify(dbTickets));
+        } catch (e: any) {
+          console.warn('Failed to load tickets from network, loading cached...', e.message);
+          const cached = await AsyncStorage.getItem('CACHED_TICKETS_' + userId);
+          dbTickets = cached ? JSON.parse(cached) : [];
         }
-      } catch (cacheErr) {
-        console.error('Failed to read tickets cache', cacheErr);
       }
+
+      // Fetch all items from the offline sync queue
+      const queue = await syncQueue.getQueue();
+      const offlineTickets = queue
+        .filter(item => item.type === 'ticket_submission' && item.payload.employee_id === userId)
+        .map(item => ({
+          id: item.payload.id,
+          employee_id: userId,
+          title: item.payload.title,
+          category: item.payload.category,
+          priority: item.payload.priority,
+          description: item.payload.description,
+          status: 'sync_pending',
+          created_at: item.payload.created_at || item.timestamp,
+          assignee: null
+        }));
+
+      setTickets([...offlineTickets, ...dbTickets]);
+    } catch (e: any) {
+      console.error('Error fetching tickets', e);
     } finally {
       setLoading(false);
     }
@@ -341,19 +298,49 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
   const fetchComments = async (ticketId: string) => {
     setLoadingComments(true);
     try {
-      const { data, error } = await supabase
-        .from('ticket_comments')
-        .select(`
-          *,
-          author:profiles!author_id(full_name, role)
-        `)
-        .eq('ticket_id', ticketId)
-        .order('created_at', { ascending: true });
+      let dbComments = [];
+      if (!isOnline) {
+        console.log('App is offline, loading ticket comments from cache directly...');
+        const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
+        dbComments = cached ? JSON.parse(cached) : [];
+      } else {
+        try {
+          const { data, error } = await supabase
+            .from('ticket_comments')
+            .select(`
+              *,
+              author:profiles!author_id(full_name, role)
+            `)
+            .eq('ticket_id', ticketId)
+            .order('created_at', { ascending: true });
 
-      if (error) throw error;
-      setComments(data || []);
+          if (error) throw error;
+          dbComments = data || [];
+          await AsyncStorage.setItem('CACHED_COMMENTS_' + ticketId, JSON.stringify(dbComments));
+        } catch (e: any) {
+          console.error('Failed to load comments from network, loading cached...', e);
+          const cached = await AsyncStorage.getItem('CACHED_COMMENTS_' + ticketId);
+          dbComments = cached ? JSON.parse(cached) : [];
+        }
+      }
+
+      // Fetch all items from the offline sync queue
+      const queue = await syncQueue.getQueue();
+      const offlineComments = queue
+        .filter(item => item.type === 'post_comment' && item.payload.ticket_id === ticketId)
+        .map(item => ({
+          id: item.id,
+          ticket_id: item.payload.ticket_id,
+          author_id: item.payload.author_id,
+          content: item.payload.content,
+          created_at: item.payload.created_at || item.timestamp,
+          status: 'sync_pending',
+          author: { full_name: fullName, role: 'technician' }
+        }));
+
+      setComments([...dbComments, ...offlineComments]);
     } catch (e: any) {
-      console.error('Failed to load comments', e);
+      console.error('Error in fetchComments:', e);
     } finally {
       setLoadingComments(false);
     }
@@ -362,6 +349,13 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
   // Fetch inventory details for checkout (with cache fallback)
   const fetchInventoryItems = async () => {
     try {
+      if (!isOnline) {
+        console.log('App is offline, loading inventory items from cache directly...');
+        const cached = await AsyncStorage.getItem('CACHED_INVENTORY_ITEMS');
+        setInventoryItems(cached ? JSON.parse(cached) : []);
+        return;
+      }
+
       const fetchPromise = supabase
         .from('inventory_items')
         .select('*')
@@ -376,11 +370,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       console.warn("Failed to load inventory items from network, loading cached:", e.message);
       try {
         const cached = await AsyncStorage.getItem('CACHED_INVENTORY_ITEMS');
-        if (cached) {
-          setInventoryItems(JSON.parse(cached));
-        } else {
-          setInventoryItems([]);
-        }
+        setInventoryItems(cached ? JSON.parse(cached) : []);
       } catch (cacheErr) {
         console.error("Failed to read inventory cache:", cacheErr);
       }
@@ -402,14 +392,14 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
   const handleCreateTicket = async () => {
     if (category === 'Leave Request') {
       if (!startDate || !endDate || !reason.trim()) {
-        Alert.alert('Incomplete Form', 'Please fill in all leave request fields.');
+        Alert.alert(t('incompleteForm'), t('fillAllFields'));
         return;
       }
 
       // Basic format validation: YYYY-MM-DD
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
-        Alert.alert('Invalid Date Format', 'Dates must be formatted as YYYY-MM-DD.');
+        Alert.alert(t('invalidDateFormat'), t('datesMustBeFormatted'));
         return;
       }
 
@@ -417,38 +407,14 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       const start = new Date(startDate);
       const end = new Date(endDate);
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        Alert.alert('Invalid Dates', 'Please enter valid date values.');
+        Alert.alert(t('invalidDates'), t('enterValidDates'));
         return;
       }
 
       if (end < start) {
-        Alert.alert('Invalid Date Range', 'End Date must be on or after Start Date.');
+        Alert.alert(t('invalidDateRange'), t('endDateAfterStart'));
         return;
       }
-
-      // Check if requested duration exceeds remaining balance for paid leaves
-      if (['sick', 'vacation', 'emergency'].includes(leaveType)) {
-        const duration = calculateLeaveDuration(startDate, endDate);
-        const { availableBalance } = calculateLeaveCredits();
-        
-        if (duration > availableBalance) {
-          Alert.alert(
-            'Insufficient Leave Credits',
-            `You are requesting ${duration} day(s) of ${leaveType} leave, but you only have ${availableBalance} day(s) of available paid leave credits.\n\nWould you like to file this as Unpaid leave instead, or adjust your dates?`,
-            [
-              { text: 'Adjust Dates', style: 'cancel' },
-              { 
-                text: 'Change to Unpaid', 
-                onPress: () => {
-                  setLeaveType('unpaid');
-                }
-              }
-            ]
-          );
-          return;
-        }
-      }
-
 
       const payload = {
         technician_id: userId,
@@ -472,8 +438,8 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             // Add to offline sync queue
             await syncQueue.addToQueue('leave_request', payload);
             Alert.alert(
-              'Offline Mode Active',
-              'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+              t('syncPendingAlertTitle'),
+              t('offlineStoredPending')
             );
             setReason('');
             setView('list');
@@ -484,7 +450,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
           throw error;
         }
 
-        Alert.alert('Success', 'Leave request filed successfully.');
+        Alert.alert(t('submissionSuccess'), t('leaveFiledSuccess'));
         setReason('');
         setView('list');
         setSubTab('leaves');
@@ -496,15 +462,15 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
         if (isNetworkError) {
           await syncQueue.addToQueue('leave_request', payload);
           Alert.alert(
-            'Offline Mode Active',
-            'Your leave request has been saved locally. It will synchronize automatically once you are connected to the network.'
+            t('syncPendingAlertTitle'),
+            t('offlineStoredPending')
           );
           setReason('');
           setView('list');
           setSubTab('leaves');
           fetchLeaves();
         } else {
-          Alert.alert('Submission Failed', err.message || 'Could not submit leave request.');
+          Alert.alert(t('submissionFailed'), err.message || 'Could not submit leave request.');
         }
       } finally {
         setSubmitting(false);
@@ -514,35 +480,66 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
     if (category === 'Payroll Dispute') {
       if (!disputedMonth.trim() || !disputedAmount.trim() || !payrollNotes.trim()) {
-        Alert.alert('Validation Error', 'Please fill in all fields for the payroll dispute.');
+        Alert.alert(t('validationError'), t('fillAllFields'));
         return;
       }
       const amtNum = parseFloat(disputedAmount);
       if (isNaN(amtNum) || amtNum <= 0) {
-        Alert.alert('Validation Error', 'Disputed amount must be a positive number.');
+        Alert.alert(t('validationError'), t('qtyPositive'));
         return;
       }
 
       setSubmitting(true);
+      const ticketId = generateUUID();
+      const payloadDesc = JSON.stringify({
+        disputed_month: disputedMonth.trim(),
+        disputed_amount: amtNum,
+        details: payrollNotes.trim()
+      });
+
+      const payload = {
+        id: ticketId,
+        employee_id: userId,
+        title: `Payroll Dispute - ${disputedMonth.trim()}`,
+        category: 'Payroll Dispute',
+        priority: 'medium',
+        description: payloadDesc,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+
+      const handleOffline = async () => {
+        await syncQueue.addToQueue('ticket_submission', payload);
+        Alert.alert(t('syncPendingAlertTitle'), t('offlineStoredPending'));
+        setDisputedMonth('');
+        setDisputedAmount('');
+        setPayrollNotes('');
+        setView('list');
+        setSubTab('tickets');
+        fetchTickets();
+      };
+
+      if (!isOnline) {
+        await handleOffline();
+        setSubmitting(false);
+        return;
+      }
+
       try {
-        const payloadDesc = JSON.stringify({
-          disputed_month: disputedMonth.trim(),
-          disputed_amount: amtNum,
-          details: payrollNotes.trim()
-        });
+        const { error } = await supabase.from('tickets').insert(payload);
 
-        const { error } = await supabase.from('tickets').insert({
-          employee_id: userId,
-          title: `Payroll Dispute - ${disputedMonth.trim()}`,
-          category: 'Payroll Dispute',
-          priority: 'medium',
-          description: payloadDesc,
-          status: 'open'
-        });
+        if (error) {
+          const errMessage = error.message || '';
+          const status = (error as any).status;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          if (isNetworkError) {
+            await handleOffline();
+            return;
+          }
+          throw error;
+        }
 
-        if (error) throw error;
-
-        Alert.alert('Success', 'Your payroll dispute request has been submitted.');
+        Alert.alert(t('submissionSuccess'), t('disputeSubmittedSuccess'));
         setDisputedMonth('');
         setDisputedAmount('');
         setPayrollNotes('');
@@ -550,7 +547,13 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
         setSubTab('tickets');
         fetchTickets();
       } catch (e: any) {
-        Alert.alert('Submission Failed', e.message);
+        const errMessage = e.message || '';
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        if (isNetworkError) {
+          await handleOffline();
+        } else {
+          Alert.alert(t('submissionFailed'), e.message);
+        }
       } finally {
         setSubmitting(false);
       }
@@ -559,37 +562,73 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
     if (category === 'Equipment Issue') {
       if (!serialNumber.trim() || !equipmentNotes.trim()) {
-        Alert.alert('Validation Error', 'Please enter a serial number and details of the issue.');
+        Alert.alert(t('validationError'), t('fillAllFields'));
         return;
       }
 
       setSubmitting(true);
+      const ticketId = generateUUID();
+      const payloadDesc = JSON.stringify({
+        equipment_type: equipmentType,
+        serial_number: serialNumber.trim(),
+        details: equipmentNotes.trim()
+      });
+
+      const payload = {
+        id: ticketId,
+        employee_id: userId,
+        title: `Equipment Issue - ${equipmentType.toUpperCase()} (${serialNumber.trim()})`,
+        category: 'Equipment Issue',
+        priority: 'high',
+        description: payloadDesc,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+
+      const handleOffline = async () => {
+        await syncQueue.addToQueue('ticket_submission', payload);
+        Alert.alert(t('syncPendingAlertTitle'), t('offlineStoredPending'));
+        setSerialNumber('');
+        setEquipmentNotes('');
+        setView('list');
+        setSubTab('tickets');
+        fetchTickets();
+      };
+
+      if (!isOnline) {
+        await handleOffline();
+        setSubmitting(false);
+        return;
+      }
+
       try {
-        const payloadDesc = JSON.stringify({
-          equipment_type: equipmentType,
-          serial_number: serialNumber.trim(),
-          details: equipmentNotes.trim()
-        });
+        const { error } = await supabase.from('tickets').insert(payload);
 
-        const { error } = await supabase.from('tickets').insert({
-          employee_id: userId,
-          title: `Equipment Issue - ${equipmentType.toUpperCase()} (${serialNumber.trim()})`,
-          category: 'Equipment Issue',
-          priority: 'high',
-          description: payloadDesc,
-          status: 'open'
-        });
+        if (error) {
+          const errMessage = error.message || '';
+          const status = (error as any).status;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          if (isNetworkError) {
+            await handleOffline();
+            return;
+          }
+          throw error;
+        }
 
-        if (error) throw error;
-
-        Alert.alert('Success', 'Your equipment issue request has been submitted.');
+        Alert.alert(t('submissionSuccess'), t('equipmentSubmittedSuccess'));
         setSerialNumber('');
         setEquipmentNotes('');
         setView('list');
         setSubTab('tickets');
         fetchTickets();
       } catch (e: any) {
-        Alert.alert('Submission Failed', e.message);
+        const errMessage = e.message || '';
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        if (isNetworkError) {
+          await handleOffline();
+        } else {
+          Alert.alert(t('submissionFailed'), e.message);
+        }
       } finally {
         setSubmitting(false);
       }
@@ -597,24 +636,55 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
     }
 
     if (!title.trim() || !description.trim()) {
-      Alert.alert('Validation Error', 'Please enter a summary and details.');
+      Alert.alert(t('validationError'), t('fillAllFields'));
       return;
     }
 
     setSubmitting(true);
+    const ticketId = generateUUID();
+    const payload = {
+      id: ticketId,
+      employee_id: userId,
+      title: title.trim(),
+      category,
+      priority,
+      description: description.trim(),
+      status: 'open',
+      created_at: new Date().toISOString()
+    };
+
+    const handleOffline = async () => {
+      await syncQueue.addToQueue('ticket_submission', payload);
+      Alert.alert(t('syncPendingAlertTitle'), t('offlineStoredPending'));
+      setTitle('');
+      setDescription('');
+      setCategory('Leave Request');
+      setPriority('medium');
+      setView('list');
+      fetchTickets();
+    };
+
+    if (!isOnline) {
+      await handleOffline();
+      setSubmitting(false);
+      return;
+    }
+
     try {
-      const { error } = await supabase.from('tickets').insert({
-        employee_id: userId,
-        title: title.trim(),
-        category,
-        priority,
-        description: description.trim(),
-        status: 'open'
-      });
+      const { error } = await supabase.from('tickets').insert(payload);
 
-      if (error) throw error;
+      if (error) {
+        const errMessage = error.message || '';
+        const status = (error as any).status;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        if (isNetworkError) {
+          await handleOffline();
+          return;
+        }
+        throw error;
+      }
 
-      Alert.alert('Success', 'Your HR service request has been submitted.');
+      Alert.alert(t('submissionSuccess'), t('ticketSubmittedSuccess'));
       setTitle('');
       setDescription('');
       setCategory('Leave Request');
@@ -622,7 +692,13 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       setView('list');
       fetchTickets();
     } catch (e: any) {
-      Alert.alert('Submission Failed', e.message);
+      const errMessage = e.message || '';
+      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+      if (isNetworkError) {
+        await handleOffline();
+      } else {
+        Alert.alert(t('submissionFailed'), e.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -635,6 +711,42 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
     const content = commentText.trim();
     setCommentText('');
 
+    const handleOfflineComment = async () => {
+      const commentId = generateUUID();
+      const payload = {
+        ticket_id: selectedTicket.id,
+        author_id: userId,
+        content,
+        created_at: new Date().toISOString()
+      };
+
+      await syncQueue.addToQueue('post_comment', payload);
+
+      const newComment = {
+        id: commentId,
+        ticket_id: selectedTicket.id,
+        author_id: userId,
+        content,
+        created_at: payload.created_at,
+        status: 'sync_pending',
+        author: { full_name: fullName, role: 'technician' }
+      };
+
+      // Instantly append comment to local state
+      setComments(prev => [...prev, newComment]);
+
+      // Update the local ticket updated_at time
+      const nowStr = new Date().toISOString();
+      setSelectedTicket((prev: any) => prev ? { ...prev, updated_at: nowStr } : null);
+      setTickets(prev => prev.map(t => t.id === selectedTicket.id ? { ...t, updated_at: nowStr } : t));
+    };
+
+    if (!isOnline || selectedTicket.status === 'sync_pending') {
+      await handleOfflineComment();
+      setCommentSubmitting(false);
+      return;
+    }
+
     try {
       const { error } = await supabase.from('ticket_comments').insert({
         ticket_id: selectedTicket.id,
@@ -642,7 +754,16 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
         content
       });
 
-      if (error) throw error;
+      if (error) {
+        const errMessage = error.message || '';
+        const status = (error as any).status;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        if (isNetworkError) {
+          await handleOfflineComment();
+          return;
+        }
+        throw error;
+      }
 
       // Update local ticket updated_at
       await supabase
@@ -652,8 +773,14 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
       fetchComments(selectedTicket.id);
     } catch (e: any) {
-      Alert.alert('Comment Error', e.message);
-      setCommentText(content); // restore input
+      const errMessage = e.message || '';
+      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+      if (isNetworkError) {
+        await handleOfflineComment();
+      } else {
+        Alert.alert('Comment Error', e.message);
+        setCommentText(content); // restore input
+      }
     } finally {
       setCommentSubmitting(false);
     }
@@ -661,20 +788,20 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
   const handleCheckoutParts = async () => {
     if (!selectedPart || !checkoutQty) {
-      Alert.alert('Validation Error', 'Please select a part and enter a quantity.');
+      Alert.alert(t('validationError'), t('selectPartQty'));
       return;
     }
 
     const qtyNum = parseInt(checkoutQty);
     if (isNaN(qtyNum) || qtyNum <= 0) {
-      Alert.alert('Validation Error', 'Quantity must be greater than zero.');
+      Alert.alert(t('validationError'), t('qtyPositive'));
       return;
     }
 
     // Helper for offline queue fallback
     const handleOfflineFallback = async (itemDetails: any) => {
       if (itemDetails.quantity < qtyNum) {
-        Alert.alert('Insufficient Stock', `Only ${itemDetails.quantity} ${itemDetails.unit} available locally for ${itemDetails.name}.`);
+        Alert.alert(t('insufficientStock'), t('onlyAvailableLocally', { qty: itemDetails.quantity, unit: itemDetails.unit, name: itemDetails.name }));
         return;
       }
 
@@ -704,7 +831,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       };
       setComments(prev => [...prev, mockComment]);
 
-      Alert.alert('Offline Mode Active', `Logged parts checkout locally. Will sync on reconnection.`);
+      Alert.alert(t('syncPendingAlertTitle'), t('offlinePartsCheckoutSuccess'));
       setSelectedPart(null);
       setCheckoutQty('');
       setCheckoutNotes('');
@@ -715,7 +842,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       // 1. Double check current stock
       const { data: item, error: fetchErr } = await supabase
         .from('inventory_items')
-        .select('quantity, low_stock_threshold, name, sku, unit')
+        .select('quantity, name, unit')
         .eq('id', selectedPart.id)
         .single();
       
@@ -736,7 +863,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       }
 
       if (item.quantity < qtyNum) {
-        Alert.alert('Insufficient Stock', `Only ${item.quantity} ${item.unit} available for ${item.name}.`);
+        Alert.alert(t('insufficientStock'), t('onlyAvailable', { qty: item.quantity, unit: item.unit, name: item.name }));
         return;
       }
 
@@ -789,45 +916,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
         content: `🔧 [System DTR Log]: Technician checked out ${qtyNum} ${item.unit} of "${item.name}" for dispatch. Memo: ${checkoutNotes.trim() || 'None'}`
       });
 
-      // 5. Send low stock push notification alerts if it transitioned below threshold
-      const wasAbove = item.quantity > item.low_stock_threshold;
-      const isNowBelow = (item.quantity - qtyNum) <= item.low_stock_threshold;
-      if (wasAbove && isNowBelow) {
-        try {
-          const { data: admins } = await supabase
-            .from('profiles')
-            .select('push_token')
-            .in('role', ['admin', 'super_admin'])
-            .not('push_token', 'is', null);
-
-          if (admins && admins.length > 0) {
-            const tokens = admins.map(a => a.push_token).filter(Boolean);
-            if (tokens.length > 0) {
-              const messages = tokens.map(token => ({
-                to: token,
-                sound: 'default',
-                title: '⚠️ Low Stock Alert',
-                body: `Inventory item "${item.name}" (SKU: ${item.sku}) has fallen below its safety threshold. Current stock: ${item.quantity - qtyNum} ${item.unit} (Limit: ${item.low_stock_threshold} ${item.unit}).`,
-                data: { itemId: item.sku }
-              }));
-
-              await fetch('https://exp.host/--/api/v2/push/send', {
-                method: 'POST',
-                headers: {
-                  'Accept': 'application/json',
-                  'Accept-encoding': 'gzip, deflate',
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(messages)
-              });
-            }
-          }
-        } catch (pushErr) {
-          console.error('Failed to send push notification from mobile checkout:', pushErr);
-        }
-      }
-
-      Alert.alert('Parts Checkout Successful', `Logged checkout of ${qtyNum} ${item.unit} of ${item.name}.`);
+      Alert.alert(t('partsCheckoutSuccess'), t('checkedOutSuccessMsg', { qty: qtyNum, unit: item.unit, name: item.name }));
       setSelectedPart(null);
       setCheckoutQty('');
       setCheckoutNotes('');
@@ -837,31 +926,60 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       fetchComments(selectedTicket.id);
       fetchInventoryItems();
     } catch (err: any) {
-      Alert.alert('Checkout Failed', err.message || 'An error occurred during parts checkout.');
+      Alert.alert(t('checkoutFailed'), err.message || 'An error occurred during parts checkout.');
     }
   };
 
   const handleCloseTicket = async () => {
     Alert.alert(
-      'Close Ticket',
-      'Are you sure you want to close this ticket? You can reopen it if you still need help.',
+      t('closeTicketTitle'),
+      t('closeTicketConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancelButton'), style: 'cancel' },
         { 
-          text: 'Yes, Close It', 
+          text: t('yesCloseIt'), 
           style: 'destructive',
           onPress: async () => {
+            const handleOfflineClose = async () => {
+              const payload = {
+                ticket_id: selectedTicket.id
+              };
+              await syncQueue.addToQueue('close_ticket', payload);
+              setSelectedTicket((prev: any) => prev ? { ...prev, status: 'closed' } : null);
+              fetchTickets();
+            };
+
+            if (!isOnline || selectedTicket.status === 'sync_pending') {
+              await handleOfflineClose();
+              return;
+            }
+
             try {
               const { error } = await supabase
                 .from('tickets')
                 .update({ status: 'closed', updated_at: new Date().toISOString() })
                 .eq('id', selectedTicket.id);
-              if (error) throw error;
+              if (error) {
+                const errMessage = error.message || '';
+                const status = (error as any).status;
+                const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+                if (isNetworkError) {
+                  await handleOfflineClose();
+                  return;
+                }
+                throw error;
+              }
 
-              setSelectedTicket((prev: any) => ({ ...prev, status: 'closed' }));
+              setSelectedTicket((prev: any) => prev ? { ...prev, status: 'closed' } : null);
               fetchTickets();
             } catch (e: any) {
-              Alert.alert('Error', 'Failed to close ticket: ' + e.message);
+              const errMessage = e.message || '';
+              const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+              if (isNetworkError) {
+                await handleOfflineClose();
+              } else {
+                Alert.alert('Error', 'Failed to close ticket: ' + e.message);
+              }
             }
           }
         }
@@ -873,6 +991,53 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
   const formatDate = (isoString: string) => {
     const d = new Date(isoString);
     return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatRelativeTime = (isoString: string) => {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSecs < 60) {
+      return language === 'fil' ? 'ngayon lang' : 'just now';
+    } else if (diffMins < 60) {
+      return language === 'fil' ? `${diffMins}m nakalipas` : `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      return language === 'fil' ? `${diffHours}o nakalipas` : `${diffHours}h ago`;
+    } else if (diffDays === 1) {
+      return language === 'fil' ? 'kahapon' : 'yesterday';
+    } else if (diffDays < 7) {
+      return language === 'fil' ? `${diffDays}a nakalipas` : `${diffDays}d ago`;
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  };
+
+  const getLeftBorderColor = (cat: string) => {
+    switch (cat) {
+      case 'Leave Request': return COLORS.blue;
+      case 'Payroll Dispute': return COLORS.amber;
+      case 'Benefits Inquiry': return COLORS.indigo;
+      case 'Equipment Issue': return COLORS.rose;
+      default: return COLORS.textMuted;
+    }
+  };
+
+  const getStatusBadgeTheme = (status: string) => {
+    const color = getStatusColor(status);
+    switch (status) {
+      case 'open': return { bg: 'rgba(16, 185, 129, 0.1)', text: color };
+      case 'assigned': return { bg: 'rgba(30, 64, 175, 0.1)', text: color };
+      case 'in_progress': return { bg: 'rgba(55, 48, 163, 0.1)', text: color };
+      case 'resolved': return { bg: 'rgba(100, 116, 139, 0.1)', text: color };
+      case 'closed': return { bg: 'rgba(148, 163, 184, 0.1)', text: color };
+      case 'sync_pending': return { bg: 'rgba(59, 130, 246, 0.1)', text: color };
+      default: return { bg: 'rgba(100, 116, 139, 0.1)', text: color };
+    }
   };
 
   const getCategoryTheme = (cat: string) => {
@@ -892,6 +1057,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
       case 'in_progress': return COLORS.indigo;
       case 'resolved': return COLORS.textMuted;
       case 'closed': return '#94a3b8';
+      case 'sync_pending': return '#3b82f6';
       default: return COLORS.textMuted;
     }
   };
@@ -954,8 +1120,8 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
         <View style={styles.container}>
           <View style={styles.tabHeader}>
             <View>
-              <Text style={styles.title}>Service Desk</Text>
-              <Text style={styles.subtitle}>File requests and chat with HR Support</Text>
+              <Text style={styles.title}>{t('serviceDesk')}</Text>
+              <Text style={styles.subtitle}>{t('fileRequestsSubtitle')}</Text>
             </View>
             <TouchableOpacity 
               style={styles.createButton} 
@@ -978,7 +1144,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             >
               <Feather name="message-square" size={14} color={subTab === 'tickets' ? '#fff' : COLORS.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.segmentedText, subTab === 'tickets' ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                Support Tickets
+                {t('ticketsLabel')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity 
@@ -987,7 +1153,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             >
               <Feather name="calendar" size={14} color={subTab === 'leaves' ? '#fff' : COLORS.textMuted} style={{ marginRight: 6 }} />
               <Text style={[styles.segmentedText, subTab === 'leaves' ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                Leave Log
+                {t('leavesLabel')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1000,8 +1166,8 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             ) : tickets.length === 0 ? (
               <ScrollView contentContainerStyle={styles.centeredScroll}>
                 <Feather name="inbox" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
-                <Text style={styles.emptyTitle}>No service tickets</Text>
-                <Text style={styles.emptyDesc}>Have a question about payroll, leaves, or equipment? Click the + button to file an HR request.</Text>
+                <Text style={styles.emptyTitle}>{t('emptyTicketsTitle')}</Text>
+                <Text style={styles.emptyDesc}>{t('emptyTicketsDesc')}</Text>
               </ScrollView>
             ) : (
               <ScrollView contentContainerStyle={styles.listContent} refreshControl={
@@ -1010,10 +1176,14 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
               >
                 {tickets.slice((ticketsPage - 1) * itemsPerPage, ticketsPage * itemsPerPage).map(ticket => {
                   const catTheme = getCategoryTheme(ticket.category);
+                  const statusBadgeTheme = getStatusBadgeTheme(ticket.status);
                   return (
                     <TouchableOpacity 
                       key={ticket.id} 
-                      style={styles.ticketCard}
+                      style={[
+                        styles.ticketCard,
+                        { borderLeftWidth: 4, borderLeftColor: getLeftBorderColor(ticket.category) }
+                      ]}
                       onPress={() => handleSelectTicket(ticket)}
                     >
                       <View style={styles.cardHeader}>
@@ -1022,9 +1192,8 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                           <Text style={[styles.catBadgeText, { color: catTheme.text }]}>{ticket.category}</Text>
                         </View>
 
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <View style={[styles.statusDot, { backgroundColor: getStatusColor(ticket.status) }]} />
-                          <Text style={[styles.statusText, { color: getStatusColor(ticket.status) }]}>
+                        <View style={[styles.statusBadge, { backgroundColor: statusBadgeTheme.bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: statusBadgeTheme.text }]}>
                             {ticket.status.replace('_', ' ')}
                           </Text>
                         </View>
@@ -1035,7 +1204,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
                       <View style={styles.cardFooter}>
                         <Text style={styles.footerTime}>
-                          <Feather name="clock" size={10} /> {formatDate(ticket.created_at)}
+                          <Feather name="clock" size={10} /> {formatRelativeTime(ticket.created_at)}
                         </Text>
                         
                         {ticket.assignee && (
@@ -1058,77 +1227,78 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
               </ScrollView>
             )
           ) : (
-            <View style={{ flex: 1 }}>
-              {renderLeaveBalanceCard()}
-              {leavesLoading && leavesList.length === 0 ? (
-                <View style={styles.centered}>
-                  <ActivityIndicator color={COLORS.primary} size="large" />
-                </View>
-              ) : leavesList.length === 0 ? (
-                <ScrollView contentContainerStyle={styles.centeredScroll}>
-                  <Feather name="calendar" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
-                  <Text style={styles.emptyTitle}>No leave requests</Text>
-                  <Text style={styles.emptyDesc}>Want to request leave or vacation days? Click the + button to submit a leave request.</Text>
-                </ScrollView>
-              ) : (
-                <ScrollView 
-                  contentContainerStyle={styles.listContent} 
-                  refreshControl={<RefreshControl refreshing={leavesRefreshing} onRefresh={() => { setLeavesRefreshing(true); fetchLeaves(); }} colors={[COLORS.primary]} />}
-                >
-                  {leavesList.slice((leavesPage - 1) * itemsPerPage, leavesPage * itemsPerPage).map((item) => {
-                    const typeDetails = getLeaveTypeDetails(item.leave_type);
-                    const statusDetails = getLeaveStatusDetails(item.status);
-                    const duration = calculateLeaveDuration(item.start_date, item.end_date);
-                    
-                    return (
-                      <View key={item.id} style={styles.ticketCard}>
-                        <View style={styles.cardHeader}>
-                          <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
-                            <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
-                            <Text style={[styles.catBadgeText, { color: typeDetails.color }]}>
-                              {typeDetails.label} Leave
-                            </Text>
-                          </View>
-                          <View style={[styles.catBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
-                            {statusDetails.isSync && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />}
-                            <Text style={[styles.catBadgeText, { color: statusDetails.color }]}>
-                              {statusDetails.label}
-                            </Text>
-                          </View>
+            leavesLoading && leavesList.length === 0 ? (
+              <View style={styles.centered}>
+                <ActivityIndicator color={COLORS.primary} size="large" />
+              </View>
+            ) : leavesList.length === 0 ? (
+              <ScrollView contentContainerStyle={styles.centeredScroll}>
+                <Feather name="calendar" size={64} color={COLORS.border} style={{ marginBottom: 16 }} />
+                <Text style={styles.emptyTitle}>{t('emptyLeavesTitle')}</Text>
+                <Text style={styles.emptyDesc}>{t('emptyLeavesDesc')}</Text>
+              </ScrollView>
+            ) : (
+              <ScrollView 
+                contentContainerStyle={styles.listContent} 
+                refreshControl={<RefreshControl refreshing={leavesRefreshing} onRefresh={() => { setLeavesRefreshing(true); fetchLeaves(); }} colors={[COLORS.primary]} />}
+              >
+                {leavesList.map((item) => {
+                  const typeDetails = getLeaveTypeDetails(item.leave_type);
+                  const statusDetails = getLeaveStatusDetails(item.status);
+                  const duration = calculateLeaveDuration(item.start_date, item.end_date);
+                  
+                  return (
+                    <View 
+                      key={item.id} 
+                      style={[
+                        styles.ticketCard,
+                        { borderLeftWidth: 4, borderLeftColor: COLORS.blue }
+                      ]}
+                    >
+                      <View style={styles.cardHeader}>
+                        <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
+                          <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
+                          <Text style={[styles.catBadgeText, { color: typeDetails.color }]}>
+                            {typeDetails.label}
+                          </Text>
                         </View>
-                        
-                        <Text style={styles.ticketTitle}>
-                          🗓️ {item.start_date} to {item.end_date}
-                        </Text>
-                        
-                        <Text style={[styles.ticketDesc, { marginBottom: 8 }]}>
-                          Duration: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{duration} {duration === 1 ? 'day' : 'days'}</Text>
-                        </Text>
-  
-                        <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
-                          <Text style={{ color: COLORS.textMuted, fontSize: 15, fontStyle: 'italic', lineHeight: 20 }}>“{item.reason}”</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
+                          {statusDetails.isSync && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />}
+                          <Text style={[styles.statusBadgeText, { color: statusDetails.color }]}>
+                            {statusDetails.label}
+                          </Text>
                         </View>
-  
-                        {item.status === 'sync_pending' && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
-                            <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
-                            <Text style={{ color: '#3b82f6', fontSize: 13, fontWeight: '600' }}>Stored locally. Waiting for connection.</Text>
-                          </View>
-                        )}
                       </View>
-                    );
-                  })}
-                  <Pagination
-                    currentPage={leavesPage}
-                    totalPages={Math.ceil(leavesList.length / itemsPerPage)}
-                    totalItems={leavesList.length}
-                    itemsPerPage={itemsPerPage}
-                    onPageChange={setLeavesPage}
-                    language={language}
-                  />
-                </ScrollView>
-              )}
-            </View>
+                      
+                      <Text style={styles.ticketTitle}>
+                        🗓️ {item.start_date} to {item.end_date}
+                      </Text>
+                      
+                      <Text style={[styles.ticketDesc, { marginBottom: 8 }]}>
+                        {t('leaveDurationLabel', { duration, days: duration === 1 ? t('daySingular') : t('dayPlural') })}
+                      </Text>
+
+                      <View style={{ backgroundColor: 'rgba(15, 23, 42, 0.02)', padding: 12, borderRadius: 10, marginTop: 8 }}>
+                        <Text style={{ color: COLORS.textMuted, fontSize: 13, fontStyle: 'italic', lineHeight: 18 }}>“{item.reason}”</Text>
+                      </View>
+
+                      {item.status === 'sync_pending' && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                          <Feather name="wifi-off" size={12} color="#3b82f6" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>{t('offlineStoredPending')}</Text>
+                        </View>
+                      )}
+
+                      <View style={[styles.cardFooter, { marginTop: 12 }]}>
+                        <Text style={styles.footerTime}>
+                          <Feather name="clock" size={10} /> {formatRelativeTime(item.created_at)}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )
           )}
         </View>
       )}
@@ -1139,15 +1309,24 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             <TouchableOpacity onPress={() => setView('list')} style={styles.backButton}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
             </TouchableOpacity>
-            <Text style={styles.formTitle}>New HR Request</Text>
+            <Text style={styles.formTitle}>{t('newHrRequest')}</Text>
           </View>
 
           <View style={styles.formCard}>
-            <Text style={styles.label}>Request Category</Text>
+            <Text style={styles.label}>{t('requestCategory')}</Text>
             <View style={styles.categoriesGrid}>
               {['Leave Request', 'Payroll Dispute', 'Benefits Inquiry', 'Equipment Issue', 'Other'].map(cat => {
                 const isActive = category === cat;
                 const catTheme = getCategoryTheme(cat);
+                
+                // Get translation label
+                let catLabel = cat;
+                if (cat === 'Leave Request') catLabel = t('leaveRequest');
+                else if (cat === 'Payroll Dispute') catLabel = t('payrollDispute');
+                else if (cat === 'Benefits Inquiry') catLabel = t('benefitsInquiry');
+                else if (cat === 'Equipment Issue') catLabel = t('equipmentIssue');
+                else if (cat === 'Other') catLabel = t('other');
+
                 return (
                   <TouchableOpacity
                     key={cat}
@@ -1159,7 +1338,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                   >
                     <Feather name={catTheme.icon as any} size={14} color={isActive ? catTheme.text : COLORS.textMuted} style={{ marginRight: 6 }} />
                     <Text style={[styles.categoryOptionText, isActive ? { color: catTheme.text, fontWeight: 'bold' } : {}]}>
-                      {cat}
+                      {catLabel}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1168,9 +1347,9 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
             {category === 'Leave Request' && (
               <>
-                <Text style={styles.label}>Leave Classification</Text>
+                <Text style={styles.label}>{t('leaveClassification')}</Text>
                 <View style={styles.categoriesGrid}>
-                  {(['sick', 'vacation', 'emergency', 'unpaid'] as const).map((type) => {
+                  {(['sick', 'vacation', 'wedding', 'paternal', 'maternal', 'emergency', 'unpaid'] as const).map((type) => {
                     const active = leaveType === type;
                     const details = getLeaveTypeDetails(type);
                     return (
@@ -1190,55 +1369,65 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                   })}
                 </View>
 
-                <Text style={styles.label}>Quick Presets</Text>
+                <Text style={styles.label}>{t('quickPresets')}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(1, 1)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '700' }}>Tomorrow</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>{t('tomorrow')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(1, 3)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '700' }}>3 Days (Next Week)</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>{t('threeDaysNextWeek')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: COLORS.primaryDim, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} 
                     onPress={() => applyPreset(0, 1)}
                   >
-                    <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '700' }}>Today Only</Text>
+                    <Text style={{ color: COLORS.primary, fontSize: 11, fontWeight: '700' }}>{t('todayOnly')}</Text>
                   </TouchableOpacity>
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Start Date</Text>
-                    <TextInput
-                      style={[styles.input, { marginBottom: 0 }]}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={startDate}
-                      onChangeText={setStartDate}
-                    />
+                    <Text style={styles.label}>{t('startDateLabel')}</Text>
+                    <TouchableOpacity
+                      style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                      onPress={() => {
+                        setSelectingDateType('start');
+                        setShowCalendarModal(true);
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: startDate ? COLORS.textMain : COLORS.textMuted }}>
+                        {startDate || 'YYYY-MM-DD'}
+                      </Text>
+                      <Feather name="calendar" size={16} color={COLORS.textMuted} />
+                    </TouchableOpacity>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>End Date</Text>
-                    <TextInput
-                      style={[styles.input, { marginBottom: 0 }]}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={endDate}
-                      onChangeText={setEndDate}
-                    />
+                    <Text style={styles.label}>{t('endDateLabel')}</Text>
+                    <TouchableOpacity
+                      style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                      onPress={() => {
+                        setSelectingDateType('end');
+                        setShowCalendarModal(true);
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: endDate ? COLORS.textMain : COLORS.textMuted }}>
+                        {endDate || 'YYYY-MM-DD'}
+                      </Text>
+                      <Feather name="calendar" size={16} color={COLORS.textMuted} />
+                    </TouchableOpacity>
                   </View>
                 </View>
 
-                <Text style={styles.label}>Reason / Handover Notes</Text>
+                <Text style={styles.label}>{t('reasonLabel')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Please describe the reason for your leave request..."
+                  placeholder={t('reasonPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={4}
@@ -1251,29 +1440,29 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
             {category === 'Payroll Dispute' && (
               <>
-                <Text style={styles.label}>Disputed Payslip Month</Text>
+                <Text style={styles.label}>{t('disputedMonth')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. May 2026"
+                  placeholder={t('disputeMonthPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   value={disputedMonth}
                   onChangeText={setDisputedMonth}
                 />
 
-                <Text style={styles.label}>Disputed Amount (₱)</Text>
+                <Text style={styles.label}>{t('disputedAmount')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. 5000"
+                  placeholder={t('disputeAmountPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   keyboardType="numeric"
                   value={disputedAmount}
                   onChangeText={setDisputedAmount}
                 />
 
-                <Text style={styles.label}>Explanation of Discrepancy</Text>
+                <Text style={styles.label}>{t('explanationDiscrepancy')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Please describe why this payslip is incorrect..."
+                  placeholder={t('disputeErrorPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={4}
@@ -1286,10 +1475,11 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
             {category === 'Equipment Issue' && (
               <>
-                <Text style={styles.label}>Equipment Type</Text>
+                <Text style={styles.label}>{t('equipmentType')}</Text>
                 <View style={styles.categoriesGrid}>
                   {(['tool', 'vehicle', 'device', 'other'] as const).map((type) => {
                     const active = equipmentType === type;
+                    const label = type === 'tool' ? t('tool') : type === 'vehicle' ? t('vehicle') : type === 'device' ? t('device') : t('other');
                     return (
                       <TouchableOpacity
                         key={type}
@@ -1300,26 +1490,26 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                         onPress={() => setEquipmentType(type)}
                       >
                         <Text style={[styles.categoryOptionText, active ? { color: COLORS.rose, fontWeight: 'bold' } : {}]}>
-                          {type.toUpperCase()}
+                          {label.toUpperCase()}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
-                <Text style={styles.label}>Serial Number / Asset Tag</Text>
+                <Text style={styles.label}>{t('serialNumber')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. SN-10924-X"
+                  placeholder={t('serialPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   value={serialNumber}
                   onChangeText={setSerialNumber}
                 />
 
-                <Text style={styles.label}>Issue Description</Text>
+                <Text style={styles.label}>{t('issueDescription')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Please explain the damage or performance issues..."
+                  placeholder={t('issuePlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={4}
@@ -1332,10 +1522,11 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
             {category !== 'Leave Request' && category !== 'Payroll Dispute' && category !== 'Equipment Issue' && (
               <>
-                <Text style={styles.label}>Priority Level</Text>
+                <Text style={styles.label}>{t('priorityLabel')}</Text>
                 <View style={styles.priorityRow}>
                   {['low', 'medium', 'high', 'urgent'].map(p => {
                     const isActive = priority === p;
+                    const label = p === 'low' ? t('low') : p === 'medium' ? t('medium') : p === 'high' ? t('high') : t('urgent');
                     return (
                       <TouchableOpacity
                         key={p}
@@ -1346,26 +1537,26 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                         onPress={() => setPriority(p)}
                       >
                         <Text style={[styles.priorityTextOption, isActive ? { color: '#fff', fontWeight: 'bold' } : {}]}>
-                          {p.toUpperCase()}
+                          {label.toUpperCase()}
                         </Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
-                <Text style={styles.label}>Summary / Title</Text>
+                <Text style={styles.label}>{t('summaryTitle')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Brief summary of your request"
+                  placeholder={t('briefSummaryPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   value={title}
                   onChangeText={setTitle}
                 />
 
-                <Text style={styles.label}>Explain Details</Text>
+                <Text style={styles.label}>{t('explainDetails')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Provide all relevant details here..."
+                  placeholder={t('explainDetailsPlaceholder')}
                   placeholderTextColor={COLORS.textMuted}
                   multiline
                   numberOfLines={6}
@@ -1384,7 +1575,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
               {submitting ? <ActivityIndicator color="#fff" /> : (
                 <>
                   <Feather name="send" size={16} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.submitButtonText}>Submit Request</Text>
+                  <Text style={styles.submitButtonText}>{t('submitTicket')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -1401,15 +1592,15 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             </TouchableOpacity>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.detailTitle} numberOfLines={1}>{selectedTicket.title}</Text>
-              <Text style={{ color: getStatusColor(selectedTicket.status), fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase' }}>
-                ● {selectedTicket.status.replace('_', ' ')}
+              <Text style={{ color: getStatusColor(selectedTicket.status), fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                ● {selectedTicket.status === 'in_progress' ? t('inProgress') : selectedTicket.status === 'open' ? t('open') : selectedTicket.status === 'assigned' ? t('assigned') : selectedTicket.status === 'resolved' ? t('resolved') : selectedTicket.status === 'closed' ? t('closed') : selectedTicket.status}
               </Text>
             </View>
             
             {selectedTicket.status !== 'closed' && (
               <TouchableOpacity onPress={handleCloseTicket} style={styles.closeTicketBtn}>
                 <Feather name="check" size={16} color={COLORS.danger} style={{ marginRight: 4 }} />
-                <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 15 }}>Close</Text>
+                <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>{t('closeTicketButton').split(' ')[0]}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1426,11 +1617,11 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
               <View style={styles.cardHeader}>
                 <View style={[styles.catBadge, { backgroundColor: getCategoryTheme(selectedTicket.category).bg }]}>
                   <Text style={[styles.catBadgeText, { color: getCategoryTheme(selectedTicket.category).text }]}>
-                    {selectedTicket.category}
+                    {selectedTicket.category === 'Leave Request' ? t('leaveRequest') : selectedTicket.category === 'Payroll Dispute' ? t('payrollDispute') : selectedTicket.category === 'Benefits Inquiry' ? t('benefitsInquiry') : selectedTicket.category === 'Equipment Issue' ? t('equipmentIssue') : selectedTicket.category === 'Other' ? t('other') : selectedTicket.category}
                   </Text>
                 </View>
-                <Text style={{ fontSize: 13, color: COLORS.textMuted }}>
-                  Priority: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{selectedTicket.priority.toUpperCase()}</Text>
+                <Text style={{ fontSize: 11, color: COLORS.textMuted }}>
+                  {t('priorityLabel')}: <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{(selectedTicket.priority === 'low' ? t('low') : selectedTicket.priority === 'medium' ? t('medium') : selectedTicket.priority === 'high' ? t('high') : selectedTicket.priority === 'urgent' ? t('urgent') : selectedTicket.priority).toUpperCase()}</Text>
                 </Text>
               </View>
               {selectedTicket.description.trim().startsWith('{') ? (
@@ -1438,7 +1629,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
               ) : (
                 <Text style={styles.detailDescText}>{selectedTicket.description}</Text>
               )}
-              <Text style={styles.detailDateText}>Filed on {formatDate(selectedTicket.created_at)}</Text>
+              <Text style={styles.detailDateText}>{t('filedOnLabel', { date: formatDate(selectedTicket.created_at) })}</Text>
             </View>
 
             {/* Spare Parts checkout section (Available when status is in_progress) */}
@@ -1448,22 +1639,22 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                   onPress={toggleCheckout}
                   style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                 >
-                  <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.indigo, flex: 1 }}>
-                    🔧 Inventory Spare Parts Checkout
+                  <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.indigo, flex: 1 }}>
+                    🔧 {t('partsCheckoutTitle')}
                   </Text>
                   <Feather name={showCheckout ? "chevron-up" : "chevron-down"} size={18} color={COLORS.indigo} />
                 </TouchableOpacity>
 
                 {showCheckout && (
                   <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 14 }}>
-                    <Text style={[styles.label, { marginBottom: 6 }]}>Select Part</Text>
+                    <Text style={[styles.label, { marginBottom: 6 }]}>{t('selectPart')}</Text>
                     
                     <TouchableOpacity 
                       onPress={() => setShowPartList(!showPartList)}
                       style={{ padding: 12, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     >
-                      <Text style={{ fontSize: 15, color: selectedPart ? COLORS.textMain : COLORS.textMuted }}>
-                        {selectedPart ? `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} left)` : '-- Choose Spare Part --'}
+                      <Text style={{ fontSize: 13, color: selectedPart ? COLORS.textMain : COLORS.textMuted }}>
+                        {selectedPart ? (language === 'fil' ? `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} natira)` : `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} left)`) : `-- ${t('selectPart')} --`}
                       </Text>
                       <Feather name="chevron-down" size={16} color={COLORS.textMuted} />
                     </TouchableOpacity>
@@ -1472,7 +1663,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                       <View style={{ maxHeight: 150, borderRadius: 10, backgroundColor: '#fff', marginBottom: 12, borderWidth: 1, borderColor: COLORS.border, padding: 4 }}>
                         <ScrollView nestedScrollEnabled style={{ flexGrow: 0 }}>
                           {inventoryItems.length === 0 ? (
-                            <Text style={{ padding: 10, fontSize: 15, color: COLORS.textMuted, fontStyle: 'italic' }}>No parts available in stock</Text>
+                            <Text style={{ padding: 10, fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic' }}>{language === 'fil' ? 'Walang makitang piyesa sa stock' : 'No parts available in stock'}</Text>
                           ) : (
                             inventoryItems.map(item => (
                               <TouchableOpacity 
@@ -1491,20 +1682,20 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
 
                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.label, { marginBottom: 6 }]}>Quantity</Text>
+                        <Text style={[styles.label, { marginBottom: 6 }]}>{t('quantity')}</Text>
                         <TextInput
                           style={[styles.input, { marginBottom: 0 }]}
-                          placeholder="e.g. 1"
+                          placeholder="1"
                           keyboardType="numeric"
                           value={checkoutQty}
                           onChangeText={setCheckoutQty}
                         />
                       </View>
                       <View style={{ flex: 2 }}>
-                        <Text style={[styles.label, { marginBottom: 6 }]}>Checkout Memo</Text>
+                        <Text style={[styles.label, { marginBottom: 6 }]}>{t('checkoutNotesLabel')}</Text>
                         <TextInput
                           style={[styles.input, { marginBottom: 0 }]}
-                          placeholder="Usage notes..."
+                          placeholder={t('checkoutNotesPlaceholder')}
                           value={checkoutNotes}
                           onChangeText={setCheckoutNotes}
                         />
@@ -1516,7 +1707,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                       onPress={handleCheckoutParts}
                     >
                       <Feather name="package" size={14} color="#fff" style={{ marginRight: 6 }} />
-                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Verify & Checkout Parts</Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{t('checkoutButton')}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1524,12 +1715,12 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             )}
 
             {/* Comments Timeline */}
-            <Text style={styles.discussionHeading}>Support Discussion</Text>
+            <Text style={styles.discussionHeading}>{t('discussion')}</Text>
 
             {loadingComments && comments.length === 0 ? (
               <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 20 }} />
             ) : comments.length === 0 ? (
-              <Text style={styles.noCommentsText}>No responses yet. Support team will review shortly.</Text>
+              <Text style={styles.noCommentsText}>{t('noComments')}</Text>
             ) : (
               <View style={{ gap: 16, marginBottom: 20 }}>
                 {comments.map(c => {
@@ -1548,10 +1739,18 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
                       <View 
                         style={[
                           styles.commentBubble, 
-                          isOwnComment ? { backgroundColor: COLORS.primary } : { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border }
+                          isOwnComment 
+                            ? { backgroundColor: '#10b981' } 
+                            : { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1' }
                         ]}
                       >
-                        <Text style={[styles.commentText, isOwnComment ? { color: '#fff' } : { color: COLORS.textMain }]}>
+                        <Text 
+                          selectable={true} 
+                          style={[
+                            styles.commentText, 
+                            isOwnComment ? { color: '#fff' } : { color: '#0f172a' }
+                          ]}
+                        >
                           {c.content}
                         </Text>
                       </View>
@@ -1568,7 +1767,7 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
             <View style={styles.composer}>
               <TextInput
                 style={styles.composerInput}
-                placeholder="Type a message..."
+                placeholder={t('chatInputPlaceholder')}
                 placeholderTextColor={COLORS.textMuted}
                 value={commentText}
                 onChangeText={setCommentText}
@@ -1585,11 +1784,28 @@ export function TicketsTab({ userId, fullName, language = 'en' }: TicketsTabProp
           ) : (
             <View style={styles.closedFooter}>
               <Feather name="lock" size={14} color={COLORS.textMuted} style={{ marginRight: 6 }} />
-              <Text style={{ color: COLORS.textMuted, fontSize: 15, fontWeight: '500' }}>This request has been resolved and closed.</Text>
+              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '500' }}>{language === 'fil' ? 'Ang kahilingang ito ay naresolba at naisara na.' : 'This request has been resolved and closed.'}</Text>
             </View>
           )}
         </View>
       )}
+
+      <CalendarPickerModal
+        visible={showCalendarModal}
+        onClose={() => {
+          setShowCalendarModal(false);
+          setSelectingDateType(null);
+        }}
+        onSelect={(date) => {
+          if (selectingDateType === 'start') {
+            setStartDate(date);
+          } else if (selectingDateType === 'end') {
+            setEndDate(date);
+          }
+        }}
+        selectedValue={selectingDateType === 'start' ? startDate : endDate}
+        language={language}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1674,73 +1890,257 @@ const styles = {
   segmentedContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginHorizontal: 24, marginBottom: 16 } as ViewStyle,
   segmentedButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 } as ViewStyle,
   segmentedActive: { backgroundColor: COLORS.primary } as ViewStyle,
-  segmentedText: { fontSize: 15, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
-  balanceCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 24,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2
-  } as ViewStyle,
-  balanceCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14
-  } as ViewStyle,
-  balanceCardTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: COLORS.textMain,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5
-  } as TextStyle,
-  balanceCardIconBg: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: COLORS.primaryDim,
-    justifyContent: 'center',
-    alignItems: 'center'
-  } as ViewStyle,
-  balanceGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14
-  } as ViewStyle,
-  balanceCol: {
+  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
+  statusBadgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
+  inputCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, height: 50, justifyContent: 'center', marginBottom: 20 } as ViewStyle
+};
+
+const MONTHS_EN = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+const MONTHS_FIL = [
+  'Enero', 'Pebrero', 'Marso', 'Abril', 'Mayo', 'Hunyo',
+  'Hulyo', 'Agosto', 'Setyembre', 'Oktubre', 'Nobyembre', 'Disyembre'
+];
+const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS_FIL = ['Lin', 'Lun', 'Mar', 'Miy', 'Huw', 'Biy', 'Sab'];
+
+interface CalendarPickerModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (date: string) => void;
+  selectedValue?: string;
+  language: string;
+}
+
+function CalendarPickerModal({ visible, onClose, onSelect, selectedValue, language }: CalendarPickerModalProps) {
+  const today = new Date();
+  const initDate = selectedValue ? new Date(selectedValue) : today;
+  const [currentYear, setCurrentYear] = useState(isNaN(initDate.getTime()) ? today.getFullYear() : initDate.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(isNaN(initDate.getTime()) ? today.getMonth() : initDate.getMonth());
+
+  useEffect(() => {
+    if (selectedValue) {
+      const d = new Date(selectedValue);
+      if (!isNaN(d.getTime())) {
+        setCurrentYear(d.getFullYear());
+        setCurrentMonth(d.getMonth());
+      }
+    }
+  }, [selectedValue, visible]);
+
+  const monthNames = language === 'fil' ? MONTHS_FIL : MONTHS_EN;
+  const weekdays = language === 'fil' ? WEEKDAYS_FIL : WEEKDAYS_EN;
+
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(prev => prev - 1);
+    } else {
+      setCurrentMonth(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(prev => prev + 1);
+    } else {
+      setCurrentMonth(prev => prev + 1);
+    }
+  };
+
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+
+  const daysArray: (number | null)[] = [];
+  for (let i = 0; i < firstDayIndex; i++) {
+    daysArray.push(null);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    daysArray.push(d);
+  }
+
+  const handleSelectDay = (day: number) => {
+    const formattedMonth = String(currentMonth + 1).padStart(2, '0');
+    const formattedDay = String(day).padStart(2, '0');
+    const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+    onSelect(dateStr);
+    onClose();
+  };
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity 
+        style={modalStyles.backdrop} 
+        activeOpacity={1} 
+        onPress={onClose}
+      >
+        <TouchableOpacity 
+          style={modalStyles.content} 
+          activeOpacity={1}
+        >
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.headerTitle}>
+              {language === 'fil' ? 'Pumili ng Petsa' : 'Select Date'}
+            </Text>
+            <TouchableOpacity onPress={onClose} style={modalStyles.closeButton}>
+              <Feather name="x" size={20} color={COLORS.textMain} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={modalStyles.monthSelector}>
+            <TouchableOpacity onPress={handlePrevMonth} style={modalStyles.arrowBtn}>
+              <Feather name="chevron-left" size={20} color={COLORS.textMain} />
+            </TouchableOpacity>
+            <Text style={modalStyles.monthYearText}>
+              {monthNames[currentMonth]} {currentYear}
+            </Text>
+            <TouchableOpacity onPress={handleNextMonth} style={modalStyles.arrowBtn}>
+              <Feather name="chevron-right" size={20} color={COLORS.textMain} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={modalStyles.weekdaysContainer}>
+            {weekdays.map((wd, index) => (
+              <Text key={index} style={modalStyles.weekdayText}>
+                {wd}
+              </Text>
+            ))}
+          </View>
+
+          <View style={modalStyles.daysGrid}>
+            {daysArray.map((day, idx) => {
+              if (day === null) {
+                return <View key={`empty-${idx}`} style={modalStyles.dayCellEmpty} />;
+              }
+
+              const formattedMonth = String(currentMonth + 1).padStart(2, '0');
+              const formattedDay = String(day).padStart(2, '0');
+              const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+              const isSelected = selectedValue === dateStr;
+
+              return (
+                <TouchableOpacity
+                  key={`day-${day}`}
+                  style={[
+                    modalStyles.dayCell,
+                    isSelected ? modalStyles.dayCellSelected : {}
+                  ]}
+                  onPress={() => handleSelectDay(day)}
+                >
+                  <Text style={[
+                    modalStyles.dayText,
+                    isSelected ? modalStyles.dayTextSelected : {}
+                  ]}>
+                    {day}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  backdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+  },
+  content: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center'
-  } as ViewStyle,
-  balanceVal: {
-    fontSize: 20,
-    fontWeight: '800',
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
     color: COLORS.textMain,
-    marginBottom: 2
-  } as TextStyle,
-  balanceLbl: {
+  },
+  closeButton: {
+    padding: 4,
+  },
+  monthSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  arrowBtn: {
+    padding: 6,
+  },
+  monthYearText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: COLORS.textMain,
+  },
+  weekdaysContainer: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekdayText: {
+    width: '14.28%',
+    textAlign: 'center',
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.textMuted,
-    textTransform: 'uppercase'
-  } as TextStyle,
-  progressBarBg: {
-    height: 6,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 3,
-    overflow: 'hidden'
-  } as ViewStyle,
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3
-  } as ViewStyle
-};
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayCell: {
+    width: '14.28%',
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+    marginVertical: 2,
+  },
+  dayCellEmpty: {
+    width: '14.28%',
+    aspectRatio: 1,
+    marginVertical: 2,
+  },
+  dayCellSelected: {
+    backgroundColor: COLORS.primary,
+  },
+  dayText: {
+    fontSize: 14,
+    color: COLORS.textMain,
+    fontWeight: '500',
+  },
+  dayTextSelected: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+});
