@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -274,6 +274,7 @@ function ActiveShiftTimer({ startTime }: ActiveShiftTimerProps) {
 }
 
 export default function App() {
+  const { width } = useWindowDimensions();
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(true);
@@ -2447,6 +2448,24 @@ export default function App() {
     </View>
   );
 
+  const showSimulatorFrame = Platform.OS === 'web' && width > 480;
+  if (showSimulatorFrame) {
+    return (
+      <View style={styles.webContainer}>
+        <View style={styles.phoneFrame}>
+          {/* Status Bar / Notch Simulation */}
+          <View style={styles.phoneNotch} />
+          {/* Inner Screen */}
+          <View style={styles.phoneScreen}>
+            {renderedContent}
+          </View>
+          {/* Home Indicator Simulation */}
+          <View style={styles.phoneHomeBar} />
+        </View>
+      </View>
+    );
+  }
+
   return renderedContent;
 }
 
@@ -2686,5 +2705,58 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase'
-  } as TextStyle
+  } as TextStyle,
+  webContainer: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    paddingVertical: 40
+  } as ViewStyle,
+  phoneFrame: {
+    width: 390,
+    height: 844,
+    backgroundColor: COLORS.background,
+    borderRadius: 44,
+    borderWidth: 12,
+    borderColor: '#1e293b',
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.4,
+    shadowRadius: 25,
+    elevation: 8
+  } as ViewStyle,
+  phoneNotch: {
+    position: 'absolute',
+    top: 0,
+    left: '50%',
+    transform: [{ translateX: -75 }] as any,
+    width: 150,
+    height: 30,
+    backgroundColor: '#1e293b',
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    zIndex: 99999
+  } as ViewStyle,
+  phoneScreen: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    height: '100%',
+    width: '100%'
+  } as ViewStyle,
+  phoneHomeBar: {
+    position: 'absolute',
+    bottom: 8,
+    left: '50%',
+    transform: [{ translateX: -60 }] as any,
+    width: 120,
+    height: 5,
+    backgroundColor: '#1e293b',
+    borderRadius: 3,
+    zIndex: 99999
+  } as ViewStyle
 });
