@@ -1750,28 +1750,50 @@ export default function App() {
 
                 {/* Collapsible Proximity / Map Section */}
                 {!geofence.latitude ? (
-                  <TouchableOpacity
-                    style={{
-                      marginTop: 12,
-                      paddingVertical: 12,
-                      paddingHorizontal: 16,
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: COLORS.primary,
-                      backgroundColor: COLORS.primaryDim,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onPress={async () => {
-                      await geofence.checkLocation();
-                    }}
-                  >
-                    <Feather name="map" size={16} color={COLORS.primary} style={{ marginRight: 8 }} />
-                    <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>
-                      {t('checkProximity')}
-                    </Text>
-                  </TouchableOpacity>
+                  <View style={{ marginTop: 12 }}>
+                    <TouchableOpacity
+                      style={{
+                        paddingVertical: 12,
+                        paddingHorizontal: 16,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: COLORS.primary,
+                        backgroundColor: COLORS.primaryDim,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onPress={async () => {
+                        await geofence.checkLocation();
+                      }}
+                      disabled={geofence.status === 'checking'}
+                    >
+                      {geofence.status === 'checking' ? (
+                        <ActivityIndicator color={COLORS.primary} size="small" style={{ marginRight: 8 }} />
+                      ) : (
+                        <Feather name="map" size={16} color={COLORS.primary} style={{ marginRight: 8 }} />
+                      )}
+                      <Text style={{ color: COLORS.primary, fontWeight: 'bold', fontSize: 13 }}>
+                        {geofence.status === 'checking' ? (t('checkingLocation') || 'Checking Location...') : t('checkProximity')}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {geofence.error && (
+                      <View style={{
+                        marginTop: 8,
+                        padding: 10,
+                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                        borderColor: COLORS.danger,
+                        borderWidth: 1,
+                        borderRadius: 10,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}>
+                        <Feather name="alert-triangle" size={14} color={COLORS.danger} style={{ marginRight: 8 }} />
+                        <Text style={{ color: COLORS.danger, fontSize: 11, fontWeight: '600', flex: 1 }}>{geofence.error}</Text>
+                      </View>
+                    )}
+                  </View>
                 ) : (
                   <View style={{ marginTop: 12 }}>
                     <View style={{
