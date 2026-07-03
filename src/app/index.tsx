@@ -2104,6 +2104,7 @@ export default function App() {
                 {t('companyFormsLabel')}
               </Text>
               <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
+                {/* Employee Handbook */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Employee_Handbook_2026.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
@@ -2123,12 +2124,7 @@ export default function App() {
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
 
-              {/* Preferences Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('preferencesSection') || 'Preferences'}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
-                {/* Documents / Forms */}
+                {/* Leave Application Form */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Leave_Application_Form.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
@@ -2148,53 +2144,7 @@ export default function App() {
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
 
-                {/* Language Switcher */}
-                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                      <Feather name="globe" size={16} color="#3b82f6" />
-                    </View>
-                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 16 }}>{t('languageLabel') || 'App Language'}</Text>
-                  </View>
-                  
-                  {/* Segmented language switcher */}
-                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
-                    <Animated.View style={{
-                      position: 'absolute',
-                      top: 2,
-                      bottom: 2,
-                      left: 0,
-                      width: 56,
-                      backgroundColor: '#ffffff',
-                      borderRadius: 6,
-                      transform: [{
-                        translateX: langAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [2, 58]
-                        })
-                      }],
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 2,
-                      elevation: 2
-                    }} />
-                    <TouchableOpacity onPress={() => changeLanguage('en')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: language === 'en' ? COLORS.primary : COLORS.textMuted }}>EN</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => changeLanguage('fil')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: language === 'fil' ? COLORS.primary : COLORS.textMuted }}>FIL</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {/* System Group Card */}
-              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
-                {t('systemSection') || 'System'}
-              </Text>
-              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 24 }}>
-                {/* Offline Sync Center */}
+                {/* Resignation Template */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Resignation_Template.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
