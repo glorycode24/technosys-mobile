@@ -981,7 +981,7 @@ export default function App() {
 
       const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult, leavesResult] = await withTimeout(
         Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise, fetchLeavesPromise]),
-        4000
+        10000
       );
 
       const isNetworkErr = (err: any) => {
