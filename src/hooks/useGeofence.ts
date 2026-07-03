@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { getDistance } from 'geolib';
 import { supabase } from '../lib/supabase';
@@ -91,7 +92,7 @@ export function useGeofence() {
         return { status: 'error', error: errorMsg, errorKey: 'mockLocationDetected' } as const;
       }
 
-      if (gpsAccuracy && gpsAccuracy > 50) {
+      if (Platform.OS !== 'web' && gpsAccuracy && gpsAccuracy > 200) {
         const errorMsg = `Poor GPS signal accuracy (${Math.round(gpsAccuracy)}m). Please step outside or find an open space.`;
         setResult(prev => ({ ...prev, status: 'error', error: errorMsg, errorKey: 'poorGpsSignal' }));
         return { status: 'error', error: errorMsg, errorKey: 'poorGpsSignal' } as const;
