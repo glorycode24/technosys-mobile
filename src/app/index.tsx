@@ -965,7 +965,7 @@ export default function App() {
       
       const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
       const fetchSchedulesPromise = supabase.from('schedules').select('*, senior_partner:profiles!senior_partner_id(full_name)').eq('technician_id', userId).order('start_time', { ascending: true });
-      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).single();
+      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).maybeSingle();
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
