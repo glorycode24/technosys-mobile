@@ -2193,7 +2193,6 @@ export default function App() {
                   </View>
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
-              </View>
 
                 {/* Leave Application Form */}
                 <TouchableOpacity 
