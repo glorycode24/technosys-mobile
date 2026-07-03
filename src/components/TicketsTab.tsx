@@ -3,7 +3,7 @@ import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
   ViewStyle, TextStyle, ImageStyle, RefreshControl,
-  LayoutAnimation, UIManager
+  LayoutAnimation, UIManager, Modal
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
@@ -99,6 +99,10 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
   const [endDate, setEndDate] = useState('');
   const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'wedding' | 'paternal' | 'maternal' | 'emergency' | 'unpaid'>('sick');
   const [reason, setReason] = useState('');
+
+  // Calendar picker states
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [selectingDateType, setSelectingDateType] = useState<'start' | 'end' | null>(null);
 
   // Create payroll dispute states
   const [disputedMonth, setDisputedMonth] = useState('');
@@ -979,6 +983,53 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
+  const formatRelativeTime = (isoString: string) => {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSecs < 60) {
+      return language === 'fil' ? 'ngayon lang' : 'just now';
+    } else if (diffMins < 60) {
+      return language === 'fil' ? `${diffMins}m nakalipas` : `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      return language === 'fil' ? `${diffHours}o nakalipas` : `${diffHours}h ago`;
+    } else if (diffDays === 1) {
+      return language === 'fil' ? 'kahapon' : 'yesterday';
+    } else if (diffDays < 7) {
+      return language === 'fil' ? `${diffDays}a nakalipas` : `${diffDays}d ago`;
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  };
+
+  const getLeftBorderColor = (cat: string) => {
+    switch (cat) {
+      case 'Leave Request': return COLORS.blue;
+      case 'Payroll Dispute': return COLORS.amber;
+      case 'Benefits Inquiry': return COLORS.indigo;
+      case 'Equipment Issue': return COLORS.rose;
+      default: return COLORS.textMuted;
+    }
+  };
+
+  const getStatusBadgeTheme = (status: string) => {
+    const color = getStatusColor(status);
+    switch (status) {
+      case 'open': return { bg: 'rgba(16, 185, 129, 0.1)', text: color };
+      case 'assigned': return { bg: 'rgba(30, 64, 175, 0.1)', text: color };
+      case 'in_progress': return { bg: 'rgba(55, 48, 163, 0.1)', text: color };
+      case 'resolved': return { bg: 'rgba(100, 116, 139, 0.1)', text: color };
+      case 'closed': return { bg: 'rgba(148, 163, 184, 0.1)', text: color };
+      case 'sync_pending': return { bg: 'rgba(59, 130, 246, 0.1)', text: color };
+      default: return { bg: 'rgba(100, 116, 139, 0.1)', text: color };
+    }
+  };
+
   const getCategoryTheme = (cat: string) => {
     switch (cat) {
       case 'Leave Request': return { bg: COLORS.blueDim, text: COLORS.blue, icon: 'calendar' };
@@ -1115,10 +1166,14 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
               >
                 {tickets.map(ticket => {
                   const catTheme = getCategoryTheme(ticket.category);
+                  const statusBadgeTheme = getStatusBadgeTheme(ticket.status);
                   return (
                     <TouchableOpacity 
-                       key={ticket.id} 
-                      style={styles.ticketCard}
+                      key={ticket.id} 
+                      style={[
+                        styles.ticketCard,
+                        { borderLeftWidth: 4, borderLeftColor: getLeftBorderColor(ticket.category) }
+                      ]}
                       onPress={() => handleSelectTicket(ticket)}
                     >
                       <View style={styles.cardHeader}>
@@ -1127,9 +1182,8 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                           <Text style={[styles.catBadgeText, { color: catTheme.text }]}>{ticket.category}</Text>
                         </View>
 
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <View style={[styles.statusDot, { backgroundColor: getStatusColor(ticket.status) }]} />
-                          <Text style={[styles.statusText, { color: getStatusColor(ticket.status) }]}>
+                        <View style={[styles.statusBadge, { backgroundColor: statusBadgeTheme.bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: statusBadgeTheme.text }]}>
                             {ticket.status.replace('_', ' ')}
                           </Text>
                         </View>
@@ -1140,7 +1194,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
 
                       <View style={styles.cardFooter}>
                         <Text style={styles.footerTime}>
-                          <Feather name="clock" size={10} /> {formatDate(ticket.created_at)}
+                          <Feather name="clock" size={10} /> {formatRelativeTime(ticket.created_at)}
                         </Text>
                         
                         {ticket.assignee && (
@@ -1176,7 +1230,13 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                   const duration = calculateLeaveDuration(item.start_date, item.end_date);
                   
                   return (
-                    <View key={item.id} style={styles.ticketCard}>
+                    <View 
+                      key={item.id} 
+                      style={[
+                        styles.ticketCard,
+                        { borderLeftWidth: 4, borderLeftColor: COLORS.blue }
+                      ]}
+                    >
                       <View style={styles.cardHeader}>
                         <View style={[styles.catBadge, { backgroundColor: typeDetails.bg }]}>
                           <Feather name="calendar" size={11} color={typeDetails.color} style={{ marginRight: 4 }} />
@@ -1184,9 +1244,9 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                             {typeDetails.label}
                           </Text>
                         </View>
-                        <View style={[styles.catBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
+                        <View style={[styles.statusBadge, { backgroundColor: statusDetails.bg }, statusDetails.isSync && { flexDirection: 'row', alignItems: 'center' }]}>
                           {statusDetails.isSync && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />}
-                          <Text style={[styles.catBadgeText, { color: statusDetails.color }]}>
+                          <Text style={[styles.statusBadgeText, { color: statusDetails.color }]}>
                             {statusDetails.label}
                           </Text>
                         </View>
@@ -1210,6 +1270,12 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                           <Text style={{ color: '#3b82f6', fontSize: 11, fontWeight: '600' }}>{t('offlineStoredPending')}</Text>
                         </View>
                       )}
+
+                      <View style={[styles.cardFooter, { marginTop: 12 }]}>
+                        <Text style={styles.footerTime}>
+                          <Feather name="clock" size={10} /> {formatRelativeTime(item.created_at)}
+                        </Text>
+                      </View>
                     </View>
                   );
                 })}
@@ -1310,23 +1376,33 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.label}>{t('startDateLabel')}</Text>
-                    <TextInput
-                      style={[styles.input, { marginBottom: 0 }]}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={startDate}
-                      onChangeText={setStartDate}
-                    />
+                    <TouchableOpacity
+                      style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                      onPress={() => {
+                        setSelectingDateType('start');
+                        setShowCalendarModal(true);
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: startDate ? COLORS.textMain : COLORS.textMuted }}>
+                        {startDate || 'YYYY-MM-DD'}
+                      </Text>
+                      <Feather name="calendar" size={16} color={COLORS.textMuted} />
+                    </TouchableOpacity>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.label}>{t('endDateLabel')}</Text>
-                    <TextInput
-                      style={[styles.input, { marginBottom: 0 }]}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={endDate}
-                      onChangeText={setEndDate}
-                    />
+                    <TouchableOpacity
+                      style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                      onPress={() => {
+                        setSelectingDateType('end');
+                        setShowCalendarModal(true);
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: endDate ? COLORS.textMain : COLORS.textMuted }}>
+                        {endDate || 'YYYY-MM-DD'}
+                      </Text>
+                      <Feather name="calendar" size={16} color={COLORS.textMuted} />
+                    </TouchableOpacity>
                   </View>
                 </View>
 
@@ -1645,10 +1721,18 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                       <View 
                         style={[
                           styles.commentBubble, 
-                          isOwnComment ? { backgroundColor: COLORS.primary } : { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border }
+                          isOwnComment 
+                            ? { backgroundColor: '#10b981' } 
+                            : { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1' }
                         ]}
                       >
-                        <Text style={[styles.commentText, isOwnComment ? { color: '#fff' } : { color: COLORS.textMain }]}>
+                        <Text 
+                          selectable={true} 
+                          style={[
+                            styles.commentText, 
+                            isOwnComment ? { color: '#fff' } : { color: '#0f172a' }
+                          ]}
+                        >
                           {c.content}
                         </Text>
                       </View>
@@ -1687,6 +1771,23 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
           )}
         </View>
       )}
+
+      <CalendarPickerModal
+        visible={showCalendarModal}
+        onClose={() => {
+          setShowCalendarModal(false);
+          setSelectingDateType(null);
+        }}
+        onSelect={(date) => {
+          if (selectingDateType === 'start') {
+            setStartDate(date);
+          } else if (selectingDateType === 'end') {
+            setEndDate(date);
+          }
+        }}
+        selectedValue={selectingDateType === 'start' ? startDate : endDate}
+        language={language}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1771,5 +1872,257 @@ const styles = {
   segmentedContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4, marginHorizontal: 24, marginBottom: 16 } as ViewStyle,
   segmentedButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 } as ViewStyle,
   segmentedActive: { backgroundColor: COLORS.primary } as ViewStyle,
-  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle
+  segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
+  statusBadgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
+  inputCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, height: 50, justifyContent: 'center', marginBottom: 20 } as ViewStyle
 };
+
+const MONTHS_EN = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+const MONTHS_FIL = [
+  'Enero', 'Pebrero', 'Marso', 'Abril', 'Mayo', 'Hunyo',
+  'Hulyo', 'Agosto', 'Setyembre', 'Oktubre', 'Nobyembre', 'Disyembre'
+];
+const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS_FIL = ['Lin', 'Lun', 'Mar', 'Miy', 'Huw', 'Biy', 'Sab'];
+
+interface CalendarPickerModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (date: string) => void;
+  selectedValue?: string;
+  language: string;
+}
+
+function CalendarPickerModal({ visible, onClose, onSelect, selectedValue, language }: CalendarPickerModalProps) {
+  const today = new Date();
+  const initDate = selectedValue ? new Date(selectedValue) : today;
+  const [currentYear, setCurrentYear] = useState(isNaN(initDate.getTime()) ? today.getFullYear() : initDate.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(isNaN(initDate.getTime()) ? today.getMonth() : initDate.getMonth());
+
+  useEffect(() => {
+    if (selectedValue) {
+      const d = new Date(selectedValue);
+      if (!isNaN(d.getTime())) {
+        setCurrentYear(d.getFullYear());
+        setCurrentMonth(d.getMonth());
+      }
+    }
+  }, [selectedValue, visible]);
+
+  const monthNames = language === 'fil' ? MONTHS_FIL : MONTHS_EN;
+  const weekdays = language === 'fil' ? WEEKDAYS_FIL : WEEKDAYS_EN;
+
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(prev => prev - 1);
+    } else {
+      setCurrentMonth(prev => prev - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(prev => prev + 1);
+    } else {
+      setCurrentMonth(prev => prev + 1);
+    }
+  };
+
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+
+  const daysArray: (number | null)[] = [];
+  for (let i = 0; i < firstDayIndex; i++) {
+    daysArray.push(null);
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    daysArray.push(d);
+  }
+
+  const handleSelectDay = (day: number) => {
+    const formattedMonth = String(currentMonth + 1).padStart(2, '0');
+    const formattedDay = String(day).padStart(2, '0');
+    const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+    onSelect(dateStr);
+    onClose();
+  };
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity 
+        style={modalStyles.backdrop} 
+        activeOpacity={1} 
+        onPress={onClose}
+      >
+        <TouchableOpacity 
+          style={modalStyles.content} 
+          activeOpacity={1}
+        >
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.headerTitle}>
+              {language === 'fil' ? 'Pumili ng Petsa' : 'Select Date'}
+            </Text>
+            <TouchableOpacity onPress={onClose} style={modalStyles.closeButton}>
+              <Feather name="x" size={20} color={COLORS.textMain} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={modalStyles.monthSelector}>
+            <TouchableOpacity onPress={handlePrevMonth} style={modalStyles.arrowBtn}>
+              <Feather name="chevron-left" size={20} color={COLORS.textMain} />
+            </TouchableOpacity>
+            <Text style={modalStyles.monthYearText}>
+              {monthNames[currentMonth]} {currentYear}
+            </Text>
+            <TouchableOpacity onPress={handleNextMonth} style={modalStyles.arrowBtn}>
+              <Feather name="chevron-right" size={20} color={COLORS.textMain} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={modalStyles.weekdaysContainer}>
+            {weekdays.map((wd, index) => (
+              <Text key={index} style={modalStyles.weekdayText}>
+                {wd}
+              </Text>
+            ))}
+          </View>
+
+          <View style={modalStyles.daysGrid}>
+            {daysArray.map((day, idx) => {
+              if (day === null) {
+                return <View key={`empty-${idx}`} style={modalStyles.dayCellEmpty} />;
+              }
+
+              const formattedMonth = String(currentMonth + 1).padStart(2, '0');
+              const formattedDay = String(day).padStart(2, '0');
+              const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+              const isSelected = selectedValue === dateStr;
+
+              return (
+                <TouchableOpacity
+                  key={`day-${day}`}
+                  style={[
+                    modalStyles.dayCell,
+                    isSelected ? modalStyles.dayCellSelected : {}
+                  ]}
+                  onPress={() => handleSelectDay(day)}
+                >
+                  <Text style={[
+                    modalStyles.dayText,
+                    isSelected ? modalStyles.dayTextSelected : {}
+                  ]}>
+                    {day}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+  },
+  content: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.textMain,
+  },
+  closeButton: {
+    padding: 4,
+  },
+  monthSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  arrowBtn: {
+    padding: 6,
+  },
+  monthYearText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: COLORS.textMain,
+  },
+  weekdaysContainer: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekdayText: {
+    width: '14.28%',
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayCell: {
+    width: '14.28%',
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+    marginVertical: 2,
+  },
+  dayCellEmpty: {
+    width: '14.28%',
+    aspectRatio: 1,
+    marginVertical: 2,
+  },
+  dayCellSelected: {
+    backgroundColor: COLORS.primary,
+  },
+  dayText: {
+    fontSize: 14,
+    color: COLORS.textMain,
+    fontWeight: '500',
+  },
+  dayTextSelected: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+});
