@@ -125,6 +125,10 @@ export const TRANSLATIONS = {
     systemSection: "System",
     active: "Active",
     loadingLogs: "Loading logs...",
+    confirmClockOut: "Confirm Clock Out",
+    clockOutWarningDesc: "Are you sure you want to clock out? This will end your active shift.",
+    cancel: "Cancel",
+    confirm: "Confirm",
     
     // Additional ticket screen widgets
     serviceDesk: "Service Desk",
@@ -336,6 +340,10 @@ export const TRANSLATIONS = {
     systemSection: "Sistema",
     active: "Aktibo",
     loadingLogs: "Kasalukuyang naglo-load ng mga tala...",
+    confirmClockOut: "Kumpirmahin ang Pag-Clock Out",
+    clockOutWarningDesc: "Sigurado ka bang gusto mong mag-clock out? Matatapos nito ang iyong kasalukuyang shift.",
+    cancel: "Kanselahin",
+    confirm: "Kumpirmahin",
     
     // Additional ticket screen widgets
     serviceDesk: "Suporta Desk",
