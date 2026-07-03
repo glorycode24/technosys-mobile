@@ -89,6 +89,16 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
   // Sub-navigation sub-tab
   const [subTab, setSubTab] = useState<'tickets' | 'leaves'>('tickets');
 
+  // Pagination states
+  const [ticketsPage, setTicketsPage] = useState(1);
+  const [leavesPage, setLeavesPage] = useState(1);
+  const itemsPerPage = 5;
+
+  useEffect(() => {
+    setTicketsPage(1);
+    setLeavesPage(1);
+  }, [subTab]);
+
   // Leaves states
   const [leavesList, setLeavesList] = useState<any[]>([]);
   const [leavesLoading, setLeavesLoading] = useState(false);
@@ -1080,8 +1090,8 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
             const label = key.replace('_', ' ').toUpperCase();
             return (
               <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#f8fafc', borderColor: COLORS.border, borderWidth: 1, padding: 8, borderRadius: 8 }}>
-                <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMuted }}>{label}</Text>
-                <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMain }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMuted }}>{label}</Text>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain }}>
                   {key.includes('amount') ? `₱${Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : String(val)}
                 </Text>
               </View>
@@ -1089,7 +1099,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
           })}
           {parsed.details && (
             <View style={{ marginTop: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textMuted, textTransform: 'uppercase', marginBottom: 4 }}>Explanation</Text>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMuted, textTransform: 'uppercase', marginBottom: 4 }}>Explanation</Text>
               <Text style={styles.detailDescText}>{parsed.details}</Text>
             </View>
           )}
@@ -1164,7 +1174,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                 <RefreshControl refreshing={loading} onRefresh={fetchTickets} colors={[COLORS.primary]} />
               }
               >
-                {tickets.map(ticket => {
+                {tickets.slice((ticketsPage - 1) * itemsPerPage, ticketsPage * itemsPerPage).map(ticket => {
                   const catTheme = getCategoryTheme(ticket.category);
                   const statusBadgeTheme = getStatusBadgeTheme(ticket.status);
                   return (
@@ -1206,6 +1216,14 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                     </TouchableOpacity>
                   );
                 })}
+                <Pagination
+                  currentPage={ticketsPage}
+                  totalPages={Math.ceil(tickets.length / itemsPerPage)}
+                  totalItems={tickets.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setTicketsPage}
+                  language={language}
+                />
               </ScrollView>
             )
           ) : (
@@ -1653,8 +1671,8 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                                 onPress={() => { setSelectedPart(item); setShowPartList(false); }}
                                 style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', backgroundColor: selectedPart?.id === item.id ? '#f5f3ff' : '#fff' }}
                               >
-                                <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain }}>{item.name}</Text>
-                                <Text style={{ fontSize: 11, color: COLORS.textMuted }}>SKU: {item.sku} • {item.quantity} {item.unit} available</Text>
+                                <Text style={{ fontSize: 15, fontWeight: 'bold', color: COLORS.textMain }}>{item.name}</Text>
+                                <Text style={{ fontSize: 13, color: COLORS.textMuted }}>SKU: {item.sku} • {item.quantity} {item.unit} available</Text>
                               </TouchableOpacity>
                             ))
                           )}
@@ -1799,72 +1817,72 @@ const styles = {
   centeredScroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 40 } as ViewStyle,
   
   tabHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 20, marginBottom: 20 } as ViewStyle,
-  title: { fontSize: 32, fontWeight: '900', color: COLORS.textMain, letterSpacing: -0.5 } as TextStyle,
-  subtitle: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 } as TextStyle,
+  title: { fontSize: 34, fontWeight: '900', color: COLORS.textMain, letterSpacing: -0.5 } as TextStyle,
+  subtitle: { fontSize: 15, color: COLORS.textMuted, marginTop: 2 } as TextStyle,
   createButton: { backgroundColor: COLORS.primary, width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 } as ViewStyle,
   
-  emptyTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 } as TextStyle,
-  emptyDesc: { fontSize: 14, color: COLORS.textMuted, textAlign: 'center', lineHeight: 20 } as TextStyle,
+  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 } as TextStyle,
+  emptyDesc: { fontSize: 16, color: COLORS.textMuted, textAlign: 'center', lineHeight: 22 } as TextStyle,
   
   listContent: { paddingHorizontal: 24, paddingBottom: 40 } as ViewStyle,
   ticketCard: { backgroundColor: COLORS.card, borderRadius: 18, padding: 18, marginBottom: 16, borderStyle: 'solid', borderWidth: 1, borderColor: COLORS.border } as ViewStyle,
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 } as ViewStyle,
   
   catBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 } as ViewStyle,
-  catBadgeText: { fontSize: 11, fontWeight: 'bold' } as TextStyle,
+  catBadgeText: { fontSize: 13, fontWeight: 'bold' } as TextStyle,
   
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 } as ViewStyle,
-  statusText: { fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
+  statusText: { fontSize: 13, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
   
-  ticketTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 } as TextStyle,
-  ticketDesc: { fontSize: 13, color: COLORS.textMuted, lineHeight: 18, marginBottom: 12 } as TextStyle,
+  ticketTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 } as TextStyle,
+  ticketDesc: { fontSize: 15, color: COLORS.textMuted, lineHeight: 20, marginBottom: 12 } as TextStyle,
   
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 } as ViewStyle,
-  footerTime: { fontSize: 11, color: COLORS.textMuted } as TextStyle,
-  assigneeText: { fontSize: 11, color: COLORS.textMuted } as TextStyle,
+  footerTime: { fontSize: 13, color: COLORS.textMuted } as TextStyle,
+  assigneeText: { fontSize: 13, color: COLORS.textMuted } as TextStyle,
 
   // Form styling
   createScroll: { padding: 24, paddingBottom: 60 } as ViewStyle,
   formHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 } as ViewStyle,
   backButton: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border } as ViewStyle,
-  formTitle: { fontSize: 20, fontWeight: '900', color: COLORS.textMain, marginLeft: 16 } as TextStyle,
+  formTitle: { fontSize: 22, fontWeight: '900', color: COLORS.textMain, marginLeft: 16 } as TextStyle,
   formCard: { backgroundColor: COLORS.card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: COLORS.border } as ViewStyle,
   
-  label: { fontSize: 12, fontWeight: '900', color: COLORS.textMain, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 } as TextStyle,
+  label: { fontSize: 14, fontWeight: '900', color: COLORS.textMain, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 } as TextStyle,
   categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 } as ViewStyle,
   categoryOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
-  categoryOptionText: { fontSize: 12, color: COLORS.textMain } as TextStyle,
+  categoryOptionText: { fontSize: 14, color: COLORS.textMain } as TextStyle,
   
   priorityRow: { flexDirection: 'row', gap: 8, marginBottom: 20 } as ViewStyle,
   priorityOption: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff', alignItems: 'center' } as ViewStyle,
-  priorityTextOption: { fontSize: 11, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
+  priorityTextOption: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 14, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
   textArea: { height: 120 } as TextStyle,
   
   submitButton: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 } as ViewStyle,
-  submitButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 15 } as TextStyle,
+  submitButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 17 } as TextStyle,
 
   // Detail view styling
   detailHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
-  detailTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.textMain } as TextStyle,
+  detailTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain } as TextStyle,
   closeTicketBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239, 68, 68, 0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.15)' } as ViewStyle,
   
   detailDescCard: { backgroundColor: COLORS.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 20 } as ViewStyle,
-  detailDescText: { fontSize: 14, color: COLORS.textMain, lineHeight: 22, marginVertical: 8 } as TextStyle,
-  detailDateText: { fontSize: 11, color: COLORS.textMuted } as TextStyle,
+  detailDescText: { fontSize: 16, color: COLORS.textMain, lineHeight: 24, marginVertical: 8 } as TextStyle,
+  detailDateText: { fontSize: 13, color: COLORS.textMuted } as TextStyle,
   
-  discussionHeading: { fontSize: 12, fontWeight: '900', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 } as TextStyle,
-  noCommentsText: { fontSize: 13, color: COLORS.textMuted, fontStyle: 'italic', textAlign: 'center', marginVertical: 20 } as TextStyle,
+  discussionHeading: { fontSize: 14, fontWeight: '900', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 } as TextStyle,
+  noCommentsText: { fontSize: 15, color: COLORS.textMuted, fontStyle: 'italic', textAlign: 'center', marginVertical: 20 } as TextStyle,
   
   commentBubbleContainer: { maxWidth: '85%', marginBottom: 12 } as ViewStyle,
-  commentAuthor: { fontSize: 10, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 4 } as TextStyle,
+  commentAuthor: { fontSize: 12, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 4 } as TextStyle,
   commentBubble: { padding: 12, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 } as ViewStyle,
-  commentText: { fontSize: 13, lineHeight: 18 } as TextStyle,
-  commentTime: { fontSize: 9, color: COLORS.textMuted, marginTop: 4 } as TextStyle,
+  commentText: { fontSize: 15, lineHeight: 20 } as TextStyle,
+  commentTime: { fontSize: 11, color: COLORS.textMuted, marginTop: 4 } as TextStyle,
   
   composer: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: '#fff', alignItems: 'flex-end', gap: 10 } as ViewStyle,
-  composerInput: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: COLORS.textMain, maxHeight: 100 } as TextStyle,
+  composerInput: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 16, color: COLORS.textMain, maxHeight: 100 } as TextStyle,
   composerSendBtn: { backgroundColor: COLORS.primary, width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', flexShrink: 0 } as ViewStyle,
   
   closedFooter: { flexDirection: 'row', padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.card, justifyContent: 'center', alignItems: 'center' } as ViewStyle,

@@ -133,11 +133,11 @@ const LoginScreen = ({ onLogin }: any) => {
       <View style={[styles.container, { justifyContent: 'center', padding: 20 }]}>
         <View style={{ alignItems: 'center', marginBottom: 24 }}>
           <Image source={require('../../assets/logo.png')} style={{ width: 90, height: 90, resizeMode: 'contain', marginBottom: 8 }} />
-          <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '600', letterSpacing: 2 }}>EMPLOYEE PORTAL</Text>
+          <Text style={{ color: COLORS.primary, fontSize: 15, fontWeight: '600', letterSpacing: 2 }}>EMPLOYEE PORTAL</Text>
         </View>
         
         <View style={{ backgroundColor: COLORS.card, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 }}>
-          <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase' }}>Email Address</Text>
+          <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Email Address</Text>
           <TextInput 
             style={styles.input}
             placeholder="employee@technocycle.com"
@@ -147,7 +147,7 @@ const LoginScreen = ({ onLogin }: any) => {
             onChangeText={setEmail}
           />
 
-          <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase' }}>Password</Text>
+          <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Password</Text>
           <TextInput 
             style={[styles.input, { marginBottom: 24 }]}
             placeholder="••••••••"
@@ -162,7 +162,7 @@ const LoginScreen = ({ onLogin }: any) => {
             onPress={handleLogin}
             disabled={loading}
           >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>Secure Login</Text>}
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 17 }}>Secure Login</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -2123,6 +2123,12 @@ export default function App() {
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
 
+              {/* Preferences Group Card */}
+              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+                {t('preferencesSection') || 'Preferences'}
+              </Text>
+              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 20 }}>
+                {/* Documents / Forms */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Leave_Application_Form.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
@@ -2142,6 +2148,53 @@ export default function App() {
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
 
+                {/* Language Switcher */}
+                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59, 130, 246, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="globe" size={16} color="#3b82f6" />
+                    </View>
+                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 16 }}>{t('languageLabel') || 'App Language'}</Text>
+                  </View>
+                  
+                  {/* Segmented language switcher */}
+                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
+                    <Animated.View style={{
+                      position: 'absolute',
+                      top: 2,
+                      bottom: 2,
+                      left: 0,
+                      width: 56,
+                      backgroundColor: '#ffffff',
+                      borderRadius: 6,
+                      transform: [{
+                        translateX: langAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [2, 58]
+                        })
+                      }],
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 2,
+                      elevation: 2
+                    }} />
+                    <TouchableOpacity onPress={() => changeLanguage('en')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: language === 'en' ? COLORS.primary : COLORS.textMuted }}>EN</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => changeLanguage('fil')} style={{ flex: 1, alignItems: 'center', zIndex: 1, height: '100%', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 14, fontWeight: 'bold', color: language === 'fil' ? COLORS.primary : COLORS.textMuted }}>FIL</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              {/* System Group Card */}
+              <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+                {t('systemSection') || 'System'}
+              </Text>
+              <View style={{ backgroundColor: COLORS.card, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 8, marginBottom: 24 }}>
+                {/* Offline Sync Center */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Resignation_Template.pdf')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
@@ -2383,8 +2436,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background, height: '100%' },
   content: { padding: 24, paddingBottom: 40 },
   header: { marginBottom: 32, marginTop: 12 },
-  greeting: { color: COLORS.textMuted, fontSize: 14, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 },
-  name: { color: COLORS.textMain, fontSize: 32, fontWeight: '800', letterSpacing: -0.5 },
+  greeting: { color: COLORS.textMuted, fontSize: 16, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 },
+  name: { color: COLORS.textMain, fontSize: 34, fontWeight: '800', letterSpacing: -0.5 },
   input: { backgroundColor: '#ffffff', color: COLORS.textMain, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   
   timeInButton: { backgroundColor: COLORS.primary, padding: 24, borderRadius: 20, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16 },
@@ -2581,14 +2634,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   splashBrand: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '900',
     color: '#0f172a',
     letterSpacing: 6,
     marginBottom: 6,
   } as TextStyle,
   splashSubBrand: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
     color: COLORS.primary,
     letterSpacing: 3,
@@ -2610,7 +2663,7 @@ const styles = StyleSheet.create({
   } as ViewStyle,
   offlineBannerText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase'
