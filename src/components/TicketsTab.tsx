@@ -11,6 +11,7 @@ import { syncQueue, generateUUID } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
 import { Locale, TRANSLATIONS } from '../lib/translations';
+import Pagination from './Pagination';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -1222,7 +1223,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                   totalItems={tickets.length}
                   itemsPerPage={itemsPerPage}
                   onPageChange={setTicketsPage}
-                  language={language}
+                  language={language as 'en' | 'fil'}
                 />
               </ScrollView>
             )

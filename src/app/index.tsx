@@ -2122,6 +2122,7 @@ export default function App() {
                   </View>
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
+              </View>
 
               {/* Preferences Group Card */}
               <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
