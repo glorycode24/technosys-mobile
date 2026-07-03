@@ -1782,6 +1782,10 @@ export default function App() {
                                   : t(geofence.errorKey))
                               : (geofence.error || t('outsideArea', { distance: Math.round(geofence.distance || 0) })))
                         }
+                        {"  "}
+                        <Text style={{ fontSize: 9, color: '#10b981', fontWeight: 'bold' }}>
+                          ● Live
+                        </Text>
                       </Text>
                       {/* Refresh Proximity Button */}
                       <TouchableOpacity 
