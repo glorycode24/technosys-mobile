@@ -79,6 +79,16 @@ export default function GeofenceMobileMap({
           weight: 2
         }).addTo(map);
 
+        const userLatLng = [${userLat}, ${userLng}];
+        const branchLatLng = [${branchLat}, ${branchLng}];
+        const isInside = map.distance(userLatLng, branchLatLng) <= ${radius};
+
+        L.polyline([userLatLng, branchLatLng], {
+          color: isInside ? '#10b981' : '#ef4444',
+          weight: 3,
+          dashArray: isInside ? null : '6, 6'
+        }).addTo(map);
+
         const bounds = L.latLngBounds([[${userLat}, ${userLng}], [${branchLat}, ${branchLng}]]);
         map.fitBounds(bounds, { padding: [40, 40] });
       </script>
