@@ -447,6 +447,7 @@ export default function App() {
     if (isWaitingForScan && session) {
       setScanCountdown(180);
       const startTime = new Date().toISOString();
+      const bufferedStartTime = new Date(Date.now() - 15000).toISOString(); // 15s clock drift buffer
 
       // Subscribe to Supabase Realtime for this user's scans
       channel = supabase
@@ -479,7 +480,7 @@ export default function App() {
             .from('physical_biometric_scans')
             .select('scanned_at')
             .eq('employee_id', session.user.id)
-            .gte('scanned_at', startTime)
+            .gte('scanned_at', bufferedStartTime)
             .order('scanned_at', { ascending: false })
             .limit(1);
 
@@ -991,8 +992,8 @@ export default function App() {
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
-        .gte('created_at', `${today}T00:00:00Z`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(10);
       const fetchAnnouncementsPromise = supabase.from('announcements')
         .select('*')
         .order('created_at', { ascending: false });
