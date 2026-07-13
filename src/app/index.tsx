@@ -16,6 +16,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as TaskManager from 'expo-task-manager';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -25,6 +26,40 @@ Notifications.setNotificationHandler({
     shouldShowBanner: true,
     shouldShowList: true,
   }),
+});
+
+const BACKGROUND_LOCATION_TASK = 'BACKGROUND_GEOLOCATION_TRACKING';
+
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) => {
+  if (error) {
+    console.error("Background location task error:", error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    if (locations && locations.length > 0) {
+      const location = locations[0];
+      const { latitude, longitude, accuracy } = location.coords;
+      try {
+        const activeUserId = await AsyncStorage.getItem('ACTIVE_USER_ID');
+        if (activeUserId) {
+          const { error: dbErr } = await supabase
+            .from('live_locations')
+            .insert({
+              technician_id: activeUserId,
+              latitude,
+              longitude,
+              gps_accuracy: accuracy
+            });
+          if (dbErr) {
+            console.error("Failed to insert live location:", dbErr.message);
+          }
+        }
+      } catch (err) {
+        console.error("Error in background location task execution:", err);
+      }
+    }
+  }
 });
 
 async function registerForPushNotificationsAsync(userId: string) {
@@ -1109,6 +1144,12 @@ export default function App() {
         }
       }
       setActiveTimeLog(finalActiveLog);
+      if (finalActiveLog && !finalActiveLog.app_time_out) {
+        await AsyncStorage.setItem('ACTIVE_USER_ID', userId);
+        startBackgroundLocationTracking();
+      } else {
+        stopBackgroundLocationTracking();
+      }
 
       // Save to cache
       const dashboardCache = {
@@ -1369,6 +1410,50 @@ export default function App() {
       Alert.alert('Submission Failed', err.message || 'An error occurred.');
     } finally {
       setDisputeSubmitLoading(false);
+    }
+  };
+
+  const startBackgroundLocationTracking = async () => {
+    try {
+      const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
+      if (foreStatus !== 'granted') {
+        console.warn("Foreground location permission denied");
+        return;
+      }
+      const { status: backStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (backStatus !== 'granted') {
+        console.warn("Background location permission denied");
+        return;
+      }
+
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (!hasStarted) {
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5 * 60 * 1000,
+          distanceInterval: 50,
+          foregroundService: {
+            notificationTitle: "TechnoSys Location Tracking",
+            notificationBody: "Tracking location to verify field service routing.",
+            notificationColor: COLORS.primary
+          }
+        });
+        console.log("Background location tracking started!");
+      }
+    } catch (e) {
+      console.error("Failed to start background location updates:", e);
+    }
+  };
+
+  const stopBackgroundLocationTracking = async () => {
+    try {
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (hasStarted) {
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        console.log("Background location tracking stopped!");
+      }
+    } catch (e) {
+      console.error("Failed to stop background location updates:", e);
     }
   };
 
