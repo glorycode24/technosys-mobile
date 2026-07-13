@@ -346,6 +346,7 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
@@ -1844,41 +1845,84 @@ export default function App() {
                       </TouchableOpacity>
                     </View>
 
-                    {/* Interactive Branch selector chips */}
-                    {geofence.offices && geofence.offices.length > 0 && (
-                      <ScrollView 
-                        horizontal 
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
-                        style={{ marginBottom: 8 }}
-                      >
-                        {geofence.offices.map((office: any) => {
-                          const isSelected = office.id === geofence.selectedOfficeId;
-                          return (
-                            <TouchableOpacity
-                              key={office.id}
-                              onPress={() => geofence.checkLocation(office.id)}
-                              style={{
-                                paddingHorizontal: 12,
-                                paddingVertical: 6,
-                                borderRadius: 10,
-                                borderWidth: 1,
-                                borderColor: isSelected ? COLORS.primary : COLORS.border,
-                                backgroundColor: isSelected ? COLORS.primaryDim : COLORS.card,
-                              }}
-                            >
-                              <Text style={{ 
-                                fontSize: 11, 
-                                fontWeight: 'bold', 
-                                color: isSelected ? COLORS.primary : COLORS.textMuted 
-                              }}>
-                                🏢 {office.name}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
-                    )}
+                    {/* Custom Branch Selector Dropdown */}
+                    {geofence.offices && geofence.offices.length > 0 && (() => {
+                      const selectedOffice = geofence.offices.find(o => o.id === geofence.selectedOfficeId) || geofence.offices[0];
+                      return (
+                        <View style={{ marginBottom: 8, zIndex: 10 }}>
+                          <TouchableOpacity
+                            onPress={() => setBranchDropdownOpen(!branchDropdownOpen)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                              borderRadius: 10,
+                              borderWidth: 1,
+                              borderColor: COLORS.primary,
+                              backgroundColor: COLORS.card,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: COLORS.textMain }}>
+                              🏢 Selected Branch: {selectedOffice.name}
+                            </Text>
+                            <Feather name={branchDropdownOpen ? "chevron-up" : "chevron-down"} size={16} color={COLORS.primary} />
+                          </TouchableOpacity>
+
+                          {branchDropdownOpen && (
+                            <View style={{
+                              marginTop: 4,
+                              borderRadius: 10,
+                              borderWidth: 1,
+                              borderColor: COLORS.border,
+                              backgroundColor: COLORS.card,
+                              maxHeight: 180,
+                              overflow: 'hidden',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.1,
+                              shadowRadius: 4,
+                              elevation: 3,
+                            }}>
+                              <ScrollView nestedScrollEnabled={true} style={{ maxHeight: 180 }}>
+                                {geofence.offices.map((office: any) => {
+                                  const isSelected = office.id === geofence.selectedOfficeId;
+                                  return (
+                                    <TouchableOpacity
+                                      key={office.id}
+                                      onPress={() => {
+                                        geofence.checkLocation(office.id);
+                                        setBranchDropdownOpen(false);
+                                      }}
+                                      style={{
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 10,
+                                        borderBottomWidth: 1,
+                                        borderBottomColor: COLORS.border,
+                                        backgroundColor: isSelected ? COLORS.primaryDim : COLORS.card,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between'
+                                      }}
+                                    >
+                                      <Text style={{ 
+                                        fontSize: 12, 
+                                        fontWeight: isSelected ? 'bold' : 'normal', 
+                                        color: isSelected ? COLORS.primary : COLORS.textMain 
+                                      }}>
+                                        🏢 {office.name} ({office.radius_meters}m)
+                                      </Text>
+                                      {isSelected && <Feather name="check" size={14} color={COLORS.primary} />}
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()}
 
                     <GeofenceMobileMap
                       userLat={geofence.latitude || 0}
