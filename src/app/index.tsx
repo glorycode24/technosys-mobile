@@ -355,6 +355,10 @@ export default function App() {
   const [leaveReason, setLeaveReason] = useState('');
   const [leaveAttachment, setLeaveAttachment] = useState<any>(null);
   const [leaveSubmitLoading, setLeaveSubmitLoading] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeAttachment, setDisputeAttachment] = useState<any>(null);
+  const [disputeSubmitLoading, setDisputeSubmitLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -1258,6 +1262,113 @@ export default function App() {
       Alert.alert('Submission Failed', err.message || 'An error occurred.');
     } finally {
       setLeaveSubmitLoading(false);
+    }
+  };
+
+  const handleSelectDisputeAttachment = async () => {
+    try {
+      Alert.alert(
+        'Attach Supporting Document',
+        'Choose attachment type',
+        [
+          {
+            text: 'Upload Photo (Gallery)',
+            onPress: async () => {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') return;
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.7,
+              });
+              if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setDisputeAttachment({
+                  uri: asset.uri,
+                  name: asset.fileName || `dispute-attachment-${Date.now()}.jpg`,
+                  type: 'image'
+                });
+              }
+            }
+          },
+          {
+            text: 'Upload Document (PDF)',
+            onPress: async () => {
+              const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf'],
+                copyToCacheDirectory: true
+              });
+              if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setDisputeAttachment({
+                  uri: asset.uri,
+                  name: asset.name,
+                  type: 'document'
+                });
+              }
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } catch (err) {
+      console.warn("Dispute attachment picker error:", err);
+    }
+  };
+
+  const handleApplyDisputeSubmit = async () => {
+    if (!session || !payslip) return;
+    if (!disputeReason.trim()) {
+      Alert.alert('Missing Fields', 'Please state the reason for your dispute.');
+      return;
+    }
+
+    setDisputeSubmitLoading(true);
+    try {
+      let attachmentUrl = null;
+
+      if (disputeAttachment) {
+        const response = await fetch(disputeAttachment.uri);
+        const blob = await response.blob();
+        const fileExt = disputeAttachment.name.split('.').pop() || 'jpg';
+        const fileName = `${session.user.id}/dispute-${Date.now()}.${fileExt}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('payroll-disputes')
+          .upload(fileName, blob, {
+            contentType: disputeAttachment.type === 'image' ? `image/${fileExt === 'png' ? 'png' : 'jpeg'}` : 'application/pdf',
+            upsert: true
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('payroll-disputes')
+          .getPublicUrl(fileName);
+        
+        attachmentUrl = publicUrl;
+      }
+
+      const { error: insertError } = await supabase
+        .from('payroll_disputes')
+        .insert({
+          technician_id: session.user.id,
+          payslip_id: payslip.id,
+          reason: disputeReason.trim(),
+          attachment_url: attachmentUrl,
+          status: 'pending'
+        });
+
+      if (insertError) throw insertError;
+
+      Alert.alert('Dispute Submitted', 'Your payroll dispute has been filed and will be reviewed by HR/accounting.');
+      setShowDisputeModal(false);
+      setDisputeReason('');
+      setDisputeAttachment(null);
+    } catch (err: any) {
+      console.error("Dispute submit error:", err);
+      Alert.alert('Submission Failed', err.message || 'An error occurred.');
+    } finally {
+      setDisputeSubmitLoading(false);
     }
   };
 
@@ -2380,11 +2491,21 @@ export default function App() {
                           <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>Pag-IBIG Contribution</Text>
                           <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.pagibig_deduction)}</Text>
                         </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
+                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
                           <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Withholding Tax / Karagdagang Bawas' : 'Withholding Tax adjustments'}</Text>
                           <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(withholdingTax)}</Text>
                         </View>
                       </View>
+
+                      {/* Dispute Payslip Button */}
+                      <TouchableOpacity 
+                        onPress={() => setShowDisputeModal(true)}
+                        style={{ backgroundColor: COLORS.danger, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                          {language === 'fil' ? 'I-dispute ang Payslip' : 'Dispute Payslip'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   );
                 })()
@@ -2831,6 +2952,75 @@ export default function App() {
                 style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
               >
                 {leaveSubmitLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
+
+      {showDisputeModal && (
+        <Modal animationType="slide" transparent={false} visible={showDisputeModal} onRequestClose={() => setShowDisputeModal(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
+              <TouchableOpacity onPress={() => setShowDisputeModal(false)} style={{ padding: 8, marginLeft: -8 }}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>{language === 'fil' ? 'I-dispute ang Payslip' : 'Dispute Payslip'}</Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 40 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 }}>
+                {language === 'fil' ? 'Siklo ng Payslip' : 'Payslip Cycle'}: {payslip?.period_start} to {payslip?.period_end}
+              </Text>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 }}>
+                {language === 'fil' ? 'Kabuuang Netong Sahod' : 'Net Take-Home Pay'}: {formatPhp(payslip?.net_pay)}
+              </Text>
+
+              <View style={{ height: 1, backgroundColor: COLORS.border, marginVertical: 16 }} />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Dahilan ng Dispute (e.g. kulang ang overtime or holiday pay)' : 'Reason for Dispute (e.g. missing hours or allowances)'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 16, backgroundColor: COLORS.card, height: 120 }}
+                placeholder="State the reason why you are disputing this payslip..."
+                placeholderTextColor={COLORS.textMuted}
+                value={disputeReason}
+                onChangeText={setDisputeReason}
+                multiline
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Supporting Document / Patunay (Opsyonal)' : 'Supporting Document (Optional)'}
+              </Text>
+              <TouchableOpacity 
+                onPress={handleSelectDisputeAttachment}
+                style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  borderWidth: 1, 
+                  borderColor: COLORS.border, 
+                  borderStyle: 'dashed', 
+                  borderRadius: 12, 
+                  padding: 16, 
+                  backgroundColor: COLORS.card,
+                  justifyContent: 'center',
+                  marginBottom: 24 
+                }}
+              >
+                <Feather name="paperclip" size={16} color={COLORS.textMuted} style={{ marginRight: 8 }} />
+                <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '600' }}>
+                  {disputeAttachment ? disputeAttachment.name : (language === 'fil' ? 'Pumili ng Larawan o PDF' : 'Choose Photo or PDF')}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                onPress={handleApplyDisputeSubmit}
+                disabled={disputeSubmitLoading}
+                style={{ backgroundColor: COLORS.danger, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
+              >
+                {disputeSubmitLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Dispute' : 'Submit Dispute'}</Text>}
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>
