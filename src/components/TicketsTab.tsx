@@ -709,6 +709,26 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
   };
 
   const handleAttachFile = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['image/*', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+          copyToCacheDirectory: true
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          setChatAttachment({
+            uri: asset.uri,
+            name: asset.name,
+            type: asset.mimeType?.startsWith('image/') ? 'image' : 'document'
+          });
+        }
+      } catch (err) {
+        console.warn("Web chat attachment picker error:", err);
+      }
+      return;
+    }
+
     try {
       Alert.alert(
         'Attach File',

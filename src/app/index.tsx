@@ -1190,6 +1190,26 @@ export default function App() {
   };
 
   const handleSelectLeaveAttachment = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['image/*', 'application/pdf'],
+          copyToCacheDirectory: true
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          setLeaveAttachment({
+            uri: asset.uri,
+            name: asset.name,
+            type: asset.mimeType?.startsWith('image/') ? 'image' : 'document'
+          });
+        }
+      } catch (err) {
+        console.warn("Web attachment picker error:", err);
+      }
+      return;
+    }
+
     try {
       Alert.alert(
         'Attach Document',
@@ -1241,8 +1261,8 @@ export default function App() {
 
   const handleApplyLeaveSubmit = async () => {
     if (!session) return;
-    if (!leaveStartDate || !leaveEndDate || !leaveReason) {
-      Alert.alert('Missing Fields', 'Please fill in all required fields.');
+    if (!leaveStartDate || !leaveEndDate || !leaveReason || !leaveAttachment) {
+      Alert.alert('Missing Fields', 'Please fill in all required fields and upload an attachment.');
       return;
     }
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -1307,6 +1327,26 @@ export default function App() {
   };
 
   const handleSelectDisputeAttachment = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['image/*', 'application/pdf'],
+          copyToCacheDirectory: true
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          setDisputeAttachment({
+            uri: asset.uri,
+            name: asset.name,
+            type: asset.mimeType?.startsWith('image/') ? 'image' : 'document'
+          });
+        }
+      } catch (err) {
+        console.warn("Web dispute attachment picker error:", err);
+      }
+      return;
+    }
+
     try {
       Alert.alert(
         'Attach Supporting Document',
@@ -1358,8 +1398,8 @@ export default function App() {
 
   const handleApplyDisputeSubmit = async () => {
     if (!session || !payslip) return;
-    if (!disputeReason.trim()) {
-      Alert.alert('Missing Fields', 'Please state the reason for your dispute.');
+    if (!disputeReason.trim() || !disputeAttachment) {
+      Alert.alert('Missing Fields', 'Please state the reason for your dispute and select a supporting document.');
       return;
     }
 
@@ -3009,7 +3049,7 @@ export default function App() {
                 multiline
               />
 
-              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Attachment (Opsyonal)' : 'Attachment (Optional)'}</Text>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Attachment (Kailangan)' : 'Attachment (Required)'}</Text>
               <TouchableOpacity 
                 onPress={handleSelectLeaveAttachment}
                 style={{ 
@@ -3077,7 +3117,7 @@ export default function App() {
               />
 
               <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
-                {language === 'fil' ? 'Supporting Document / Patunay (Opsyonal)' : 'Supporting Document (Optional)'}
+                {language === 'fil' ? 'Supporting Document / Patunay (Kailangan)' : 'Supporting Document (Required)'}
               </Text>
               <TouchableOpacity 
                 onPress={handleSelectDisputeAttachment}
