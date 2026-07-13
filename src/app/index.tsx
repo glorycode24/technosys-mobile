@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
@@ -15,6 +15,7 @@ import * as Location from 'expo-location';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -343,6 +344,17 @@ export default function App() {
   const [leaveAlert, setLeaveAlert] = useState<any>(null);
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [showLeavesModal, setShowLeavesModal] = useState(false);
+  const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
+  const [leavesLoading, setLeavesLoading] = useState(false);
+
+  const [leaveType, setLeaveType] = useState<'sick' | 'vacation' | 'emergency' | 'unpaid'>('vacation');
+  const [leaveStartDate, setLeaveStartDate] = useState('');
+  const [leaveEndDate, setLeaveEndDate] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [leaveAttachment, setLeaveAttachment] = useState<any>(null);
+  const [leaveSubmitLoading, setLeaveSubmitLoading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -1029,6 +1041,7 @@ export default function App() {
       const logs = logsResult.data || [];
       const anns = announcementsResult.data || [];
       const leaves = leavesResult.data || [];
+      setLeaves(leaves);
 
       if (prof) setProfile(prof);
       setSchedules(scheds);
@@ -1109,6 +1122,142 @@ export default function App() {
       console.warn("Failed to load dashboard data from network, trying cache:", e.message);
       setIsOnline(false);
       await loadDashboardDataFromCache(userId);
+    }
+  };
+
+  const fetchLeaves = async () => {
+    if (!session) return;
+    setLeavesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('leaves')
+        .select('*')
+        .eq('technician_id', session.user.id)
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        setLeaves(data);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch leaves", e);
+    } finally {
+      setLeavesLoading(false);
+    }
+  };
+
+  const handleSelectLeaveAttachment = async () => {
+    try {
+      Alert.alert(
+        'Attach Document',
+        'Choose attachment type',
+        [
+          {
+            text: 'Upload Photo (Gallery)',
+            onPress: async () => {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') return;
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.7,
+              });
+              if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setLeaveAttachment({
+                  uri: asset.uri,
+                  name: asset.fileName || `leave-attachment-${Date.now()}.jpg`,
+                  type: 'image'
+                });
+              }
+            }
+          },
+          {
+            text: 'Upload Document (PDF)',
+            onPress: async () => {
+              const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf'],
+                copyToCacheDirectory: true
+              });
+              if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setLeaveAttachment({
+                  uri: asset.uri,
+                  name: asset.name,
+                  type: 'document'
+                });
+              }
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } catch (err) {
+      console.warn("Attachment picker error:", err);
+    }
+  };
+
+  const handleApplyLeaveSubmit = async () => {
+    if (!session) return;
+    if (!leaveStartDate || !leaveEndDate || !leaveReason) {
+      Alert.alert('Missing Fields', 'Please fill in all required fields.');
+      return;
+    }
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(leaveStartDate) || !dateRegex.test(leaveEndDate)) {
+      Alert.alert('Invalid Date Format', 'Dates must be in YYYY-MM-DD format.');
+      return;
+    }
+
+    setLeaveSubmitLoading(true);
+    try {
+      let attachmentUrl = null;
+
+      if (leaveAttachment) {
+        const response = await fetch(leaveAttachment.uri);
+        const blob = await response.blob();
+        const fileExt = leaveAttachment.name.split('.').pop() || 'jpg';
+        const fileName = `${session.user.id}/leave-${Date.now()}.${fileExt}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('leaves')
+          .upload(fileName, blob, {
+            contentType: leaveAttachment.type === 'image' ? `image/${fileExt === 'png' ? 'png' : 'jpeg'}` : 'application/pdf',
+            upsert: true
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('leaves')
+          .getPublicUrl(fileName);
+        
+        attachmentUrl = publicUrl;
+      }
+
+      const { error: insertError } = await supabase
+        .from('leaves')
+        .insert({
+          technician_id: session.user.id,
+          start_date: leaveStartDate,
+          end_date: leaveEndDate,
+          leave_type: leaveType,
+          reason: leaveReason,
+          status: 'pending',
+          attachment_url: attachmentUrl
+        });
+
+      if (insertError) throw insertError;
+
+      Alert.alert('Success', 'Your leave request has been submitted.');
+      setShowApplyLeaveModal(false);
+      setLeaveStartDate('');
+      setLeaveEndDate('');
+      setLeaveReason('');
+      setLeaveAttachment(null);
+      await fetchLeaves();
+    } catch (err: any) {
+      console.error("Leave submit error:", err);
+      Alert.alert('Submission Failed', err.message || 'An error occurred.');
+    } finally {
+      setLeaveSubmitLoading(false);
     }
   };
 
@@ -2340,6 +2489,23 @@ export default function App() {
                   <Feather name="download" size={16} color={COLORS.textMuted} />
                 </TouchableOpacity>
 
+                {/* File Leave Directly (Interactive Portal) */}
+                <TouchableOpacity 
+                  onPress={() => { setShowLeavesModal(true); fetchLeaves(); }}
+                  style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(16, 185, 129, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name="calendar" size={16} color={COLORS.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>{language === 'fil' ? 'Aplikasyon sa Leave' : 'Leave Requests Portal'}</Text>
+                      <Text style={{ color: COLORS.textMuted, fontSize: 11, marginTop: 2 }}>{language === 'fil' ? 'Mag-apply at tingnan ang mga leave online' : 'Apply and track leave requests online'}</Text>
+                    </View>
+                  </View>
+                  <Feather name="chevron-right" size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
                 {/* Leave Application Form */}
                 <TouchableOpacity 
                   onPress={() => startFormDownload('Leave_Application_Form.pdf')}
@@ -2502,6 +2668,174 @@ export default function App() {
   const renderedContent = (
     <View style={{ flex: 1, position: 'relative' }}>
       {appContent}
+
+      {showLeavesModal && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <TouchableOpacity onPress={() => setShowLeavesModal(false)} style={{ padding: 8, marginLeft: -8 }}>
+              <Feather name="arrow-left" size={24} color={COLORS.textMain} />
+            </TouchableOpacity>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>{language === 'fil' ? 'Kasaysayan ng Leave' : 'Leave Requests'}</Text>
+            <TouchableOpacity onPress={fetchLeaves} style={{ padding: 8, marginRight: -8 }} disabled={leavesLoading}>
+              {leavesLoading ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Feather name="refresh-cw" size={18} color={COLORS.primary} />}
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity 
+            onPress={() => setShowApplyLeaveModal(true)}
+            style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}
+          >
+            <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'Mag-file ng Bagong Leave' : 'File New Leave Request'}</Text>
+          </TouchableOpacity>
+
+          {leavesLoading && leaves.length === 0 ? (
+            <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+          ) : leaves.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 60 }}>
+              <Feather name="calendar" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
+              <Text style={{ color: COLORS.textMuted, fontStyle: 'italic' }}>{language === 'fil' ? 'Walang nahanap na mga leave request.' : 'No leave requests found.'}</Text>
+            </View>
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
+              {leaves.map((item) => {
+                const startStr = new Date(item.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const endStr = new Date(item.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                
+                let badgeColor = '#f59e0b'; // pending
+                if (item.status === 'approved') badgeColor = COLORS.primary;
+                if (item.status === 'rejected') badgeColor = COLORS.danger;
+
+                return (
+                  <View key={item.id} style={{ backgroundColor: COLORS.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: COLORS.primary, textTransform: 'uppercase' }}>
+                        {item.leave_type}
+                      </Text>
+                      <View style={{ backgroundColor: badgeColor + '15', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                        <Text style={{ fontSize: 10, color: badgeColor, fontWeight: '800', textTransform: 'uppercase' }}>
+                          {item.status}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 4 }}>
+                      📅 {startStr} - {endStr}
+                    </Text>
+                    <Text style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 8 }}>
+                      {item.reason}
+                    </Text>
+                    {item.attachment_url && (
+                      <TouchableOpacity 
+                        onPress={() => Linking.openURL(item.attachment_url)}
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e2e8f0', padding: 8, borderRadius: 8, alignSelf: 'flex-start' }}
+                      >
+                        <Feather name="file" size={14} color={COLORS.textMain} style={{ marginRight: 6 }} />
+                        <Text style={{ fontSize: 11, color: COLORS.textMain, fontWeight: 'bold' }}>{language === 'fil' ? 'Tingnan ang Attachment' : 'View Attachment'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      )}
+
+      {showApplyLeaveModal && (
+        <Modal animationType="slide" transparent={false} visible={showApplyLeaveModal} onRequestClose={() => setShowApplyLeaveModal(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
+              <TouchableOpacity onPress={() => setShowApplyLeaveModal(false)} style={{ padding: 8, marginLeft: -8 }}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>{language === 'fil' ? 'Mag-apply para sa Leave' : 'Apply for Leave'}</Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 40 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Uri ng Leave' : 'Leave Type'}</Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                {(['sick', 'vacation', 'emergency', 'unpaid'] as const).map((type) => (
+                  <TouchableOpacity 
+                    key={type}
+                    onPress={() => setLeaveType(type)}
+                    style={{ 
+                      flex: 1, 
+                      padding: 10, 
+                      borderRadius: 10, 
+                      borderWidth: 1, 
+                      borderColor: leaveType === type ? COLORS.primary : COLORS.border,
+                      backgroundColor: leaveType === type ? COLORS.primaryDim : 'transparent',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: 'bold', color: leaveType === type ? COLORS.primary : COLORS.textMuted, textTransform: 'uppercase' }}>
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Simulang Petsa (YYYY-MM-DD)' : 'Start Date (YYYY-MM-DD)'}</Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 16, backgroundColor: COLORS.card }}
+                placeholder="e.g. 2026-07-20"
+                placeholderTextColor={COLORS.textMuted}
+                value={leaveStartDate}
+                onChangeText={setLeaveStartDate}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Katapusang Petsa (YYYY-MM-DD)' : 'End Date (YYYY-MM-DD)'}</Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 16, backgroundColor: COLORS.card }}
+                placeholder="e.g. 2026-07-22"
+                placeholderTextColor={COLORS.textMuted}
+                value={leaveEndDate}
+                onChangeText={setLeaveEndDate}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Dahilan' : 'Reason'}</Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 16, backgroundColor: COLORS.card, height: 100 }}
+                placeholder="Reason for leave request"
+                placeholderTextColor={COLORS.textMuted}
+                value={leaveReason}
+                onChangeText={setLeaveReason}
+                multiline
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>{language === 'fil' ? 'Attachment (Opsyonal)' : 'Attachment (Optional)'}</Text>
+              <TouchableOpacity 
+                onPress={handleSelectLeaveAttachment}
+                style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  borderWidth: 1, 
+                  borderColor: COLORS.border, 
+                  borderStyle: 'dashed', 
+                  borderRadius: 12, 
+                  padding: 16, 
+                  backgroundColor: COLORS.card,
+                  justifyContent: 'center',
+                  marginBottom: 24 
+                }}
+              >
+                <Feather name="paperclip" size={16} color={COLORS.textMuted} style={{ marginRight: 8 }} />
+                <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '600' }}>
+                  {leaveAttachment ? leaveAttachment.name : (language === 'fil' ? 'Pumili ng Larawan o PDF' : 'Choose Photo or PDF')}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                onPress={handleApplyLeaveSubmit}
+                disabled={leaveSubmitLoading}
+                style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
+              >
+                {leaveSubmitLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
 
       {showDtrModal && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>

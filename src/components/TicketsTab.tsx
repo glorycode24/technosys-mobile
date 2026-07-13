@@ -3,8 +3,10 @@ import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
   ViewStyle, TextStyle, ImageStyle, RefreshControl,
-  LayoutAnimation, UIManager, Modal
+  LayoutAnimation, UIManager, Modal, Linking, Image
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { supabase } from '../lib/supabase';
 import { Feather } from '@expo/vector-icons';
 import { syncQueue, generateUUID } from '../lib/syncQueue';
@@ -69,6 +71,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
 
   // Comment state
   const [commentText, setCommentText] = useState('');
+  const [chatAttachment, setChatAttachment] = useState<any>(null); // { uri, name, type }
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
 
@@ -705,14 +708,69 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     }
   };
 
+  const handleAttachFile = async () => {
+    try {
+      Alert.alert(
+        'Attach File',
+        'Choose attachment type',
+        [
+          {
+            text: 'Upload Photo (Gallery)',
+            onPress: async () => {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') return;
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.7,
+              });
+              if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setChatAttachment({
+                  uri: asset.uri,
+                  name: asset.fileName || `chat-attachment-${Date.now()}.jpg`,
+                  type: 'image'
+                });
+              }
+            }
+          },
+          {
+            text: 'Upload Document (PDF/Doc)',
+            onPress: async () => {
+              const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+                copyToCacheDirectory: true
+              });
+              if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                setChatAttachment({
+                  uri: asset.uri,
+                  name: asset.name,
+                  type: 'document'
+                });
+              }
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } catch (err) {
+      console.warn("Chat attachment picker error:", err);
+    }
+  };
+
   const handlePostComment = async () => {
-    if (!commentText.trim() || commentSubmitting) return;
+    if ((!commentText.trim() && !chatAttachment) || commentSubmitting) return;
 
     setCommentSubmitting(true);
     const content = commentText.trim();
     setCommentText('');
 
     const handleOfflineComment = async () => {
+      if (chatAttachment) {
+        Alert.alert('Offline Mode', 'File attachments require an internet connection.');
+        setCommentSubmitting(false);
+        return;
+      }
       const commentId = generateUUID();
       const payload = {
         ticket_id: selectedTicket.id,
@@ -749,10 +807,38 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     }
 
     try {
+      let attachmentUrl = null;
+      let attachmentType = null;
+
+      if (chatAttachment) {
+        const response = await fetch(chatAttachment.uri);
+        const blob = await response.blob();
+        const fileExt = chatAttachment.name.split('.').pop() || 'jpg';
+        const fileName = `${userId}/${Date.now()}.${fileExt}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('chat-attachments')
+          .upload(fileName, blob, {
+            contentType: chatAttachment.type === 'image' ? `image/${fileExt === 'png' ? 'png' : 'jpeg'}` : 'application/pdf',
+            upsert: true
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('chat-attachments')
+          .getPublicUrl(fileName);
+
+        attachmentUrl = publicUrl;
+        attachmentType = chatAttachment.type;
+      }
+
       const { error } = await supabase.from('ticket_comments').insert({
         ticket_id: selectedTicket.id,
         author_id: userId,
-        content
+        content,
+        attachment_url: attachmentUrl,
+        attachment_type: attachmentType
       });
 
       if (error) {
@@ -765,6 +851,8 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         }
         throw error;
       }
+
+      setChatAttachment(null);
 
       // Update local ticket updated_at
       await supabase
@@ -1745,6 +1833,30 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                             : { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1' }
                         ]}
                       >
+                        {c.attachment_url && c.attachment_type === 'image' && (
+                          <Image 
+                            source={{ uri: c.attachment_url }} 
+                            style={{ width: 200, height: 150, borderRadius: 10, marginBottom: 8, resizeMode: 'cover' }} 
+                          />
+                        )}
+                        {c.attachment_url && c.attachment_type === 'document' && (
+                          <TouchableOpacity 
+                            onPress={() => Linking.openURL(c.attachment_url)}
+                            style={{ 
+                              flexDirection: 'row', 
+                              alignItems: 'center', 
+                              backgroundColor: isOwnComment ? 'rgba(255,255,255,0.15)' : '#f1f5f9', 
+                              padding: 10, 
+                              borderRadius: 8, 
+                              marginBottom: 8 
+                            }}
+                          >
+                            <Feather name="file" size={16} color={isOwnComment ? '#fff' : COLORS.primary} style={{ marginRight: 6 }} />
+                            <Text style={{ color: isOwnComment ? '#fff' : COLORS.textMain, fontSize: 12, fontWeight: 'bold' }}>
+                              View Document
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                         <Text 
                           selectable={true} 
                           style={[
@@ -1763,9 +1875,29 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
             )}
           </ScrollView>
 
+          {/* Selected Attachment Preview Bar */}
+          {chatAttachment && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', padding: 8, marginHorizontal: 16, marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' }}>
+              <Feather name={chatAttachment.type === 'image' ? 'image' : 'file'} size={18} color={COLORS.primary} style={{ marginRight: 8 }} />
+              <Text style={{ flex: 1, color: COLORS.textMain, fontSize: 13 }} numberOfLines={1}>
+                {chatAttachment.name}
+              </Text>
+              <TouchableOpacity onPress={() => setChatAttachment(null)} style={{ padding: 4 }}>
+                <Feather name="x" size={16} color={COLORS.danger} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Comment Input Composer */}
           {selectedTicket.status !== 'closed' ? (
             <View style={styles.composer}>
+              <TouchableOpacity
+                onPress={handleAttachFile}
+                disabled={commentSubmitting}
+                style={{ padding: 10, marginRight: 4 }}
+              >
+                <Feather name="paperclip" size={20} color={COLORS.primary} />
+              </TouchableOpacity>
               <TextInput
                 style={styles.composerInput}
                 placeholder={t('chatInputPlaceholder')}
@@ -1775,9 +1907,9 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                 multiline
               />
               <TouchableOpacity 
-                style={[styles.composerSendBtn, !commentText.trim() ? { opacity: 0.5 } : {}]}
+                style={[styles.composerSendBtn, (!commentText.trim() && !chatAttachment) ? { opacity: 0.5 } : {}]}
                 onPress={handlePostComment}
-                disabled={!commentText.trim() || commentSubmitting}
+                disabled={(!commentText.trim() && !chatAttachment) || commentSubmitting}
               >
                 {commentSubmitting ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="send" size={16} color="#fff" />}
               </TouchableOpacity>
