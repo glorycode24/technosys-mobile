@@ -14,6 +14,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Location from 'expo-location';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
+import * as ImagePicker from 'expo-image-picker';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -341,6 +342,7 @@ export default function App() {
   const [payslip, setPayslip] = useState<any>(null);
   const [leaveAlert, setLeaveAlert] = useState<any>(null);
   const [timeInLoading, setTimeInLoading] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
@@ -1107,6 +1109,68 @@ export default function App() {
       console.warn("Failed to load dashboard data from network, trying cache:", e.message);
       setIsOnline(false);
       await loadDashboardDataFromCache(userId);
+    }
+  };
+
+  const handleUploadAvatar = async () => {
+    if (!session) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Permission to access gallery is required to upload a profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      setAvatarUploading(true);
+      const uri = result.assets[0].uri;
+
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const fileExt = uri.split('.').pop() || 'jpg';
+      const fileName = `${session.user.id}/avatar-${Date.now()}.${fileExt}`;
+
+      const { data, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, blob, {
+          contentType: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
+          upsert: true
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', session.user.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      Alert.alert('Success', 'Profile picture updated successfully!');
+      await fetchDashboardData(session.user.id);
+    } catch (err: any) {
+      console.error("Avatar upload error:", err);
+      Alert.alert('Upload Failed', err.message || 'An error occurred while uploading your avatar.');
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -2200,9 +2264,24 @@ export default function App() {
 
               {/* Avatar Header Row */}
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, marginBottom: 24 }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.primaryDim, alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-                  <Text style={{ color: COLORS.primary, fontSize: 24, fontWeight: 'bold' }}>{profile?.full_name?.charAt(0) || 'T'}</Text>
-                </View>
+                <TouchableOpacity 
+                  onPress={handleUploadAvatar}
+                  disabled={avatarUploading}
+                  style={{ position: 'relative', marginRight: 16 }}
+                >
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.primaryDim, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {avatarUploading ? (
+                      <ActivityIndicator size="small" color={COLORS.primary} />
+                    ) : profile?.avatar_url ? (
+                      <Image source={{ uri: profile.avatar_url }} style={{ width: 64, height: 64 }} />
+                    ) : (
+                      <Text style={{ color: COLORS.primary, fontSize: 24, fontWeight: 'bold' }}>{profile?.full_name?.charAt(0) || 'T'}</Text>
+                    )}
+                  </View>
+                  <View style={{ position: 'absolute', bottom: 0, right: 0, backgroundColor: COLORS.primary, width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: COLORS.card }}>
+                    <Feather name="camera" size={10} color="#fff" />
+                  </View>
+                </TouchableOpacity>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: COLORS.textMain, fontSize: 18, fontWeight: 'bold', marginBottom: 2 }}>{profile?.full_name}</Text>
                   <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 6 }}>
