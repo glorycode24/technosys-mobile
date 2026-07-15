@@ -1492,6 +1492,10 @@ export default function App() {
   };
 
   const startBackgroundLocationTracking = async () => {
+    if (Platform.OS === 'web') {
+      console.log("Background location updates not supported on Web platform.");
+      return;
+    }
     try {
       const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
       if (foreStatus !== 'granted') {
@@ -1524,6 +1528,9 @@ export default function App() {
   };
 
   const stopBackgroundLocationTracking = async () => {
+    if (Platform.OS === 'web') {
+      return;
+    }
     try {
       const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
       if (hasStarted) {
