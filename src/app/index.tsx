@@ -814,6 +814,13 @@ export default function App() {
 
     // Listen to Supabase auth events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      // Clear old state immediately on auth change to avoid dirty state leaks
+      setProfile(null);
+      setSchedules([]);
+      setPayslip(null);
+      setActiveTimeLog(null);
+      setLeaves([]);
+
       setSession(currentSession);
       if (currentSession) {
         await setSecureItem('USER_SESSION', JSON.stringify(currentSession));
@@ -1021,6 +1028,13 @@ export default function App() {
           }
         }
         setActiveTimeLog(finalActiveLog);
+      } else {
+        // Clear state if no cache exists for this user
+        setProfile(null);
+        setSchedules([]);
+        setPayslip(null);
+        setActiveTimeLog(null);
+        setLeaves([]);
       }
     } catch (cacheErr) {
       console.error("Failed to read dashboard cache", cacheErr);
