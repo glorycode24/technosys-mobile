@@ -571,7 +571,7 @@ export default function App() {
       if (pollInterval) clearInterval(pollInterval);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [isWaitingForScan, session]);
+  }, [isWaitingForScan, session?.user?.id]);
 
   const handleBiometricScanSuccess = async () => {
     setIsWaitingForScan(false);
@@ -812,14 +812,20 @@ export default function App() {
       });
     };
 
+    let lastUserId: string | null = null;
+
     // Listen to Supabase auth events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      // Clear old state immediately on auth change to avoid dirty state leaks
-      setProfile(null);
-      setSchedules([]);
-      setPayslip(null);
-      setActiveTimeLog(null);
-      setLeaves([]);
+      const currentUserId = currentSession?.user?.id || null;
+      if (currentUserId !== lastUserId) {
+        lastUserId = currentUserId;
+        // Clear old state immediately on auth change to avoid dirty state leaks
+        setProfile(null);
+        setSchedules([]);
+        setPayslip(null);
+        setActiveTimeLog(null);
+        setLeaves([]);
+      }
 
       setSession(currentSession);
       if (currentSession) {
