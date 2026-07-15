@@ -1026,11 +1026,20 @@ export default function App() {
             is_offline_pending: true
           };
         } else if (cachedLogs.length > 0) {
-          finalActiveLog = { ...cachedLogs[0] };
-          const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
-          if (pendingTimeOut) {
-            finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
-            finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+          const lastLog = cachedLogs[0];
+          const logDate = new Date(lastLog.app_time_in);
+          const todayDate = new Date();
+          const isToday = logDate.getFullYear() === todayDate.getFullYear() &&
+                          logDate.getMonth() === todayDate.getMonth() &&
+                          logDate.getDate() === todayDate.getDate();
+          
+          if (!lastLog.app_time_out || isToday) {
+            finalActiveLog = { ...lastLog };
+            const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
+            if (pendingTimeOut) {
+              finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
+              finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+            }
           }
         }
         setActiveTimeLog(finalActiveLog);
@@ -1156,11 +1165,20 @@ export default function App() {
           is_offline_pending: true
         };
       } else if (logs.length > 0) {
-        finalActiveLog = { ...logs[0] };
-        const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
-        if (pendingTimeOut) {
-          finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
-          finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+        const lastLog = logs[0];
+        const logDate = new Date(lastLog.app_time_in);
+        const todayDate = new Date();
+        const isToday = logDate.getFullYear() === todayDate.getFullYear() &&
+                        logDate.getMonth() === todayDate.getMonth() &&
+                        logDate.getDate() === todayDate.getDate();
+        
+        if (!lastLog.app_time_out || isToday) {
+          finalActiveLog = { ...lastLog };
+          const pendingTimeOut = queue.find(item => item.type === 'time_out' && item.payload.log_id === finalActiveLog.id);
+          if (pendingTimeOut) {
+            finalActiveLog.app_time_out = pendingTimeOut.payload.app_time_out;
+            finalActiveLog.total_hours = pendingTimeOut.payload.total_hours;
+          }
         }
       }
       setActiveTimeLog(finalActiveLog);
