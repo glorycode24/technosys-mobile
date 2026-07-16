@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
 import GeofenceMobileMap from '../components/GeofenceMobileMap';
+import HybridCamera from '../components/HybridCamera';
 import { TicketsTab } from '../components/TicketsTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -350,6 +351,7 @@ export default function App() {
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
+  const [isCameraMode, setIsCameraMode] = useState(false);
   const [scanType, setScanType] = useState<'in' | 'out' | null>(null);
   const [scanCountdown, setScanCountdown] = useState(180);
   const scanTypeRef = React.useRef<'in' | 'out' | null>(null);
@@ -634,7 +636,7 @@ export default function App() {
   // Offline queue state
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
 
-  const checkQueueStatus = async () => {
+  const checkQueueStatus = async () => { await AsyncStorage.removeItem('OFFLINE_TRANSACTION_QUEUE'); 
     const queue = await syncQueue.getQueue();
     setOfflineQueueCount(queue.length);
   };
@@ -929,6 +931,55 @@ export default function App() {
     };
   }, [session, profile, language]);
 
+  // Real-time Time Logs Sync
+  useEffect(() => {
+    let channel: any;
+    if (session) {
+      channel = supabase
+        .channel('time_logs_realtime')
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'time_logs', filter: `technician_id=eq.${session.user.id}` },
+          (payload) => {
+            console.log('Realtime time_log change detected:', payload);
+            const updatedLog = payload.new;
+            
+            // Re-fetch dashboard data to sync UI cleanly
+            fetchDashboardData(session.user.id);
+            
+            // Immediate optimistic UI update if we match activeTimeLog
+            setActiveTimeLog((prev: any) => {
+              if (prev && prev.id === updatedLog.id) {
+                // If rejected, alert the user!
+                if (updatedLog.photo_status === 'rejected' && prev.photo_status !== 'rejected') {
+                  Alert.alert(
+                    language === 'fil' ? 'Tinanggihan' : 'Attendance Rejected', 
+                    language === 'fil' ? 'Ang iyong selfie ay tinanggihan ng admin. Mangyaring mag-Clock In muli.' : 'Your clock-in selfie was rejected by the admin. Please clock in again.'
+                  );
+                }
+                // If approved, alert the user!
+                else if (updatedLog.photo_status === 'approved' && prev.photo_status === 'pending') {
+                  Alert.alert(
+                    language === 'fil' ? 'Inaprubahan' : 'Attendance Approved', 
+                    language === 'fil' ? 'Ang iyong selfie ay inaprubahan.' : 'Your clock-in selfie was approved by the admin.'
+                  );
+                }
+                return { ...prev, ...updatedLog };
+              }
+              return prev;
+            });
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [session, language]);
+
   const loadDashboardDataFromCache = async (userId: string) => {
     try {
       const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
@@ -992,7 +1043,7 @@ export default function App() {
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
-        .gte('created_at', `${today}T00:00:00Z`)
+        .gte('created_at', new Date(Date.now() - 86400000).toISOString())
         .order('created_at', { ascending: false });
       const fetchAnnouncementsPromise = supabase.from('announcements')
         .select('*')
@@ -1004,7 +1055,7 @@ export default function App() {
 
       const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult, leavesResult] = await withTimeout(
         Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise, fetchLeavesPromise]),
-        10000
+        20000
       );
 
       const isNetworkErr = (err: any) => {
@@ -1240,7 +1291,7 @@ export default function App() {
         throw error;
       }
 
-      Alert.alert(t('biometricScanMatched'), t('workedHours', { hours: diffHours }));
+      setActiveTimeLog((prev: any) => ({ ...prev, app_time_out: timeOutTime, total_hours: diffHours })); Alert.alert(t('biometricScanMatched'), t('workedHours', { hours: diffHours }));
       await fetchDashboardData(session.user.id);
     } catch (e: any) {
       Alert.alert('Time Out Failed', e.message || 'An error occurred.');
@@ -1628,9 +1679,6 @@ export default function App() {
                         <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain, textAlign: 'center', marginBottom: 6 }}>
                           {language === 'fil' ? 'Naghihintay ng Biometric Swipe...' : 'Awaiting Biometric Swipe...'}
                         </Text>
-                        <Text style={{ fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 16, paddingHorizontal: 12 }}>
-                          {language === 'fil' ? 'Paki-swipe ang iyong daliri sa wall reader terminal upang makumpleto ang pag-verify.' : 'Please place your registered finger on the physical biometric machine terminal.'}
-                        </Text>
                         <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.danger, marginBottom: 16 }}>
                           ⏱️ {Math.floor(scanCountdown / 60)}:{(scanCountdown % 60).toString().padStart(2, '0')}
                         </Text>
@@ -1648,36 +1696,135 @@ export default function App() {
                             {t('cancel')}
                           </Text>
                         </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setIsWaitingForScan(false);
+                            setIsCameraMode(true);
+                          }}
+                          style={[styles.cancelScanButton, { backgroundColor: '#10b981', marginTop: 8 }]}
+                        >
+                          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }}>
+                            📷 {language === 'fil' ? 'Gamitin ang Camera (Hybrid Mode)' : 'Use Camera (Hybrid Mode)'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     );
                   }
 
-                  if (!activeTimeLog) {
+                  if (isCameraMode) {
                     return (
-                      <TouchableOpacity 
-                        style={styles.readyCard} 
-                        onPress={handleTimeIn} 
-                        disabled={timeInLoading}
-                      >
-                        {timeInLoading ? (
-                          <ActivityIndicator color={COLORS.primary} />
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
-                            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
-                              <Feather name="map-pin" size={24} color={COLORS.primary} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ color: COLORS.textMain, fontWeight: '800', fontSize: 18, marginBottom: 4 }}>
-                                {language === 'fil' ? 'Mag-Clock In' : 'Locate Office & Check In'}
-                              </Text>
-                              <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
-                                📍 {t('locationVerificationDetails')}
-                              </Text>
-                            </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textMuted} />
+                      <HybridCamera 
+                        language={language as any} 
+                        onCancel={() => {
+                          setIsCameraMode(false);
+                          setIsWaitingForScan(true);
+                        }}
+                        onPhotoTaken={async (photoUri) => {
+                          try {
+                            const response = await fetch(photoUri);
+                            const blob = await response.blob();
+                            let ext = 'jpg';
+                            if (photoUri.startsWith('data:')) {
+                               const match = photoUri.match(/data:image\/([a-zA-Z0-9]+);/);
+                               if (match && match[1]) ext = match[1];
+                            } else {
+                               const dotIdx = photoUri.lastIndexOf('.');
+                               if (dotIdx !== -1) ext = photoUri.substring(dotIdx + 1);
+                            }
+                            const fileName = `${session?.user?.id}-${Date.now()}.${ext}`;
+                            const { data, error } = await supabase.storage.from('dtr-selfies').upload(fileName, blob);
+                            if (error) {
+                              Alert.alert('Upload Failed', error.message);
+                              return;
+                            }
+
+                            // Proceed with time in/out logic using fileName
+                            const type = scanTypeRef.current;
+                            const loc = pendingLocationRef.current;
+                            if (type === 'in') {
+                               const timeInPayload = {
+                                technician_id: session?.user?.id,
+                                app_time_in: new Date().toISOString(),
+                                photo_url: fileName,
+                                geofence_status: loc?.status || 'inside',
+                                latitude: loc?.lat || null,
+                                longitude: loc?.lng || null,
+                                is_mocked: false,
+                                is_suspicious: false,
+                                gps_accuracy: null
+                              };
+                              const { data: insertData, error: insertErr } = await supabase.from('time_logs').insert(timeInPayload).select().single();
+                              if (insertErr) {
+                                console.log("INSERT ERROR PAYLOAD:", timeInPayload);
+                                console.log("INSERT ERROR:", insertErr);
+                                Alert.alert('Error', insertErr.message);
+                              }
+                              else { 
+                                setActiveTimeLog(insertData);
+                                Alert.alert('Success', 'Clock In successful (Pending Approval)'); 
+                                
+                              }
+                            } else if (type === 'out') {
+                              const { error: updateErr } = await supabase.from('time_logs').update({
+                                app_time_out: new Date().toISOString(),
+                                is_suspicious: false
+                              }).eq('technician_id', session?.user?.id).is('app_time_out', null);
+                              if (updateErr) {
+                                console.log("UPDATE ERROR:", updateErr);
+                                Alert.alert('Error', updateErr.message);
+                              }
+                              else setActiveTimeLog((prev: any) => ({ ...prev, app_time_out: new Date().toISOString() })); Alert.alert('Success', 'Clock Out successful'); await fetchDashboardData(session?.user?.id);
+                            }
+
+                            setIsCameraMode(false);
+                            setScanType(null);
+                            scanTypeRef.current = null;
+                            pendingLocationRef.current = null;
+                          } catch (e: any) {
+                            Alert.alert('Error', e.message);
+                          }
+                        }}
+                      />
+                    );
+                  }
+
+                  if (!activeTimeLog || activeTimeLog.photo_status === 'rejected') {
+                    return (
+                      <View>
+                        {activeTimeLog?.photo_status === 'rejected' && (
+                          <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: 12, borderRadius: 12, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="alert-circle" size={20} color={COLORS.danger} style={{ marginRight: 8 }} />
+                            <Text style={{ color: COLORS.danger, fontSize: 13, flex: 1 }}>
+                              {language === 'fil' ? 'Tinanggihan ang iyong huling selfie. Mangyaring mag-Clock In muli.' : 'Your last selfie was rejected. Please clock in again.'}
+                            </Text>
                           </View>
                         )}
-                      </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={styles.readyCard} 
+                          onPress={handleTimeIn} 
+                          disabled={timeInLoading}
+                        >
+                          {timeInLoading ? (
+                            <ActivityIndicator color={COLORS.primary} />
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+                              <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                                <Feather name="map-pin" size={24} color={COLORS.primary} />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: COLORS.textMain, fontWeight: '800', fontSize: 18, marginBottom: 4 }}>
+                                  {language === 'fil' ? 'Mag-Clock In' : 'Locate Office & Check In'}
+                                </Text>
+                                <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
+                                  📍 {t('locationVerificationDetails')}
+                                </Text>
+                              </View>
+                              <Feather name="chevron-right" size={20} color={COLORS.textMuted} />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                     );
                   }
 
@@ -1696,6 +1843,12 @@ export default function App() {
                           <Text style={{ color: COLORS.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                             {language === 'fil' ? 'KASALUKUYANG SHIFT' : 'ACTIVE SHIFT'}
                           </Text>
+                          
+                          {activeTimeLog.photo_status === 'pending' && (
+                            <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 6 }}>
+                              <Text style={{ color: '#d97706', fontSize: 11, fontWeight: 'bold' }}>PENDING APPROVAL</Text>
+                            </View>
+                          )}
                           
                           <ActiveShiftTimer startTime={activeTimeLog.app_time_in} />
                           
@@ -2729,7 +2882,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 100000,
+    zIndex: 200000,
   } as ViewStyle,
   splashLogo: {
     width: 110,
@@ -2826,3 +2979,13 @@ const styles = StyleSheet.create({
     zIndex: 99999
   } as ViewStyle
 });
+
+
+
+
+
+
+
+
+
+
