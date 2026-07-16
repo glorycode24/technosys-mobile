@@ -1083,6 +1083,7 @@ export default function App() {
         setPayslip(null);
         setActiveTimeLog(null);
         setLeaves([]);
+        setActiveTab('home');
       }
 
       setSession(currentSession);
@@ -3162,7 +3163,7 @@ export default function App() {
                 {/* Highly Accessible Log Out Row */}
                 <TouchableOpacity 
                   onPress={async () => {
-                    setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
+                    setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null); setActiveTab('home');
                     try { await supabase.auth.signOut(); } catch(e) {}
                   }}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
