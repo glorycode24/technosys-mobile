@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 // Global custom alert types & polyfill
@@ -623,6 +623,36 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+
+  // Intercept physical back button to close modals / redirect tabs
+  useEffect(() => {
+    const onBackPress = () => {
+      // 1. Close leaves history modal if open
+      if (showLeavesModal) {
+        setShowLeavesModal(false);
+        return true;
+      }
+      
+      // 2. Close payroll dispute modal if open
+      if (showDisputeModal) {
+        setShowDisputeModal(false);
+        return true;
+      }
+
+      // 3. Switch back to home tab before exiting
+      if (activeTab !== 'home') {
+        setActiveTab('home');
+        return true;
+      }
+
+      return false; // Exit app
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => {
+      subscription.remove();
+    };
+  }, [showLeavesModal, showDisputeModal, activeTab]);
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);

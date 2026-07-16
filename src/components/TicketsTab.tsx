@@ -3,7 +3,7 @@ import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
   ViewStyle, TextStyle, ImageStyle, RefreshControl,
-  LayoutAnimation, UIManager, Modal, Linking, Image
+  LayoutAnimation, UIManager, Modal, Linking, Image, BackHandler
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -74,6 +74,23 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
   const [chatAttachment, setChatAttachment] = useState<any>(null); // { uri, name, type }
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
+
+  // Intercept physical back button to close selected ticket chat detail view
+  useEffect(() => {
+    const onBackPress = () => {
+      if (selectedTicket) {
+        setSelectedTicket(null);
+        setView('list');
+        return true; // Consume event (do not exit app)
+      }
+      return false; // Propagate event
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => {
+      subscription.remove();
+    };
+  }, [selectedTicket]);
 
   // Inventory Checkout state
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
@@ -320,6 +337,23 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
 
           if (error) throw error;
           dbComments = data || [];
+
+          // Mark comments written by others as read
+          const unreadComments = dbComments.filter(c => c.author_id !== userId && c.read_at === null);
+          if (unreadComments.length > 0) {
+            supabase
+              .from('ticket_comments')
+              .update({ read_at: new Date().toISOString() })
+              .eq('ticket_id', ticketId)
+              .neq('author_id', userId)
+              .is('read_at', null)
+              .then(({ error: markError }) => {
+                if (markError) console.error('Failed to mark comments as read:', markError);
+              });
+            
+            dbComments = dbComments.map(c => c.author_id !== userId ? { ...c, read_at: new Date().toISOString() } : c);
+          }
+
           await AsyncStorage.setItem('CACHED_COMMENTS_' + ticketId, JSON.stringify(dbComments));
         } catch (e: any) {
           console.error('Failed to load comments from network, loading cached...', e);
@@ -817,9 +851,26 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     const content = commentText.trim();
     setCommentText('');
 
+    const tempCommentId = 'temp-' + Date.now();
+    const tempComment = {
+      id: tempCommentId,
+      ticket_id: selectedTicket.id,
+      author_id: userId,
+      content,
+      created_at: new Date().toISOString(),
+      status: 'sending',
+      author: { full_name: fullName, role: 'technician' },
+      attachment_url: chatAttachment ? chatAttachment.uri : null,
+      attachment_type: chatAttachment ? chatAttachment.type : null
+    };
+
+    // Show temporary sending comment in UI instantly
+    setComments(prev => [...prev, tempComment]);
+
     const handleOfflineComment = async () => {
       if (chatAttachment) {
         Alert.alert('Offline Mode', 'File attachments require an internet connection.');
+        setComments(prev => prev.filter(c => c.id !== tempCommentId));
         setCommentSubmitting(false);
         return;
       }
@@ -843,10 +894,10 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         author: { full_name: fullName, role: 'technician' }
       };
 
-      // Instantly append comment to local state
-      setComments(prev => [...prev, newComment]);
+      // Remove temp comment and append sync pending comment
+      setComments(prev => [...prev.filter(c => c.id !== tempCommentId), newComment]);
 
-      // Update the local ticket updated_at time
+      // Update local ticket updated_at time
       const nowStr = new Date().toISOString();
       setSelectedTicket((prev: any) => prev ? { ...prev, updated_at: nowStr } : null);
       setTickets(prev => prev.map(t => t.id === selectedTicket.id ? { ...t, updated_at: nowStr } : t));
@@ -920,6 +971,8 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
         await handleOfflineComment();
       } else {
         Alert.alert('Comment Error', e.message);
+        // Remove temp comment and restore input
+        setComments(prev => prev.filter(c => c.id !== tempCommentId));
         setCommentText(content); // restore input
       }
     } finally {
@@ -1919,7 +1972,27 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                           {c.content}
                         </Text>
                       </View>
-                      <Text style={styles.commentTime}>{formatDate(c.created_at)}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                        <Text style={styles.commentTime}>{formatDate(c.created_at)}</Text>
+                        {isOwnComment && (
+                          <Text 
+                            style={{ 
+                              fontSize: 10, 
+                              marginLeft: 6, 
+                              fontWeight: '600',
+                              color: c.status === 'sync_pending' 
+                                ? '#f59e0b' 
+                                : (!c.status && c.read_at) 
+                                  ? '#10b981' 
+                                  : COLORS.textMuted 
+                            }}
+                          >
+                            {c.status === 'sending' && '• Sending...'}
+                            {c.status === 'sync_pending' && '• Offline (Pending)'}
+                            {!c.status && (c.read_at ? '• Seen' : '• Delivered')}
+                          </Text>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
