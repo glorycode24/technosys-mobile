@@ -67,8 +67,27 @@ export function useGeofence() {
         return { status: 'error', error: errorMsg, errorKey: 'locationPermissionDenied' } as const;
       }
 
-      // 2. Get current position
-      const locationPromise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }); const { data: location, error: locError } = await withTimeout(locationPromise, 15000); if (locError || !location) throw locError || new Error('Location timeout');
+      // 2. Get current position with 10-second timeout and cache fallback
+      let location = null;
+      try {
+        const gpsPromise = Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        location = await withTimeout(gpsPromise, 10000);
+      } catch (gpsErr) {
+        console.warn("GPS request failed or timed out, trying last known position:", gpsErr);
+        try {
+          location = await Location.getLastKnownPositionAsync();
+        } catch (cacheErr) {
+          console.warn("Failed to retrieve last known position:", cacheErr);
+        }
+      }
+
+      if (!location) {
+        const errorMsg = 'Location request timed out. Please ensure GPS/Location services are enabled on your device and try again.';
+        setResult(prev => ({ ...prev, status: 'error', error: errorMsg, errorKey: 'locationTimeout' }));
+        return { status: 'error', error: errorMsg, errorKey: 'locationTimeout' } as const;
+      }
 
       const isMocked = !!(location as any).mocked;
       const gpsAccuracy = location.coords.accuracy;
@@ -180,7 +199,7 @@ export function useGeofence() {
       if (!subscriptionRef.current) {
         subscriptionRef.current = await Location.watchPositionAsync(
           {
-            accuracy: Location.Accuracy.High,
+            accuracy: Location.Accuracy.Balanced,
             timeInterval: 4000,   // every 4 seconds
             distanceInterval: 3,  // every 3 meters
           },
