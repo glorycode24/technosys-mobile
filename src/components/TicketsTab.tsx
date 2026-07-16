@@ -1228,7 +1228,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
       {view === 'list' && (
         <View style={styles.container}>
           <View style={styles.tabHeader}>
-            <View>
+            <View style={{ flex: 1, marginRight: 16 }}>
               <Text style={styles.title}>{t('serviceDesk')}</Text>
               <Text style={styles.subtitle}>{t('fileRequestsSubtitle')}</Text>
             </View>
