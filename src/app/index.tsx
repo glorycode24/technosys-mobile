@@ -11,14 +11,120 @@ interface CustomAlertPayload {
     onPress?: () => void;
     style?: 'default' | 'cancel' | 'destructive';
   }>;
+  rawMessage?: string;
 }
+
+let activeAppLanguage: 'en' | 'fil' = 'en';
+
+const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil') => {
+  const text = `${title} ${message}`.toLowerCase();
+  
+  // Connection / DNS errors
+  if (
+    text.includes('unknownhostexception') || 
+    text.includes('fetch failed') || 
+    text.includes('network request failed') ||
+    text.includes('unable to resolve host') ||
+    text.includes('network error')
+  ) {
+    return lang === 'fil'
+      ? 'Problema sa Koneksyon. Pakisuri ang iyong internet connection at subukan muli.'
+      : 'Connection Error. Please check your internet connection and try again.';
+  }
+
+  // Auth invalid credentials
+  if (
+    text.includes('invalid_credentials') || 
+    text.includes('invalid claim') || 
+    text.includes('invalid email or password') ||
+    text.includes('maling email o password')
+  ) {
+    return lang === 'fil'
+      ? 'Maling email o password. Pakisubukan muli.'
+      : 'Invalid email or password. Please try again.';
+  }
+
+  // Database unique key constraint
+  if (
+    text.includes('duplicate key value') || 
+    text.includes('violates unique constraint') || 
+    text.includes('already exists')
+  ) {
+    return lang === 'fil'
+      ? 'Ang impormasyong ito ay mayroon na sa system.'
+      : 'This record already exists in the system.';
+  }
+
+  // Row Level Security (RLS) policies
+  if (
+    text.includes('row level security') || 
+    text.includes('violates row-level security') || 
+    text.includes('violates rls')
+  ) {
+    return lang === 'fil'
+      ? 'Access Denied. Wala kang pahintulot na baguhin ang item na ito.'
+      : 'Access Denied. You do not have permission to modify this item.';
+  }
+
+  // Database foreign key constraint
+  if (
+    text.includes('violates foreign key constraint') ||
+    text.includes('foreign key violation')
+  ) {
+    return lang === 'fil'
+      ? 'Hindi makumpleto ang operasyon. Nawawala ang kaugnay na record.'
+      : 'Operation failed. Associated record was not found.';
+  }
+
+  // JWT expired
+  if (
+    text.includes('jwt expired') || 
+    text.includes('session expired') || 
+    text.includes('invalid ticket')
+  ) {
+    return lang === 'fil'
+      ? 'Nawalan ng bisa ang iyong session. Pakilog-in muli.'
+      : 'Your session has expired. Please log in again.';
+  }
+
+  // Supabase storage bucket errors
+  if (
+    text.includes('bucket not found') ||
+    text.includes('storage bucket')
+  ) {
+    return lang === 'fil'
+      ? 'Problema sa imbakan ng file. Mangyaring kontakin ang suporta.'
+      : 'File system storage error. Please contact support.';
+  }
+
+  // Location timeout
+  if (
+    text.includes('location timeout') ||
+    (text.includes('timed out') && text.includes('location'))
+  ) {
+    return lang === 'fil'
+      ? 'Hindi makuha ang iyong lokasyon. Pakisubukan muli sa labas o buksan ang GPS.'
+      : 'Location verification timeout. Please verify your GPS settings and try again.';
+  }
+
+  return message;
+};
 
 const nativeAlert = Alert.alert;
 let globalAlertTrigger: ((payload: CustomAlertPayload) => void) | null = null;
 const alertQueue: CustomAlertPayload[] = [];
 
 Alert.alert = (title: string, message?: string, buttons?: any[]) => {
-  const payload = { title, message, buttons };
+  const raw = message || '';
+  const sanitized = sanitizeErrorMessage(title, raw, activeAppLanguage);
+  
+  const payload = { 
+    title, 
+    message: sanitized, 
+    buttons,
+    rawMessage: raw !== sanitized ? raw : undefined 
+  };
+
   // Auto-dismiss keyboard when alerts launch
   Keyboard.dismiss();
 
@@ -347,6 +453,7 @@ export default function App() {
   // Global custom alert states
   const [activeAlert, setActiveAlert] = useState<CustomAlertPayload | null>(null);
   const [alertQueueState, setAlertQueueState] = useState<CustomAlertPayload[]>([]);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
 
   useEffect(() => {
     const showNextAlert = (nextAlert: CustomAlertPayload) => {
@@ -385,6 +492,7 @@ export default function App() {
       }
     }
     setActiveAlert(null);
+    setShowErrorDetails(false); // Reset toggle state
     setAlertQueueState(prev => {
       const nextQueue = prev.slice(1);
       if (nextQueue.length > 0) {
@@ -705,6 +813,11 @@ export default function App() {
   };
 
   const [language, setLanguage] = useState<Locale>('en');
+
+  useEffect(() => {
+    activeAppLanguage = language;
+  }, [language]);
+
   const langAnim = React.useRef(new Animated.Value(0)).current;
 
   const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
@@ -3471,6 +3584,60 @@ export default function App() {
                   </Text>
                 ) : (
                   <View style={{ height: 16 }} />
+                )}
+
+                {/* Collapsible Details Panel */}
+                {activeAlert.rawMessage && (
+                  <View style={{ width: '100%', marginBottom: 16 }}>
+                    <TouchableOpacity
+                      onPress={() => setShowErrorDetails(prev => !prev)}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 8,
+                        backgroundColor: '#f8fafc',
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: '#e2e8f0'
+                      }}
+                    >
+                      <Feather 
+                        name={showErrorDetails ? "chevron-up" : "chevron-down"} 
+                        size={16} 
+                        color="#64748b" 
+                        style={{ marginRight: 6 }} 
+                      />
+                      <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '700' }}>
+                        {showErrorDetails 
+                          ? (language === 'fil' ? 'Itago ang Detalye' : 'Hide Details') 
+                          : (language === 'fil' ? 'Ipakita ang Detalye' : 'Show Details')}
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    {showErrorDetails && (
+                      <View style={{
+                        marginTop: 8,
+                        padding: 12,
+                        backgroundColor: '#0f172a',
+                        borderRadius: 10,
+                        maxHeight: 120,
+                        width: '100%'
+                      }}>
+                        <ScrollView style={{ flexGrow: 0 }}>
+                          <Text style={{
+                            fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                            fontSize: 11,
+                            color: '#94a3b8',
+                            lineHeight: 16
+                          }}>
+                            {activeAlert.rawMessage}
+                          </Text>
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
                 )}
 
                 {/* Buttons Container */}
