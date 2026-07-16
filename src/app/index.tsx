@@ -2697,8 +2697,8 @@ export default function App() {
 
           {activeTab === 'profile' && (
             <ScrollView contentContainerStyle={styles.content}>
-               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
-                <Text style={styles.name}>{t('profileTitle')}</Text>
+            <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
+                <Text style={[styles.name, { flex: 1, marginRight: 16 }]}>{t('profileTitle')}</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
 
