@@ -1,6 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard } from 'react-native';
 import { supabase } from '../lib/supabase';
+
+// Global custom alert types & polyfill
+interface CustomAlertPayload {
+  title: string;
+  message?: string;
+  buttons?: Array<{
+    text?: string;
+    onPress?: () => void;
+    style?: 'default' | 'cancel' | 'destructive';
+  }>;
+}
+
+const nativeAlert = Alert.alert;
+let globalAlertTrigger: ((payload: CustomAlertPayload) => void) | null = null;
+const alertQueue: CustomAlertPayload[] = [];
+
+Alert.alert = (title: string, message?: string, buttons?: any[]) => {
+  const payload = { title, message, buttons };
+  // Auto-dismiss keyboard when alerts launch
+  Keyboard.dismiss();
+
+  if (globalAlertTrigger) {
+    globalAlertTrigger(payload);
+  } else {
+    // If React UI isn't ready, store it in queue
+    alertQueue.push(payload);
+  }
+};
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
 import GeofenceMobileMap from '../components/GeofenceMobileMap';
@@ -315,6 +343,93 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(true);
+
+  // Global custom alert states
+  const [activeAlert, setActiveAlert] = useState<CustomAlertPayload | null>(null);
+  const [alertQueueState, setAlertQueueState] = useState<CustomAlertPayload[]>([]);
+
+  useEffect(() => {
+    const showNextAlert = (nextAlert: CustomAlertPayload) => {
+      setActiveAlert(nextAlert);
+    };
+
+    globalAlertTrigger = (payload: CustomAlertPayload) => {
+      setAlertQueueState(prev => {
+        const newQueue = [...prev, payload];
+        if (newQueue.length === 1 && !activeAlert) {
+          showNextAlert(payload);
+        }
+        return newQueue;
+      });
+    };
+
+    // If alerts triggered before render, ingest them
+    if (alertQueue.length > 0) {
+      const initialQueue = [...alertQueue];
+      alertQueue.length = 0;
+      setAlertQueueState(initialQueue);
+      showNextAlert(initialQueue[0]);
+    }
+
+    return () => {
+      globalAlertTrigger = null;
+    };
+  }, [activeAlert]);
+
+  const handleAlertDismiss = (buttonPressHandler?: () => void) => {
+    if (buttonPressHandler) {
+      try {
+        buttonPressHandler();
+      } catch (err) {
+        console.error("Alert handler failed:", err);
+      }
+    }
+    setActiveAlert(null);
+    setAlertQueueState(prev => {
+      const nextQueue = prev.slice(1);
+      if (nextQueue.length > 0) {
+        setTimeout(() => {
+          setActiveAlert(nextQueue[0]);
+        }, 150);
+      }
+      return nextQueue;
+    });
+  };
+
+  const getAlertIconAndColor = (title: string, message: string) => {
+    const text = `${title} ${message}`.toLowerCase();
+    if (
+      text.includes('success') || 
+      text.includes('synced') || 
+      text.includes('successful') || 
+      text.includes('matagumpay') ||
+      text.includes('completed')
+    ) {
+      return { icon: 'check-circle' as const, color: '#10b981' }; // Green
+    }
+    if (
+      text.includes('failed') || 
+      text.includes('error') || 
+      text.includes('timeout') || 
+      text.includes('timed out') || 
+      text.includes('invalid') || 
+      text.includes('bigo') || 
+      text.includes('wrong') || 
+      text.includes('incorrect')
+    ) {
+      return { icon: 'alert-circle' as const, color: '#ef4444' }; // Red
+    }
+    if (
+      text.includes('location') || 
+      text.includes('gps') || 
+      text.includes('geofence') || 
+      text.includes('proximity') || 
+      text.includes('map')
+    ) {
+      return { icon: 'map-pin' as const, color: '#3b82f6' }; // Blue
+    }
+    return { icon: 'info' as const, color: '#3b82f6' }; // Info Blue
+  };
 
   // Helper functions for platform-agnostic Secure Storage
   const getSecureItem = async (key: string): Promise<string | null> => {
@@ -3285,6 +3400,120 @@ export default function App() {
           </Animated.View>
         </Animated.View>
       )}
+
+      {activeAlert && (() => {
+        const { icon, color } = getAlertIconAndColor(activeAlert.title, activeAlert.message || '');
+        const alertButtons = activeAlert.buttons || [{ text: 'OK', onPress: () => {} }];
+        
+        return (
+          <Modal
+            visible={!!activeAlert}
+            transparent
+            animationType="fade"
+            onRequestClose={() => handleAlertDismiss()}
+          >
+            <View style={{
+              flex: 1,
+              backgroundColor: 'rgba(15, 23, 42, 0.6)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 20
+            }}>
+              <View style={{
+                backgroundColor: '#ffffff',
+                borderRadius: 24,
+                width: '88%',
+                maxWidth: 340,
+                padding: 24,
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.15,
+                shadowRadius: 20,
+                elevation: 10,
+                borderWidth: 1,
+                borderColor: '#f1f5f9'
+              }}>
+                {/* Icon Container */}
+                <View style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: color + '15',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 16
+                }}>
+                  <Feather name={icon} size={28} color={color} />
+                </View>
+
+                {/* Title */}
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '800',
+                  color: '#0f172a',
+                  textAlign: 'center',
+                  marginBottom: 8
+                }}>
+                  {activeAlert.title}
+                </Text>
+
+                {/* Message */}
+                {activeAlert.message ? (
+                  <Text style={{
+                    fontSize: 14,
+                    color: '#475569',
+                    textAlign: 'center',
+                    lineHeight: 20,
+                    marginBottom: 24
+                  }}>
+                    {activeAlert.message}
+                  </Text>
+                ) : (
+                  <View style={{ height: 16 }} />
+                )}
+
+                {/* Buttons Container */}
+                <View style={{ width: '100%' }}>
+                  {alertButtons.map((btn, idx) => {
+                    const isCancel = btn.style === 'cancel' || btn.text?.toLowerCase() === 'cancel' || btn.text?.toLowerCase() === 'itigil';
+                    const isDestructive = btn.style === 'destructive';
+                    
+                    return (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => handleAlertDismiss(btn.onPress)}
+                        activeOpacity={0.7}
+                        style={{
+                          width: '100%',
+                          height: 48,
+                          borderRadius: 14,
+                          backgroundColor: isCancel 
+                            ? 'transparent' 
+                            : isDestructive 
+                              ? '#ef4444' 
+                              : color,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginTop: idx > 0 ? 8 : 0
+                        }}
+                      >
+                        <Text style={{
+                          color: isCancel ? '#64748b' : '#ffffff',
+                          fontSize: 15,
+                          fontWeight: '700'
+                        }}>
+                          {btn.text || 'OK'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          </Modal>
+        );
+      })()}
     </View>
   );
 
