@@ -386,6 +386,38 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
     fetchLeaves();
   }, [userId]);
 
+  // Real-time chat sync and polling fallback
+  useEffect(() => {
+    if (view !== 'detail' || !selectedTicket?.id || !isOnline) return;
+
+    // 1. Establish Supabase Realtime channel subscription
+    const channel = supabase
+      .channel(`ticket-comments-channel-${selectedTicket.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'ticket_comments',
+          filter: `ticket_id=eq.${selectedTicket.id}`
+        },
+        () => {
+          fetchComments(selectedTicket.id);
+        }
+      )
+      .subscribe();
+
+    // 2. 5-second polling interval as a fallback
+    const interval = setInterval(() => {
+      fetchComments(selectedTicket.id);
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [view, selectedTicket?.id, isOnline]);
+
   const handleSelectTicket = (ticket: any) => {
     setSelectedTicket(ticket);
     setView('detail');
