@@ -14,9 +14,9 @@ interface CustomAlertPayload {
   rawMessage?: string;
 }
 
-let activeAppLanguage: 'en' | 'fil' = 'en';
+let activeAppLanguage: 'en' | 'fil' | 'ja' = 'en';
 
-const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil') => {
+const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil' | 'ja') => {
   const text = `${title} ${message}`.toLowerCase();
   
   // Connection / DNS errors
@@ -27,6 +27,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('unable to resolve host') ||
     text.includes('network error')
   ) {
+    if (lang === 'ja') return '接続エラーが発生しました。インターネット接続を確認し、再試行してください。';
     return lang === 'fil'
       ? 'Problema sa Koneksyon. Pakisuri ang iyong internet connection at subukan muli.'
       : 'Connection Error. Please check your internet connection and try again.';
@@ -39,6 +40,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('invalid email or password') ||
     text.includes('maling email o password')
   ) {
+    if (lang === 'ja') return 'メールアドレスまたはパスワードが正しくありません。再試行してください。';
     return lang === 'fil'
       ? 'Maling email o password. Pakisubukan muli.'
       : 'Invalid email or password. Please try again.';
@@ -50,6 +52,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('violates unique constraint') || 
     text.includes('already exists')
   ) {
+    if (lang === 'ja') return 'このレコードは既にシステムに存在します。';
     return lang === 'fil'
       ? 'Ang impormasyong ito ay mayroon na sa system.'
       : 'This record already exists in the system.';
@@ -61,6 +64,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('violates row-level security') || 
     text.includes('violates rls')
   ) {
+    if (lang === 'ja') return 'アクセスが拒否されました。この項目を変更する権限がありません。';
     return lang === 'fil'
       ? 'Access Denied. Wala kang pahintulot na baguhin ang item na ito.'
       : 'Access Denied. You do not have permission to modify this item.';
@@ -71,6 +75,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('violates foreign key constraint') ||
     text.includes('foreign key violation')
   ) {
+    if (lang === 'ja') return '処理を完了できませんでした。関連するレコードが見つかりません。';
     return lang === 'fil'
       ? 'Hindi makumpleto ang operasyon. Nawawala ang kaugnay na record.'
       : 'Operation failed. Associated record was not found.';
@@ -82,6 +87,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('session expired') || 
     text.includes('invalid ticket')
   ) {
+    if (lang === 'ja') return 'セッションの有効期限が切れました。再度ログインしてください。';
     return lang === 'fil'
       ? 'Nawalan ng bisa ang iyong session. Pakilog-in muli.'
       : 'Your session has expired. Please log in again.';
@@ -92,6 +98,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('bucket not found') ||
     text.includes('storage bucket')
   ) {
+    if (lang === 'ja') return 'ファイルストレージエラーが発生しました。サポートにお問い合わせください。';
     return lang === 'fil'
       ? 'Problema sa imbakan ng file. Mangyaring kontakin ang suporta.'
       : 'File system storage error. Please contact support.';
@@ -102,6 +109,7 @@ const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil'
     text.includes('location timeout') ||
     (text.includes('timed out') && text.includes('location'))
   ) {
+    if (lang === 'ja') return '位置情報の取得がタイムアウトしました。GPS設定を確認して再試行してください。';
     return lang === 'fil'
       ? 'Hindi makuha ang iyong lokasyon. Pakisubukan muli sa labas o buksan ang GPS.'
       : 'Location verification timeout. Please verify your GPS settings and try again.';
@@ -663,6 +671,39 @@ export default function App() {
 
   // Phase 8: DMS Download States
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+
+  // Easter egg: logo tap counter
+  const logoTapTimeout = React.useRef<any>(null);
+  const [logoTaps, setLogoTaps] = useState(0);
+  const [prevLang, setPrevLang] = useState<Locale>('en');
+
+  const handleLogoTap = () => {
+    if (logoTapTimeout.current) clearTimeout(logoTapTimeout.current);
+    
+    setLogoTaps(prev => {
+      const next = prev + 1;
+      if (next === 3) {
+        if (language === 'ja') {
+          setLanguage(prevLang);
+          AsyncStorage.setItem('APP_LANGUAGE', prevLang);
+          Alert.alert('Easter Egg Deactivated', 'Nihongo mode off! Returning to your previous language.');
+        } else {
+          setPrevLang(language);
+          setLanguage('ja');
+          AsyncStorage.setItem('APP_LANGUAGE', 'ja');
+          Alert.alert('Easter Egg Activated!', 'ようこそ (Yokoso) to TechnoSys! Nihongo mode is now active.');
+        }
+        return 0;
+      }
+      
+      logoTapTimeout.current = setTimeout(() => {
+        setLogoTaps(0);
+      }, 1500); // Reset after 1.5 seconds of inactivity
+      
+      return next;
+    });
+  };
+
   const [downloadProgress, setDownloadProgress] = useState(0);
 
   // Animations for new premium DTR states
@@ -861,7 +902,7 @@ export default function App() {
     return text;
   };
 
-  const getBilingualText = (text: string, lang: 'en' | 'fil') => {
+  const getBilingualText = (text: string, lang: 'en' | 'fil' | 'ja') => {
     if (!text) return '';
     const parts = text.split('|');
     if (parts.length > 1) {
@@ -2958,7 +2999,9 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
             <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={[styles.name, { flex: 1, marginRight: 16 }]}>{t('profileTitle')}</Text>
-                <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                <TouchableOpacity onPress={handleLogoTap} activeOpacity={0.7}>
+                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                </TouchableOpacity>
               </View>
 
               {/* Avatar Header Row */}
