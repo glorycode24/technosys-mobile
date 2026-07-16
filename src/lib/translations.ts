@@ -429,6 +429,7 @@ export const TRANSLATIONS = {
     waitingForBiometricTerminal: "Naghihintay ng biometric scan sa opisina...",
     scanBiometricTerminalInstructions: "Mangyaring ilagay ang iyong daliri sa biometrics reader ng kumpanya upang makumpleto ang pag-verify.",
     biometricScanMatched: "Nagtugma ang fingerprint scan!",
-    biometricScanTimeout: "Nag-timeout ang pag-verify ng biometric scan. Subukang muli."
+    biometricScanTimeout: "Nag-timeout ang pag-verify ng biometric scan. Subukang muli.",
+    locationTimeout: "Nag-timeout ang paghiling ng lokasyon. Siguraduhing naka-enable ang GPS/Lokasyon ng iyong device at subukang muli."
   }
 };
