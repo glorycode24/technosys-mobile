@@ -628,6 +628,10 @@ export default function App() {
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [showOtModal, setShowOtModal] = useState(false);
+  const [otHours, setOtHours] = useState("1");
+  const [otReason, setOtReason] = useState("");
+  const [otSubmitting, setOtSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
@@ -635,19 +639,29 @@ export default function App() {
   // Intercept physical back button to close modals / redirect tabs
   useEffect(() => {
     const onBackPress = () => {
-      // 1. Close leaves history modal if open
+      // 1. Close leaves forms
+      if (showApplyLeaveModal) {
+        setShowApplyLeaveModal(false);
+        return true;
+      }
       if (showLeavesModal) {
         setShowLeavesModal(false);
         return true;
       }
       
-      // 2. Close payroll dispute modal if open
+      // 2. Close overtime request modal
+      if (showOtModal) {
+        setShowOtModal(false);
+        return true;
+      }
+
+      // 3. Close payroll dispute modal if open
       if (showDisputeModal) {
         setShowDisputeModal(false);
         return true;
       }
 
-      // 3. Switch back to home tab before exiting
+      // 4. Switch back to home tab before exiting
       if (activeTab !== 'home') {
         setActiveTab('home');
         return true;
@@ -660,7 +674,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [showLeavesModal, showDisputeModal, activeTab]);
+  }, [showLeavesModal, showApplyLeaveModal, showOtModal, showDisputeModal, activeTab]);
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
@@ -1664,6 +1678,61 @@ export default function App() {
     }
   };
 
+  const handleOtSubmit = async () => {
+    if (!session) return;
+    if (!otReason.trim()) {
+      Alert.alert(language === 'fil' ? 'May Error' : 'Error', language === 'fil' ? 'Mangyaring ilagay ang dahilan.' : 'Please enter a reason.');
+      return;
+    }
+    const hoursNum = parseFloat(otHours);
+    if (isNaN(hoursNum) || hoursNum <= 0 || hoursNum > 24) {
+      Alert.alert(language === 'fil' ? 'May Error' : 'Error', language === 'fil' ? 'Maling bilang ng oras.' : 'Invalid hours amount.');
+      return;
+    }
+
+    setOtSubmitting(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const { error } = await supabase
+        .from('overtime_requests')
+        .insert({
+          technician_id: session.user.id,
+          request_date: todayStr,
+          requested_hours: hoursNum,
+          reason: otReason.trim(),
+          status: 'pending'
+        });
+
+      if (error) {
+        if (error.message.includes('unique_tech_date_ot')) {
+          Alert.alert(
+            language === 'fil' ? 'Mayroon Na' : 'Duplicate Request',
+            language === 'fil'
+              ? 'Nakapag-submit ka na ng overtime request para sa araw na ito.'
+              : 'You have already submitted an overtime request for this date.'
+          );
+        } else {
+          throw error;
+        }
+      } else {
+        Alert.alert(
+          language === 'fil' ? 'Matagumpay' : 'Success',
+          language === 'fil'
+            ? 'Naipadala na ang iyong overtime request para sa approval ng admin.'
+            : 'Your overtime request has been submitted for admin approval.'
+        );
+        setShowOtModal(false);
+        setOtReason("");
+        setOtHours("1");
+      }
+    } catch (err: any) {
+      console.error("Overtime submission error:", err);
+      Alert.alert('Submission Failed', err.message || 'An error occurred.');
+    } finally {
+      setOtSubmitting(false);
+    }
+  };
+
   const handleSelectDisputeAttachment = async () => {
     if (Platform.OS === 'web') {
       try {
@@ -2060,11 +2129,57 @@ export default function App() {
     });
   };
 
+  const getTodaySchedule = () => {
+    if (!schedules || schedules.length === 0) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+    
+    return schedules.find(s => {
+      const start = new Date(s.start_time);
+      start.setHours(0, 0, 0, 0);
+      const end = s.end_time ? new Date(s.end_time) : start;
+      end.setHours(0, 0, 0, 0);
+      return todayTime >= start.getTime() && todayTime <= end.getTime();
+    });
+  };
+
   const handleTimeIn = async () => {
     if (!session) return;
     setTimeInLoading(true);
 
     try {
+      // 1. Check if they have a dispatch schedule for today
+      const todaySched = getTodaySchedule();
+      if (!todaySched) {
+        Alert.alert(
+          language === 'fil' ? 'Walang Dispatch' : 'No Dispatch Assigned',
+          language === 'fil'
+            ? 'Maaari ka lamang mag-clock in kung mayroon kang nakatalagang dispatch assignment para sa araw na ito.'
+            : 'You can only clock in if you have an assigned dispatch/work schedule for today.'
+        );
+        setTimeInLoading(false);
+        return;
+      }
+
+      // 2. Prevent clock-in earlier than 1 hour before scheduled start
+      const schedStart = new Date(todaySched.start_time);
+      const now = new Date();
+      const oneHourBeforeStart = new Date(schedStart.getTime() - 60 * 60 * 1000);
+      
+      if (now < oneHourBeforeStart) {
+        const timeStr = oneHourBeforeStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        Alert.alert(
+          language === 'fil' ? 'Masyadong Maaga' : 'Clock-In Too Early',
+          language === 'fil'
+            ? `Maaari ka lamang mag-clock in simula ${timeStr} (1 oras bago ang iyong shift).`
+            : `You can only clock in starting at ${timeStr} (1 hour before your scheduled shift).`
+        );
+        setTimeInLoading(false);
+        return;
+      }
+
+      // 3. Fallback to existing bypass checking for direct dispatches
       const activeSched = getActiveDirectOrTravelSchedule();
       if (activeSched) {
         // Bypass geofence check and biometric fingerprint scan
@@ -2497,6 +2612,29 @@ export default function App() {
                           <Text style={{ color: COLORS.textMuted, fontSize: 11, marginBottom: 16 }}>
                             {t('loggedAt', { time: new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })}
                           </Text>
+
+                          <TouchableOpacity 
+                            style={{
+                              backgroundColor: 'rgba(79, 70, 229, 0.08)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(79, 70, 229, 0.2)',
+                              paddingVertical: 12,
+                              paddingHorizontal: 16,
+                              borderRadius: 14,
+                              width: '100%',
+                              alignItems: 'center',
+                              marginBottom: 10,
+                              flexDirection: 'row',
+                              justifyContent: 'center',
+                              gap: 6
+                            }}
+                            onPress={() => setShowOtModal(true)}
+                          >
+                            <Feather name="clock" size={14} color={COLORS.primary} />
+                            <Text style={{ color: COLORS.primary, fontWeight: '800', fontSize: 13 }}>
+                              {language === 'fil' ? 'Mag-request ng Overtime' : 'File Overtime Request'}
+                            </Text>
+                          </TouchableOpacity>
 
                           <TouchableOpacity 
                             style={styles.timeOutSecondaryButton} 
@@ -3424,6 +3562,77 @@ export default function App() {
                 style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
               >
                 {leaveSubmitLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
+
+      {showOtModal && (
+        <Modal animationType="slide" transparent={false} visible={showOtModal} onRequestClose={() => setShowOtModal(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
+              <TouchableOpacity onPress={() => setShowOtModal(false)} style={{ padding: 8, marginLeft: -8 }}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>
+                {language === 'fil' ? 'Mag-request ng Overtime' : 'Request Overtime'}
+              </Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 40 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 12 }}>
+                {language === 'fil'
+                  ? 'Gamitin ang form na ito upang mag-request ng overtime hours kapag nagtatrabaho lagpas ng 5:00 PM.'
+                  : 'Use this form to request overtime hours when working past 5:00 PM.'}
+              </Text>
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Petsa ng Overtime' : 'Overtime Date'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMuted, marginBottom: 16, backgroundColor: 'rgba(244, 244, 245, 0.5)' }}
+                value={new Date().toLocaleDateString(undefined, { dateStyle: 'long' })}
+                editable={false}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Bilang ng Oras (OT Hours)' : 'Requested Hours (OT Hours)'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 16, backgroundColor: COLORS.card }}
+                keyboardType="numeric"
+                placeholder="e.g. 2"
+                placeholderTextColor={COLORS.textMuted}
+                value={otHours}
+                onChangeText={setOtHours}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Dahilan ng Overtime' : 'Reason for Overtime'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 24, backgroundColor: COLORS.card, height: 120 }}
+                placeholder={language === 'fil' ? 'Ilagay ang dahilan ng pag-overtime...' : 'Explain the reason for overtime...'}
+                placeholderTextColor={COLORS.textMuted}
+                value={otReason}
+                onChangeText={setOtReason}
+                multiline
+              />
+
+              <TouchableOpacity 
+                onPress={handleOtSubmit}
+                disabled={otSubmitting}
+                style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
+              >
+                {otSubmitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                    {language === 'fil' ? 'I-submit ang OT Request' : 'Submit OT Request'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>
