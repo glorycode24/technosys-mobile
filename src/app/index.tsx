@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 // Global custom alert types & polyfill
 interface CustomAlertPayload {
@@ -778,27 +781,63 @@ export default function App() {
     };
   }, [activeTimeLog]);
 
-  const startFormDownload = (filename: string) => {
+  const startFormDownload = async (filename: string) => {
     if (downloadingFile) return;
     setDownloadingFile(filename);
     setDownloadProgress(0);
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += 20;
-      setDownloadProgress(currentProgress);
-      if (currentProgress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setDownloadingFile(null);
-          Alert.alert(
-            language === 'fil' ? 'Matagumpay' : 'Success',
-            language === 'fil'
-              ? `Matagumpay na na-download ang ${filename} at na-save sa iyong device.`
-              : `${filename} has been downloaded successfully and saved to your device.`
-          );
-        }, 300);
+
+    try {
+      let assetModule: any;
+      if (filename === 'Employee_Handbook_2026.pdf') {
+        assetModule = require('../../assets/Employee Handbook.pdf');
+      } else if (filename === 'Leave_Application_Form.pdf') {
+        assetModule = require('../../assets/Leave Application Form.pdf');
+      } else if (filename === 'Resignation_Template.pdf') {
+        assetModule = require('../../assets/Resignation Template.pdf');
+      } else {
+        throw new Error('Unknown document: ' + filename);
       }
-    }, 450);
+
+      const asset = Asset.fromModule(assetModule);
+      await asset.downloadAsync();
+
+      for (let p = 20; p <= 100; p += 20) {
+        setDownloadProgress(p);
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
+      const localUri = `${FileSystem.documentDirectory}${filename}`;
+      await FileSystem.copyAsync({
+        from: asset.localUri || asset.uri,
+        to: localUri
+      });
+
+      setDownloadingFile(null);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(localUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Open ${filename.replace(/_/g, ' ')}`,
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert(
+          language === 'fil' ? 'Matagumpay' : 'Success',
+          language === 'fil'
+            ? `Matagumpay na na-save ang ${filename} sa iyong device.`
+            : `${filename} has been saved successfully to your device.`
+        );
+      }
+    } catch (err: any) {
+      setDownloadingFile(null);
+      console.error('Failed to download form asset:', err);
+      Alert.alert(
+        language === 'fil' ? 'Kabiguan' : 'Error',
+        language === 'fil'
+          ? 'Hindi ma-download ang file: ' + err.message
+          : 'Could not download file: ' + err.message
+      );
+    }
   };
 
   useEffect(() => {
