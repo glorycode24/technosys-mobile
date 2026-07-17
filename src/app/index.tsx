@@ -1,6 +1,151 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+
+// Global custom alert types & polyfill
+interface CustomAlertPayload {
+  title: string;
+  message?: string;
+  buttons?: Array<{
+    text?: string;
+    onPress?: () => void;
+    style?: 'default' | 'cancel' | 'destructive';
+  }>;
+  rawMessage?: string;
+}
+
+let activeAppLanguage: 'en' | 'fil' | 'ja' = 'en';
+
+const sanitizeErrorMessage = (title: string, message: string, lang: 'en' | 'fil' | 'ja') => {
+  const text = `${title} ${message}`.toLowerCase();
+  
+  // Connection / DNS errors
+  if (
+    text.includes('unknownhostexception') || 
+    text.includes('fetch failed') || 
+    text.includes('network request failed') ||
+    text.includes('unable to resolve host') ||
+    text.includes('network error')
+  ) {
+    if (lang === 'ja') return '接続エラーが発生しました。インターネット接続を確認し、再試行してください。';
+    return lang === 'fil'
+      ? 'Problema sa Koneksyon. Pakisuri ang iyong internet connection at subukan muli.'
+      : 'Connection Error. Please check your internet connection and try again.';
+  }
+
+  // Auth invalid credentials
+  if (
+    text.includes('invalid_credentials') || 
+    text.includes('invalid claim') || 
+    text.includes('invalid email or password') ||
+    text.includes('maling email o password')
+  ) {
+    if (lang === 'ja') return 'メールアドレスまたはパスワードが正しくありません。再試行してください。';
+    return lang === 'fil'
+      ? 'Maling email o password. Pakisubukan muli.'
+      : 'Invalid email or password. Please try again.';
+  }
+
+  // Database unique key constraint
+  if (
+    text.includes('duplicate key value') || 
+    text.includes('violates unique constraint') || 
+    text.includes('already exists')
+  ) {
+    if (lang === 'ja') return 'このレコードは既にシステムに存在します。';
+    return lang === 'fil'
+      ? 'Ang impormasyong ito ay mayroon na sa system.'
+      : 'This record already exists in the system.';
+  }
+
+  // Row Level Security (RLS) policies
+  if (
+    text.includes('row level security') || 
+    text.includes('violates row-level security') || 
+    text.includes('violates rls')
+  ) {
+    if (lang === 'ja') return 'アクセスが拒否されました。この項目を変更する権限がありません。';
+    return lang === 'fil'
+      ? 'Access Denied. Wala kang pahintulot na baguhin ang item na ito.'
+      : 'Access Denied. You do not have permission to modify this item.';
+  }
+
+  // Database foreign key constraint
+  if (
+    text.includes('violates foreign key constraint') ||
+    text.includes('foreign key violation')
+  ) {
+    if (lang === 'ja') return '処理を完了できませんでした。関連するレコードが見つかりません。';
+    return lang === 'fil'
+      ? 'Hindi makumpleto ang operasyon. Nawawala ang kaugnay na record.'
+      : 'Operation failed. Associated record was not found.';
+  }
+
+  // JWT expired
+  if (
+    text.includes('jwt expired') || 
+    text.includes('session expired') || 
+    text.includes('invalid ticket')
+  ) {
+    if (lang === 'ja') return 'セッションの有効期限が切れました。再度ログインしてください。';
+    return lang === 'fil'
+      ? 'Nawalan ng bisa ang iyong session. Pakilog-in muli.'
+      : 'Your session has expired. Please log in again.';
+  }
+
+  // Supabase storage bucket errors
+  if (
+    text.includes('bucket not found') ||
+    text.includes('storage bucket')
+  ) {
+    if (lang === 'ja') return 'ファイルストレージエラーが発生しました。サポートにお問い合わせください。';
+    return lang === 'fil'
+      ? 'Problema sa imbakan ng file. Mangyaring kontakin ang suporta.'
+      : 'File system storage error. Please contact support.';
+  }
+
+  // Location timeout
+  if (
+    text.includes('location timeout') ||
+    (text.includes('timed out') && text.includes('location'))
+  ) {
+    if (lang === 'ja') return '位置情報の取得がタイムアウトしました。GPS設定を確認して再試行してください。';
+    return lang === 'fil'
+      ? 'Hindi makuha ang iyong lokasyon. Pakisubukan muli sa labas o buksan ang GPS.'
+      : 'Location verification timeout. Please verify your GPS settings and try again.';
+  }
+
+  return message;
+};
+
+const nativeAlert = Alert.alert;
+let globalAlertTrigger: ((payload: CustomAlertPayload) => void) | null = null;
+const alertQueue: CustomAlertPayload[] = [];
+
+Alert.alert = (title: string, message?: string, buttons?: any[]) => {
+  const raw = message || '';
+  const sanitized = sanitizeErrorMessage(title, raw, activeAppLanguage);
+  
+  const payload = { 
+    title, 
+    message: sanitized, 
+    buttons,
+    rawMessage: raw !== sanitized ? raw : undefined 
+  };
+
+  // Auto-dismiss keyboard when alerts launch
+  Keyboard.dismiss();
+
+  if (globalAlertTrigger) {
+    globalAlertTrigger(payload);
+  } else {
+    // If React UI isn't ready, store it in queue
+    alertQueue.push(payload);
+  }
+};
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
 import GeofenceMobileMap from '../components/GeofenceMobileMap';
@@ -317,6 +462,95 @@ export default function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(true);
 
+  // Global custom alert states
+  const [activeAlert, setActiveAlert] = useState<CustomAlertPayload | null>(null);
+  const [alertQueueState, setAlertQueueState] = useState<CustomAlertPayload[]>([]);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
+
+  useEffect(() => {
+    const showNextAlert = (nextAlert: CustomAlertPayload) => {
+      setActiveAlert(nextAlert);
+    };
+
+    globalAlertTrigger = (payload: CustomAlertPayload) => {
+      setAlertQueueState(prev => {
+        const newQueue = [...prev, payload];
+        if (newQueue.length === 1 && !activeAlert) {
+          showNextAlert(payload);
+        }
+        return newQueue;
+      });
+    };
+
+    // If alerts triggered before render, ingest them
+    if (alertQueue.length > 0) {
+      const initialQueue = [...alertQueue];
+      alertQueue.length = 0;
+      setAlertQueueState(initialQueue);
+      showNextAlert(initialQueue[0]);
+    }
+
+    return () => {
+      globalAlertTrigger = null;
+    };
+  }, [activeAlert]);
+
+  const handleAlertDismiss = (buttonPressHandler?: () => void) => {
+    if (buttonPressHandler) {
+      try {
+        buttonPressHandler();
+      } catch (err) {
+        console.error("Alert handler failed:", err);
+      }
+    }
+    setActiveAlert(null);
+    setShowErrorDetails(false); // Reset toggle state
+    setAlertQueueState(prev => {
+      const nextQueue = prev.slice(1);
+      if (nextQueue.length > 0) {
+        setTimeout(() => {
+          setActiveAlert(nextQueue[0]);
+        }, 150);
+      }
+      return nextQueue;
+    });
+  };
+
+  const getAlertIconAndColor = (title: string, message: string) => {
+    const text = `${title} ${message}`.toLowerCase();
+    if (
+      text.includes('success') || 
+      text.includes('synced') || 
+      text.includes('successful') || 
+      text.includes('matagumpay') ||
+      text.includes('completed')
+    ) {
+      return { icon: 'check-circle' as const, color: '#10b981' }; // Green
+    }
+    if (
+      text.includes('failed') || 
+      text.includes('error') || 
+      text.includes('timeout') || 
+      text.includes('timed out') || 
+      text.includes('invalid') || 
+      text.includes('bigo') || 
+      text.includes('wrong') || 
+      text.includes('incorrect')
+    ) {
+      return { icon: 'alert-circle' as const, color: '#ef4444' }; // Red
+    }
+    if (
+      text.includes('location') || 
+      text.includes('gps') || 
+      text.includes('geofence') || 
+      text.includes('proximity') || 
+      text.includes('map')
+    ) {
+      return { icon: 'map-pin' as const, color: '#3b82f6' }; // Blue
+    }
+    return { icon: 'info' as const, color: '#3b82f6' }; // Info Blue
+  };
+
   // Helper functions for platform-agnostic Secure Storage
   const getSecureItem = async (key: string): Promise<string | null> => {
     try {
@@ -398,9 +632,53 @@ export default function App() {
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [showOtModal, setShowOtModal] = useState(false);
+  const [otHours, setOtHours] = useState("1");
+  const [otReason, setOtReason] = useState("");
+  const [otSubmitting, setOtSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+
+  // Intercept physical back button to close modals / redirect tabs
+  useEffect(() => {
+    const onBackPress = () => {
+      // 1. Close leaves forms
+      if (showApplyLeaveModal) {
+        setShowApplyLeaveModal(false);
+        return true;
+      }
+      if (showLeavesModal) {
+        setShowLeavesModal(false);
+        return true;
+      }
+      
+      // 2. Close overtime request modal
+      if (showOtModal) {
+        setShowOtModal(false);
+        return true;
+      }
+
+      // 3. Close payroll dispute modal if open
+      if (showDisputeModal) {
+        setShowDisputeModal(false);
+        return true;
+      }
+
+      // 4. Switch back to home tab before exiting
+      if (activeTab !== 'home') {
+        setActiveTab('home');
+        return true;
+      }
+
+      return false; // Exit app
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => {
+      subscription.remove();
+    };
+  }, [showLeavesModal, showApplyLeaveModal, showOtModal, showDisputeModal, activeTab]);
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
@@ -412,6 +690,39 @@ export default function App() {
 
   // Phase 8: DMS Download States
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+
+  // Easter egg: logo tap counter
+  const logoTapTimeout = React.useRef<any>(null);
+  const [logoTaps, setLogoTaps] = useState(0);
+  const [prevLang, setPrevLang] = useState<Locale>('en');
+
+  const handleLogoTap = () => {
+    if (logoTapTimeout.current) clearTimeout(logoTapTimeout.current);
+    
+    setLogoTaps(prev => {
+      const next = prev + 1;
+      if (next === 3) {
+        if (language === 'ja') {
+          setLanguage(prevLang);
+          AsyncStorage.setItem('APP_LANGUAGE', prevLang);
+          Alert.alert('Easter Egg Deactivated', 'Nihongo mode off! Returning to your previous language.');
+        } else {
+          setPrevLang(language);
+          setLanguage('ja');
+          AsyncStorage.setItem('APP_LANGUAGE', 'ja');
+          Alert.alert('Easter Egg Activated!', 'ようこそ (Yokoso) to TechnoSys! Nihongo mode is now active.');
+        }
+        return 0;
+      }
+      
+      logoTapTimeout.current = setTimeout(() => {
+        setLogoTaps(0);
+      }, 1500); // Reset after 1.5 seconds of inactivity
+      
+      return next;
+    });
+  };
+
   const [downloadProgress, setDownloadProgress] = useState(0);
 
   // Animations for new premium DTR states
@@ -472,27 +783,63 @@ export default function App() {
     };
   }, [activeTimeLog]);
 
-  const startFormDownload = (filename: string) => {
+  const startFormDownload = async (filename: string) => {
     if (downloadingFile) return;
     setDownloadingFile(filename);
     setDownloadProgress(0);
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += 20;
-      setDownloadProgress(currentProgress);
-      if (currentProgress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setDownloadingFile(null);
-          Alert.alert(
-            language === 'fil' ? 'Matagumpay' : 'Success',
-            language === 'fil'
-              ? `Matagumpay na na-download ang ${filename} at na-save sa iyong device.`
-              : `${filename} has been downloaded successfully and saved to your device.`
-          );
-        }, 300);
+
+    try {
+      let assetModule: any;
+      if (filename === 'Employee_Handbook_2026.pdf') {
+        assetModule = require('../../assets/Employee Handbook.pdf');
+      } else if (filename === 'Leave_Application_Form.pdf') {
+        assetModule = require('../../assets/Leave Application Form.pdf');
+      } else if (filename === 'Resignation_Template.pdf') {
+        assetModule = require('../../assets/Resignation Template.pdf');
+      } else {
+        throw new Error('Unknown document: ' + filename);
       }
-    }, 450);
+
+      const asset = Asset.fromModule(assetModule);
+      await asset.downloadAsync();
+
+      for (let p = 20; p <= 100; p += 20) {
+        setDownloadProgress(p);
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
+      const localUri = `${FileSystem.documentDirectory}${filename}`;
+      await FileSystem.copyAsync({
+        from: asset.localUri || asset.uri,
+        to: localUri
+      });
+
+      setDownloadingFile(null);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(localUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Open ${filename.replace(/_/g, ' ')}`,
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert(
+          language === 'fil' ? 'Matagumpay' : 'Success',
+          language === 'fil'
+            ? `Matagumpay na na-save ang ${filename} sa iyong device.`
+            : `${filename} has been saved successfully to your device.`
+        );
+      }
+    } catch (err: any) {
+      setDownloadingFile(null);
+      console.error('Failed to download form asset:', err);
+      Alert.alert(
+        language === 'fil' ? 'Kabiguan' : 'Error',
+        language === 'fil'
+          ? 'Hindi ma-download ang file: ' + err.message
+          : 'Could not download file: ' + err.message
+      );
+    }
   };
 
   useEffect(() => {
@@ -592,6 +939,11 @@ export default function App() {
   };
 
   const [language, setLanguage] = useState<Locale>('en');
+
+  useEffect(() => {
+    activeAppLanguage = language;
+  }, [language]);
+
   const langAnim = React.useRef(new Animated.Value(0)).current;
 
   const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
@@ -605,7 +957,7 @@ export default function App() {
     return text;
   };
 
-  const getBilingualText = (text: string, lang: 'en' | 'fil') => {
+  const getBilingualText = (text: string, lang: 'en' | 'fil' | 'ja') => {
     if (!text) return '';
     const parts = text.split('|');
     if (parts.length > 1) {
@@ -827,6 +1179,7 @@ export default function App() {
         setPayslip(null);
         setActiveTimeLog(null);
         setLeaves([]);
+        setActiveTab('home');
       }
 
       setSession(currentSession);
@@ -1416,6 +1769,61 @@ export default function App() {
     }
   };
 
+  const handleOtSubmit = async () => {
+    if (!session) return;
+    if (!otReason.trim()) {
+      Alert.alert(language === 'fil' ? 'May Error' : 'Error', language === 'fil' ? 'Mangyaring ilagay ang dahilan.' : 'Please enter a reason.');
+      return;
+    }
+    const hoursNum = parseFloat(otHours);
+    if (isNaN(hoursNum) || hoursNum <= 0 || hoursNum > 24) {
+      Alert.alert(language === 'fil' ? 'May Error' : 'Error', language === 'fil' ? 'Maling bilang ng oras.' : 'Invalid hours amount.');
+      return;
+    }
+
+    setOtSubmitting(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const { error } = await supabase
+        .from('overtime_requests')
+        .insert({
+          technician_id: session.user.id,
+          request_date: todayStr,
+          requested_hours: hoursNum,
+          reason: otReason.trim(),
+          status: 'pending'
+        });
+
+      if (error) {
+        if (error.message.includes('unique_tech_date_ot')) {
+          Alert.alert(
+            language === 'fil' ? 'Mayroon Na' : 'Duplicate Request',
+            language === 'fil'
+              ? 'Nakapag-submit ka na ng overtime request para sa araw na ito.'
+              : 'You have already submitted an overtime request for this date.'
+          );
+        } else {
+          throw error;
+        }
+      } else {
+        Alert.alert(
+          language === 'fil' ? 'Matagumpay' : 'Success',
+          language === 'fil'
+            ? 'Naipadala na ang iyong overtime request para sa approval ng admin.'
+            : 'Your overtime request has been submitted for admin approval.'
+        );
+        setShowOtModal(false);
+        setOtReason("");
+        setOtHours("1");
+      }
+    } catch (err: any) {
+      console.error("Overtime submission error:", err);
+      Alert.alert('Submission Failed', err.message || 'An error occurred.');
+    } finally {
+      setOtSubmitting(false);
+    }
+  };
+
   const handleSelectDisputeAttachment = async () => {
     if (Platform.OS === 'web') {
       try {
@@ -1812,11 +2220,57 @@ export default function App() {
     });
   };
 
+  const getTodaySchedule = () => {
+    if (!schedules || schedules.length === 0) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+    
+    return schedules.find(s => {
+      const start = new Date(s.start_time);
+      start.setHours(0, 0, 0, 0);
+      const end = s.end_time ? new Date(s.end_time) : start;
+      end.setHours(0, 0, 0, 0);
+      return todayTime >= start.getTime() && todayTime <= end.getTime();
+    });
+  };
+
   const handleTimeIn = async () => {
     if (!session) return;
     setTimeInLoading(true);
 
     try {
+      // 1. Check if they have a dispatch schedule for today
+      const todaySched = getTodaySchedule();
+      if (!todaySched) {
+        Alert.alert(
+          language === 'fil' ? 'Walang Dispatch' : 'No Dispatch Assigned',
+          language === 'fil'
+            ? 'Maaari ka lamang mag-clock in kung mayroon kang nakatalagang dispatch assignment para sa araw na ito.'
+            : 'You can only clock in if you have an assigned dispatch/work schedule for today.'
+        );
+        setTimeInLoading(false);
+        return;
+      }
+
+      // 2. Prevent clock-in earlier than 1 hour before scheduled start
+      const schedStart = new Date(todaySched.start_time);
+      const now = new Date();
+      const oneHourBeforeStart = new Date(schedStart.getTime() - 60 * 60 * 1000);
+      
+      if (now < oneHourBeforeStart) {
+        const timeStr = oneHourBeforeStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        Alert.alert(
+          language === 'fil' ? 'Masyadong Maaga' : 'Clock-In Too Early',
+          language === 'fil'
+            ? `Maaari ka lamang mag-clock in simula ${timeStr} (1 oras bago ang iyong shift).`
+            : `You can only clock in starting at ${timeStr} (1 hour before your scheduled shift).`
+        );
+        setTimeInLoading(false);
+        return;
+      }
+
+      // 3. Fallback to existing bypass checking for direct dispatches
       const activeSched = getActiveDirectOrTravelSchedule();
       if (activeSched) {
         // Bypass geofence check and biometric fingerprint scan
@@ -2353,6 +2807,29 @@ export default function App() {
                           </Text>
 
                           <TouchableOpacity 
+                            style={{
+                              backgroundColor: 'rgba(79, 70, 229, 0.08)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(79, 70, 229, 0.2)',
+                              paddingVertical: 12,
+                              paddingHorizontal: 16,
+                              borderRadius: 14,
+                              width: '100%',
+                              alignItems: 'center',
+                              marginBottom: 10,
+                              flexDirection: 'row',
+                              justifyContent: 'center',
+                              gap: 6
+                            }}
+                            onPress={() => setShowOtModal(true)}
+                          >
+                            <Feather name="clock" size={14} color={COLORS.primary} />
+                            <Text style={{ color: COLORS.primary, fontWeight: '800', fontSize: 13 }}>
+                              {language === 'fil' ? 'Mag-request ng Overtime' : 'File Overtime Request'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity 
                             style={styles.timeOutSecondaryButton} 
                             onPress={() => {
                               Alert.alert(
@@ -2853,7 +3330,9 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
             <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={[styles.name, { flex: 1, marginRight: 16 }]}>{t('profileTitle')}</Text>
-                <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                <TouchableOpacity onPress={handleLogoTap} activeOpacity={0.7}>
+                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                </TouchableOpacity>
               </View>
 
               {/* Avatar Header Row */}
@@ -3058,7 +3537,7 @@ export default function App() {
                 {/* Highly Accessible Log Out Row */}
                 <TouchableOpacity 
                   onPress={async () => {
-                    setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null);
+                    setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null); setActiveTab('home');
                     try { await supabase.auth.signOut(); } catch(e) {}
                   }}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
@@ -3282,6 +3761,77 @@ export default function App() {
         </Modal>
       )}
 
+      {showOtModal && (
+        <Modal animationType="slide" transparent={false} visible={showOtModal} onRequestClose={() => setShowOtModal(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
+              <TouchableOpacity onPress={() => setShowOtModal(false)} style={{ padding: 8, marginLeft: -8 }}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain }}>
+                {language === 'fil' ? 'Mag-request ng Overtime' : 'Request Overtime'}
+              </Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 40 }}>
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 12 }}>
+                {language === 'fil'
+                  ? 'Gamitin ang form na ito upang mag-request ng overtime hours kapag nagtatrabaho lagpas ng 5:00 PM.'
+                  : 'Use this form to request overtime hours when working past 5:00 PM.'}
+              </Text>
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Petsa ng Overtime' : 'Overtime Date'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMuted, marginBottom: 16, backgroundColor: 'rgba(244, 244, 245, 0.5)' }}
+                value={new Date().toLocaleDateString(undefined, { dateStyle: 'long' })}
+                editable={false}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Bilang ng Oras (OT Hours)' : 'Requested Hours (OT Hours)'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 16, backgroundColor: COLORS.card }}
+                keyboardType="numeric"
+                placeholder="e.g. 2"
+                placeholderTextColor={COLORS.textMuted}
+                value={otHours}
+                onChangeText={setOtHours}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6 }}>
+                {language === 'fil' ? 'Dahilan ng Overtime' : 'Reason for Overtime'}
+              </Text>
+              <TextInput 
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMain, marginBottom: 24, backgroundColor: COLORS.card, height: 120 }}
+                placeholder={language === 'fil' ? 'Ilagay ang dahilan ng pag-overtime...' : 'Explain the reason for overtime...'}
+                placeholderTextColor={COLORS.textMuted}
+                value={otReason}
+                onChangeText={setOtReason}
+                multiline
+              />
+
+              <TouchableOpacity 
+                onPress={handleOtSubmit}
+                disabled={otSubmitting}
+                style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
+              >
+                {otSubmitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                    {language === 'fil' ? 'I-submit ang OT Request' : 'Submit OT Request'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
+
       {showDisputeModal && (
         <Modal animationType="slide" transparent={false} visible={showDisputeModal} onRequestClose={() => setShowDisputeModal(false)}>
           <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
@@ -3439,6 +3989,174 @@ export default function App() {
           </Animated.View>
         </Animated.View>
       )}
+
+      {activeAlert && (() => {
+        const { icon, color } = getAlertIconAndColor(activeAlert.title, activeAlert.message || '');
+        const alertButtons = activeAlert.buttons || [{ text: 'OK', onPress: () => {} }];
+        
+        return (
+          <Modal
+            visible={!!activeAlert}
+            transparent
+            animationType="fade"
+            onRequestClose={() => handleAlertDismiss()}
+          >
+            <View style={{
+              flex: 1,
+              backgroundColor: 'rgba(15, 23, 42, 0.6)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 20
+            }}>
+              <View style={{
+                backgroundColor: '#ffffff',
+                borderRadius: 24,
+                width: '88%',
+                maxWidth: 340,
+                padding: 24,
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.15,
+                shadowRadius: 20,
+                elevation: 10,
+                borderWidth: 1,
+                borderColor: '#f1f5f9'
+              }}>
+                {/* Icon Container */}
+                <View style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: color + '15',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: 16
+                }}>
+                  <Feather name={icon} size={28} color={color} />
+                </View>
+
+                {/* Title */}
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '800',
+                  color: '#0f172a',
+                  textAlign: 'center',
+                  marginBottom: 8
+                }}>
+                  {activeAlert.title}
+                </Text>
+
+                {/* Message */}
+                {activeAlert.message ? (
+                  <Text style={{
+                    fontSize: 14,
+                    color: '#475569',
+                    textAlign: 'center',
+                    lineHeight: 20,
+                    marginBottom: 24
+                  }}>
+                    {activeAlert.message}
+                  </Text>
+                ) : (
+                  <View style={{ height: 16 }} />
+                )}
+
+                {/* Collapsible Details Panel */}
+                {activeAlert.rawMessage && (
+                  <View style={{ width: '100%', marginBottom: 16 }}>
+                    <TouchableOpacity
+                      onPress={() => setShowErrorDetails(prev => !prev)}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 8,
+                        backgroundColor: '#f8fafc',
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: '#e2e8f0'
+                      }}
+                    >
+                      <Feather 
+                        name={showErrorDetails ? "chevron-up" : "chevron-down"} 
+                        size={16} 
+                        color="#64748b" 
+                        style={{ marginRight: 6 }} 
+                      />
+                      <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '700' }}>
+                        {showErrorDetails 
+                          ? (language === 'fil' ? 'Itago ang Detalye' : 'Hide Details') 
+                          : (language === 'fil' ? 'Ipakita ang Detalye' : 'Show Details')}
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    {showErrorDetails && (
+                      <View style={{
+                        marginTop: 8,
+                        padding: 12,
+                        backgroundColor: '#0f172a',
+                        borderRadius: 10,
+                        maxHeight: 120,
+                        width: '100%'
+                      }}>
+                        <ScrollView style={{ flexGrow: 0 }}>
+                          <Text style={{
+                            fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                            fontSize: 11,
+                            color: '#94a3b8',
+                            lineHeight: 16
+                          }}>
+                            {activeAlert.rawMessage}
+                          </Text>
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Buttons Container */}
+                <View style={{ width: '100%' }}>
+                  {alertButtons.map((btn, idx) => {
+                    const isCancel = btn.style === 'cancel' || btn.text?.toLowerCase() === 'cancel' || btn.text?.toLowerCase() === 'itigil';
+                    const isDestructive = btn.style === 'destructive';
+                    
+                    return (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => handleAlertDismiss(btn.onPress)}
+                        activeOpacity={0.7}
+                        style={{
+                          width: '100%',
+                          height: 48,
+                          borderRadius: 14,
+                          backgroundColor: isCancel 
+                            ? 'transparent' 
+                            : isDestructive 
+                              ? '#ef4444' 
+                              : color,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginTop: idx > 0 ? 8 : 0
+                        }}
+                      >
+                        <Text style={{
+                          color: isCancel ? '#64748b' : '#ffffff',
+                          fontSize: 15,
+                          fontWeight: '700'
+                        }}>
+                          {btn.text || 'OK'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          </Modal>
+        );
+      })()}
     </View>
   );
 
