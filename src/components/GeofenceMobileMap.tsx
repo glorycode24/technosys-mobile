@@ -85,20 +85,20 @@ export default function GeofenceMobileMap({
       <View style={styles.radarConsole}>
         
         {/* Concentric rings */}
-        <View style={[styles.ring, { width: 210, height: 210, borderRadius: 105, borderColor: '#1e293b' }]} />
-        <View style={[styles.ring, { width: 170, height: 170, borderRadius: 85, borderColor: '#1e293b', borderStyle: 'dashed' }]} />
-        <View style={[styles.ring, { width: 80, height: 80, borderRadius: 40, borderColor: '#1e293b', borderStyle: 'dashed' }]} />
+        <View style={[styles.ring, { width: 210, height: 210, borderRadius: 105, left: cx - 105, top: cy - 105, borderColor: '#1e293b' }]} />
+        <View style={[styles.ring, { width: 170, height: 170, borderRadius: 85, left: cx - 85, top: cy - 85, borderColor: '#1e293b', borderStyle: 'dashed' }]} />
+        <View style={[styles.ring, { width: 80, height: 80, borderRadius: 40, left: cx - 40, top: cy - 40, borderColor: '#1e293b', borderStyle: 'dashed' }]} />
 
         {/* Crosshairs */}
-        <View style={[styles.crosshair, { width: 210, height: 1, top: cy }]} />
-        <View style={[styles.crosshair, { width: 1, height: 210, left: cx }]} />
+        <View style={[styles.crosshair, { width: 210, height: 1, left: cx - 105, top: cy }]} />
+        <View style={[styles.crosshair, { width: 1, height: 210, left: cx, top: cy - 105 }]} />
 
         {/* Sweeping Radar Line */}
         <Animated.View 
           style={[
             styles.sweeper, 
             { 
-              left: cx, 
+              left: cx - 52.5, 
               top: cy - 0.75,
               transform: [
                 { rotate: spin },
@@ -194,26 +194,12 @@ const styles = StyleSheet.create({
   },
   ring: {
     position: 'absolute',
-    borderWidth: 1,
-    left: '50%',
-    top: '50%',
-    transform: [
-      { translateX: -50 },
-      { translateY: -50 }
-    ],
-    marginLeft: 0,
-    marginTop: 0
+    borderWidth: 1
   },
   crosshair: {
     position: 'absolute',
     backgroundColor: '#1e293b',
-    opacity: 0.5,
-    left: '50%',
-    top: '50%',
-    transform: [
-      { translateX: -50 },
-      { translateY: -50 }
-    ]
+    opacity: 0.5
   },
   sweeper: {
     position: 'absolute',
