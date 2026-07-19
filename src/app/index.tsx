@@ -1349,6 +1349,35 @@ export default function App() {
     };
   }, [session, profile, language]);
 
+  // Real-time Schedules Sync
+  useEffect(() => {
+    let channel: any;
+    if (session) {
+      channel = supabase
+        .channel('schedules_realtime')
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'schedules',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime schedule change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [session]);
+
   const loadDashboardDataFromCache = async (userId: string) => {
     try {
       const cached = await AsyncStorage.getItem('CACHED_DASHBOARD_' + userId);
