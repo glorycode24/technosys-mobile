@@ -2939,7 +2939,7 @@ export default function App() {
                               borderRadius: 14,
                               width: '100%',
                               alignItems: 'center',
-                              marginBottom: 10,
+                              marginBottom: 0,
                               flexDirection: 'row',
                               justifyContent: 'center',
                               gap: 6
@@ -2950,32 +2950,6 @@ export default function App() {
                             <Text style={{ color: COLORS.primary, fontWeight: '800', fontSize: 13 }}>
                               {language === 'fil' ? 'Mag-request ng Overtime' : 'File Overtime Request'}
                             </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity 
-                            style={styles.timeOutSecondaryButton} 
-                            onPress={() => {
-                              Alert.alert(
-                                t('confirmClockOut'),
-                                t('clockOutWarningDesc'),
-                                [
-                                  { text: t('cancel'), style: 'cancel' },
-                                  { text: t('confirm'), onPress: () => handleTimeOut() }
-                                ]
-                              );
-                            }} 
-                            disabled={timeOutLoading}
-                          >
-                            {timeOutLoading ? (
-                              <ActivityIndicator color="#fff" />
-                            ) : (
-                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                                <Feather name="log-out" size={16} color="#fff" style={{ marginRight: 6 }} />
-                                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>
-                                  {t('clockOutNow')}
-                                </Text>
-                              </View>
-                            )}
                           </TouchableOpacity>
                         </View>
                       </View>
