@@ -3527,6 +3527,27 @@ export default function App() {
                   </Text>
                 </View>
 
+                {/* Dark Mode Toggle Row */}
+                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: isDarkMode ? 'rgba(250, 204, 21, 0.15)' : 'rgba(79, 70, 229, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name={isDarkMode ? "sun" : "moon"} size={16} color={isDarkMode ? "#eab308" : COLORS.primary} />
+                    </View>
+                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>
+                      {language === 'fil' ? 'Madilim na Mode' : 'Dark Mode'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isDarkMode}
+                    onValueChange={async (value) => {
+                      setIsDarkMode(value);
+                      await AsyncStorage.setItem('THEME_MODE', value ? 'dark' : 'light');
+                    }}
+                    trackColor={{ false: '#cbd5e1', true: '#10b981' }}
+                    thumbColor={Platform.OS === 'android' ? '#ffffff' : undefined}
+                  />
+                </View>
+
                 {/* Highly Accessible Log Out Row */}
                 <TouchableOpacity 
                   onPress={async () => {
