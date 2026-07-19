@@ -35,7 +35,8 @@ const COLORS = {
   rose: '#9f1239',
   roseDim: 'rgba(159, 18, 57, 0.08)',
   blue: '#1e40af',
-  blueDim: 'rgba(30, 64, 175, 0.08)'
+  blueDim: 'rgba(30, 64, 175, 0.08)',
+  whiteCard: '#ffffff'
 };
 
 interface TicketsTabProps {
@@ -43,9 +44,35 @@ interface TicketsTabProps {
   fullName: string;
   language: string;
   isOnline: boolean;
+  isDarkMode?: boolean;
 }
 
-export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabProps) {
+export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = false }: TicketsTabProps) {
+  if (isDarkMode) {
+    COLORS.background = '#0f172a';
+    COLORS.card = '#1e293b';
+    COLORS.textMain = '#f8fafc';
+    COLORS.textMuted = '#94a3b8';
+    COLORS.border = '#334155';
+    COLORS.indigoDim = 'rgba(99, 102, 241, 0.15)';
+    COLORS.amberDim = 'rgba(245, 158, 11, 0.15)';
+    COLORS.roseDim = 'rgba(244, 63, 94, 0.15)';
+    COLORS.blueDim = 'rgba(59, 130, 246, 0.15)';
+    COLORS.whiteCard = '#1e293b';
+  } else {
+    COLORS.background = '#ffffff';
+    COLORS.card = '#f8fafc';
+    COLORS.textMain = '#0f172a';
+    COLORS.textMuted = '#64748b';
+    COLORS.border = '#e2e8f0';
+    COLORS.indigoDim = 'rgba(55, 48, 163, 0.08)';
+    COLORS.amberDim = 'rgba(146, 64, 14, 0.08)';
+    COLORS.roseDim = 'rgba(159, 18, 57, 0.08)';
+    COLORS.blueDim = 'rgba(30, 64, 175, 0.08)';
+    COLORS.whiteCard = '#ffffff';
+  }
+
+  const styles = getStyles(COLORS);
   const t = (key: keyof typeof TRANSLATIONS['en'] | string, replaceParams?: Record<string, string | number>) => {
     const currentLangDict = TRANSLATIONS[language as Locale] || TRANSLATIONS['en'];
     let text = (currentLangDict as any)[key] || (TRANSLATIONS['en'] as any)[key] || key;
@@ -1845,7 +1872,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
                     
                     <TouchableOpacity 
                       onPress={() => setShowPartList(!showPartList)}
-                      style={{ padding: 12, borderRadius: 10, backgroundColor: '#fff', marginBottom: 10, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                      style={{ padding: 12, borderRadius: 10, backgroundColor: COLORS.whiteCard, marginBottom: 10, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     >
                       <Text style={{ fontSize: 13, color: selectedPart ? COLORS.textMain : COLORS.textMuted }}>
                         {selectedPart ? (language === 'fil' ? `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} natira)` : `${selectedPart.name} (${selectedPart.quantity} ${selectedPart.unit} left)`) : `-- ${t('selectPart')} --`}
@@ -2069,7 +2096,7 @@ export function TicketsTab({ userId, fullName, language, isOnline }: TicketsTabP
 }
 
 // Explicit Stylesheet Casting for TypeScript Verification
-const styles = {
+const getStyles = (COLORS: any) => ({
   container: { flex: 1, backgroundColor: COLORS.background } as ViewStyle,
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
   centeredScroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 40 } as ViewStyle,
@@ -2122,7 +2149,7 @@ const styles = {
   submitButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 17 } as TextStyle,
 
   // Detail view styling
-  detailHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
+  detailHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: COLORS.whiteCard } as ViewStyle,
   detailTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMain } as TextStyle,
   closeTicketBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239, 68, 68, 0.08)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.15)' } as ViewStyle,
   
@@ -2139,7 +2166,7 @@ const styles = {
   commentText: { fontSize: 15, lineHeight: 20 } as TextStyle,
   commentTime: { fontSize: 11, color: COLORS.textMuted, marginTop: 4 } as TextStyle,
   
-  composer: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: '#fff', alignItems: 'flex-end', gap: 10 } as ViewStyle,
+  composer: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.whiteCard, alignItems: 'flex-end', gap: 10 } as ViewStyle,
   composerInput: { flex: 1, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 16, color: COLORS.textMain, maxHeight: 100 } as TextStyle,
   composerSendBtn: { backgroundColor: COLORS.primary, width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', flexShrink: 0 } as ViewStyle,
   
@@ -2151,8 +2178,8 @@ const styles = {
   segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
   statusBadgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
-  inputCard: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, height: 50, justifyContent: 'center', marginBottom: 20 } as ViewStyle
-};
+  inputCard: { backgroundColor: COLORS.whiteCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, height: 50, justifyContent: 'center', marginBottom: 20 } as ViewStyle
+});
 
 const MONTHS_EN = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -2174,6 +2201,7 @@ interface CalendarPickerModalProps {
 }
 
 function CalendarPickerModal({ visible, onClose, onSelect, selectedValue, language }: CalendarPickerModalProps) {
+  const modalStyles = getModalStyles(COLORS);
   const today = new Date();
   const initDate = selectedValue ? new Date(selectedValue) : today;
   const [currentYear, setCurrentYear] = useState(isNaN(initDate.getTime()) ? today.getFullYear() : initDate.getFullYear());
@@ -2310,7 +2338,7 @@ function CalendarPickerModal({ visible, onClose, onSelect, selectedValue, langua
   );
 }
 
-const modalStyles = StyleSheet.create({
+const getModalStyles = (COLORS: any) => StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',

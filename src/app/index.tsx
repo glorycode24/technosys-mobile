@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler, Switch } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -295,6 +295,7 @@ const FadeInView = ({ children, currentTab }: any) => {
 };
 
 const LoginScreen = ({ onLogin }: any) => {
+  const styles = getStyles(COLORS);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -456,6 +457,35 @@ function ActiveShiftTimer({ startTime }: ActiveShiftTimerProps) {
 }
 
 export default function App() {
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const loadTheme = async () => {
+      const mode = await AsyncStorage.getItem('THEME_MODE');
+      if (mode === 'dark') {
+        setIsDarkMode(true);
+      }
+    };
+    loadTheme();
+  }, []);
+
+  if (isDarkMode) {
+    COLORS.background = '#0f172a';
+    COLORS.card = '#1e293b';
+    COLORS.primaryDim = 'rgba(16, 185, 129, 0.15)';
+    COLORS.textMain = '#f8fafc';
+    COLORS.textMuted = '#94a3b8';
+    COLORS.border = '#334155';
+  } else {
+    COLORS.background = '#ffffff';
+    COLORS.card = '#f8fafc';
+    COLORS.primaryDim = 'rgba(16, 185, 129, 0.1)';
+    COLORS.textMain = '#0f172a';
+    COLORS.textMuted = '#64748b';
+    COLORS.border = '#e2e8f0';
+  }
+
+  const styles = getStyles(COLORS);
   const { width } = useWindowDimensions();
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
@@ -2549,7 +2579,7 @@ export default function App() {
 
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={COLORS.background} />
         
         {offlineQueueCount > 0 && (
           <View style={styles.offlineBanner}>
@@ -3283,7 +3313,7 @@ export default function App() {
           )}
 
           {activeTab === 'tickets' && (
-            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} />
+            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} isDarkMode={isDarkMode} />
           )}
 
 
@@ -4198,14 +4228,14 @@ export default function App() {
   return renderedContent;
 }
 
-const styles = StyleSheet.create({
+function getStyles(COLORS: any) { return StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background, height: '100%' },
   container: { flex: 1, backgroundColor: COLORS.background, height: '100%' },
   content: { padding: 24, paddingBottom: 40 },
   header: { marginBottom: 32, marginTop: 12 },
   greeting: { color: COLORS.textMuted, fontSize: 16, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 },
   name: { color: COLORS.textMain, fontSize: 34, fontWeight: '800', letterSpacing: -0.5 },
-  input: { backgroundColor: '#ffffff', color: COLORS.textMain, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  input: { backgroundColor: COLORS.card, color: COLORS.textMain, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   
   timeInButton: { backgroundColor: COLORS.primary, padding: 24, borderRadius: 20, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16 },
   timeInSuccess: { backgroundColor: COLORS.primaryDim, padding: 24, borderRadius: 20, alignItems: 'center', borderColor: COLORS.primary, borderWidth: 1 },
@@ -4488,4 +4518,4 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     zIndex: 99999
   } as ViewStyle
-});
+}); }
