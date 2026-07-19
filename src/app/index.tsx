@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator, Image, Animated, Platform, ViewStyle, TextStyle, Linking, useWindowDimensions, Modal, Keyboard, BackHandler, Switch } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -255,7 +255,7 @@ async function registerForPushNotificationsAsync(userId: string) {
 }
 
 // Clean White Professional Theme
-const COLORS = {
+let COLORS = {
   background: '#ffffff',
   card: '#f8fafc',
   primary: '#10b981',
@@ -263,7 +263,9 @@ const COLORS = {
   textMain: '#0f172a',
   textMuted: '#64748b',
   danger: '#ef4444',
-  border: '#e2e8f0'
+  border: '#e2e8f0',
+  whiteCard: '#ffffff',
+  isDarkMode: false
 };
 
 const FadeInView = ({ children, currentTab }: any) => {
@@ -296,6 +298,7 @@ const FadeInView = ({ children, currentTab }: any) => {
 };
 
 const LoginScreen = ({ onLogin }: any) => {
+  const styles = getStyles(COLORS);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -457,6 +460,35 @@ function ActiveShiftTimer({ startTime }: ActiveShiftTimerProps) {
 }
 
 export default function App() {
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const loadTheme = async () => {
+      const mode = await AsyncStorage.getItem('THEME_MODE');
+      if (mode === 'dark') {
+        setIsDarkMode(true);
+      }
+    };
+    loadTheme();
+  }, []);
+
+  if (isDarkMode) {
+    COLORS.background = '#0f172a';
+    COLORS.card = '#1e293b';
+    COLORS.primaryDim = 'rgba(16, 185, 129, 0.15)';
+    COLORS.textMain = '#f8fafc';
+    COLORS.textMuted = '#94a3b8';
+    COLORS.border = '#334155';
+  } else {
+    COLORS.background = '#ffffff';
+    COLORS.card = '#f8fafc';
+    COLORS.primaryDim = 'rgba(16, 185, 129, 0.1)';
+    COLORS.textMain = '#0f172a';
+    COLORS.textMuted = '#64748b';
+    COLORS.border = '#e2e8f0';
+  }
+
+  const styles = getStyles(COLORS);
   const { width } = useWindowDimensions();
   const [session, setSession] = useState<any>(null);
   const [isLocked, setIsLocked] = useState(false);
@@ -632,6 +664,7 @@ export default function App() {
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<any | null>(null);
   const [showOtModal, setShowOtModal] = useState(false);
   const [otHours, setOtHours] = useState("1");
   const [otReason, setOtReason] = useState("");
@@ -643,6 +676,12 @@ export default function App() {
   // Intercept physical back button to close modals / redirect tabs
   useEffect(() => {
     const onBackPress = () => {
+      // 0. Close announcement detail modal
+      if (selectedAnnouncement) {
+        setSelectedAnnouncement(null);
+        return true;
+      }
+      
       // 1. Close leaves forms
       if (showApplyLeaveModal) {
         setShowApplyLeaveModal(false);
@@ -678,7 +717,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [showLeavesModal, showApplyLeaveModal, showOtModal, showDisputeModal, activeTab]);
+  }, [showLeavesModal, showApplyLeaveModal, showOtModal, showDisputeModal, activeTab, selectedAnnouncement]);
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
@@ -1351,43 +1390,127 @@ export default function App() {
     };
   }, [session, profile, language]);
 
-  // Real-time Time Logs Sync
+
+  // Real-time Global Sync (Schedules, Leaves, Time Logs, Profiles, Payslips, OT, Disputes)
   useEffect(() => {
     let channel: any;
     if (session) {
       channel = supabase
-        .channel('time_logs_realtime')
+        .channel('global_technician_realtime')
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'time_logs', filter: `technician_id=eq.${session.user.id}` },
-          (payload) => {
-            console.log('Realtime time_log change detected:', payload);
-            const updatedLog = payload.new;
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'schedules',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime schedule change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'leaves',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime leave status change detected:', payload);
+            await fetchDashboardData(session.user.id);
+            await fetchLeaves();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'time_logs',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime time log change detected:', payload);
+            await fetchDashboardData(session.user.id);
             
-            // Re-fetch dashboard data to sync UI cleanly
-            fetchDashboardData(session.user.id);
-            
-            // Immediate optimistic UI update if we match activeTimeLog
-            setActiveTimeLog((prev: any) => {
-              if (prev && prev.id === updatedLog.id) {
-                // If rejected, alert the user!
-                if (updatedLog.photo_status === 'rejected' && prev.photo_status !== 'rejected') {
-                  Alert.alert(
-                    language === 'fil' ? 'Tinanggihan' : 'Attendance Rejected', 
-                    language === 'fil' ? 'Ang iyong selfie ay tinanggihan ng admin. Mangyaring mag-Clock In muli.' : 'Your clock-in selfie was rejected by the admin. Please clock in again.'
-                  );
+            if (payload.eventType === 'UPDATE') {
+              const updatedLog = payload.new;
+              setActiveTimeLog((prev: any) => {
+                if (prev && prev.id === updatedLog.id) {
+                  // If rejected, alert the user!
+                  if (updatedLog.photo_status === 'rejected' && prev.photo_status !== 'rejected') {
+                    Alert.alert(
+                      language === 'fil' ? 'Tinanggihan' : 'Attendance Rejected', 
+                      language === 'fil' ? 'Ang iyong selfie ay tinanggihan ng admin. Mangyaring mag-Clock In muli.' : 'Your clock-in selfie was rejected by the admin. Please clock in again.'
+                    );
+                  }
+                  // If approved, alert the user!
+                  else if (updatedLog.photo_status === 'approved' && prev.photo_status === 'pending') {
+                    Alert.alert(
+                      language === 'fil' ? 'Inaprubahan' : 'Attendance Approved', 
+                      language === 'fil' ? 'Ang iyong selfie ay inaprubahan.' : 'Your clock-in selfie was approved by the admin.'
+                    );
+                  }
+                  return { ...prev, ...updatedLog };
                 }
-                // If approved, alert the user!
-                else if (updatedLog.photo_status === 'approved' && prev.photo_status === 'pending') {
-                  Alert.alert(
-                    language === 'fil' ? 'Inaprubahan' : 'Attendance Approved', 
-                    language === 'fil' ? 'Ang iyong selfie ay inaprubahan.' : 'Your clock-in selfie was approved by the admin.'
-                  );
-                }
-                return { ...prev, ...updatedLog };
-              }
-              return prev;
-            });
+                return prev;
+              });
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'profiles',
+            filter: `id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime profile change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'payslips',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime payslip change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'overtime_requests',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime OT request change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'payroll_disputes',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime dispute change detected:', payload);
+            await fetchDashboardData(session.user.id);
           }
         )
         .subscribe();
@@ -2486,7 +2609,7 @@ export default function App() {
 
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={COLORS.background} />
         
         {offlineQueueCount > 0 && (
           <View style={styles.offlineBanner}>
@@ -2503,7 +2626,7 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
               {/* Premium Header widget */}
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-                <View>
+                <View style={{ flex: 1, marginRight: 16 }}>
                   <Text style={styles.greeting}>{t('welcomeBack')}</Text>
                   <Text style={styles.name}>{profile?.full_name || 'Technician'}</Text>
                   {(() => {
@@ -2534,7 +2657,7 @@ export default function App() {
                     height: 12,
                     borderRadius: 6,
                     borderWidth: 2,
-                    borderColor: '#ffffff',
+                    borderColor: COLORS.background,
                     backgroundColor: isOnline ? COLORS.primary : COLORS.danger
                   }} />
                 </View>
@@ -3079,8 +3202,10 @@ export default function App() {
                       contentContainerStyle={{ paddingRight: 16 }}
                     >
                       {filteredAnnouncements.map((ann) => (
-                        <View 
+                        <TouchableOpacity 
                           key={ann.id} 
+                          onPress={() => setSelectedAnnouncement(ann)}
+                          activeOpacity={0.8}
                           style={{
                             width: 280,
                             backgroundColor: COLORS.card,
@@ -3115,7 +3240,7 @@ export default function App() {
                           <Text style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 18, paddingLeft: 6 }} numberOfLines={3}>
                             {getBilingualText(ann.content, language)}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       ))}
                     </ScrollView>
                   </View>
@@ -3320,7 +3445,7 @@ export default function App() {
           )}
 
           {activeTab === 'tickets' && (
-            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} />
+            <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} isDarkMode={isDarkMode} />
           )}
 
 
@@ -3485,14 +3610,14 @@ export default function App() {
                   </View>
                   
                   {/* Segmented language switcher */}
-                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
+                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: COLORS.border, borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
                     <Animated.View style={{
                       position: 'absolute',
                       top: 2,
                       bottom: 2,
                       left: 0,
                       width: 56,
-                      backgroundColor: '#ffffff',
+                      backgroundColor: COLORS.whiteCard,
                       borderRadius: 6,
                       transform: [{
                         translateX: langAnim.interpolate({
@@ -3534,9 +3659,39 @@ export default function App() {
                   </Text>
                 </View>
 
+                {/* Dark Mode Toggle Row */}
+                <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: isDarkMode ? 'rgba(250, 204, 21, 0.15)' : 'rgba(79, 70, 229, 0.08)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                      <Feather name={isDarkMode ? "sun" : "moon"} size={16} color={isDarkMode ? "#eab308" : COLORS.primary} />
+                    </View>
+                    <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 14 }}>
+                      {language === 'fil' ? 'Madilim na Mode' : 'Dark Mode'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={isDarkMode}
+                    onValueChange={async (value) => {
+                      setIsDarkMode(value);
+                      await AsyncStorage.setItem('THEME_MODE', value ? 'dark' : 'light');
+                    }}
+                    trackColor={{ false: '#cbd5e1', true: '#10b981' }}
+                    thumbColor={Platform.OS === 'android' ? '#ffffff' : undefined}
+                  />
+                </View>
+
                 {/* Highly Accessible Log Out Row */}
                 <TouchableOpacity 
                   onPress={async () => {
+                    geofence.reset();
+                    setBranchDropdownOpen(false);
+                    setShowLeavesModal(false);
+                    setShowApplyLeaveModal(false);
+                    setShowDisputeModal(false);
+                    setSelectedAnnouncement(null);
+                    setShowOtModal(false);
+                    setShowDtrModal(false);
+                    setShowErrorDetails(false);
                     setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null); setActiveTab('home');
                     try { await supabase.auth.signOut(); } catch(e) {}
                   }}
@@ -4157,6 +4312,60 @@ export default function App() {
           </Modal>
         );
       })()}
+
+      {selectedAnnouncement && (
+        <Modal 
+          animationType="slide" 
+          transparent={false} 
+          visible={!!selectedAnnouncement} 
+          onRequestClose={() => setSelectedAnnouncement(null)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20, 
+              paddingVertical: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: COLORS.border
+            }}>
+              <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={{ padding: 8, marginLeft: -8 }}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain }}>
+                {language === 'fil' ? 'Detalye ng Anunsyo' : 'Announcement Details'}
+              </Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 60 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  📢 {selectedAnnouncement.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
+                </Text>
+                <Text style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 12 }}>
+                  {new Date(selectedAnnouncement.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </Text>
+              </View>
+
+              <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.textMain, marginBottom: 16, lineHeight: 28 }}>
+                {getBilingualText(selectedAnnouncement.title, language)}
+              </Text>
+
+              <View style={{ 
+                height: 1, 
+                backgroundColor: COLORS.border, 
+                marginBottom: 20 
+              }} />
+
+              <Text style={{ fontSize: 14, color: COLORS.textMain, lineHeight: 24 }}>
+                {getBilingualText(selectedAnnouncement.content, language)}
+              </Text>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
     </View>
   );
 
@@ -4181,20 +4390,20 @@ export default function App() {
   return renderedContent;
 }
 
-const styles = StyleSheet.create({
+function getStyles(COLORS: any) { return StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background, height: '100%' },
   container: { flex: 1, backgroundColor: COLORS.background, height: '100%' },
   content: { padding: 24, paddingBottom: 40 },
   header: { marginBottom: 32, marginTop: 12 },
   greeting: { color: COLORS.textMuted, fontSize: 16, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 },
   name: { color: COLORS.textMain, fontSize: 34, fontWeight: '800', letterSpacing: -0.5 },
-  input: { backgroundColor: '#ffffff', color: COLORS.textMain, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  input: { backgroundColor: COLORS.card, color: COLORS.textMain, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   
   timeInButton: { backgroundColor: COLORS.primary, padding: 24, borderRadius: 20, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16 },
   timeInSuccess: { backgroundColor: COLORS.primaryDim, padding: 24, borderRadius: 20, alignItems: 'center', borderColor: COLORS.primary, borderWidth: 1 },
   
   readyCard: {
-    backgroundColor: '#f0fdf4',
+    backgroundColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4',
     borderColor: 'rgba(16, 185, 129, 0.3)',
     borderWidth: 1,
     borderRadius: 20,
@@ -4206,7 +4415,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   scanningCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: COLORS.border,
     borderWidth: 1,
     borderRadius: 20,
@@ -4219,7 +4428,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   activeCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: 'transparent',
     borderWidth: 2,
     borderRadius: 20,
@@ -4246,7 +4455,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     marginTop: 8,
   },
   timeOutSecondaryButton: {
@@ -4291,15 +4500,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
-    backgroundColor: 'rgba(15, 23, 42, 0.05)',
+    backgroundColor: COLORS.isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.1)',
+    borderColor: COLORS.isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.1)',
   },
   attendanceBadgeText: {
     fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
-    color: '#475569',
+    color: COLORS.isDarkMode ? '#94a3b8' : '#475569',
   },
   dispatchTitle: {
     color: COLORS.textMain,
@@ -4315,7 +4524,7 @@ const styles = StyleSheet.create({
   directionsButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: COLORS.border,
     borderWidth: 1,
     borderRadius: 10,
@@ -4337,7 +4546,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   emptyCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: COLORS.border,
     borderWidth: 1,
     borderStyle: 'dashed',
@@ -4471,14 +4680,4 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     zIndex: 99999
   } as ViewStyle
-});
-
-
-
-
-
-
-
-
-
-
+}); }

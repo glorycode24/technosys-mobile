@@ -9,6 +9,7 @@ interface PaginationProps {
   itemsPerPage: number;
   onPageChange: (page: number) => void;
   language?: 'en' | 'fil';
+  isDarkMode?: boolean;
 }
 
 const COLORS = {
@@ -27,7 +28,21 @@ export default function Pagination({
   itemsPerPage,
   onPageChange,
   language = 'en',
+  isDarkMode = false,
 }: PaginationProps) {
+  if (isDarkMode) {
+    COLORS.card = '#1e293b';
+    COLORS.border = '#334155';
+    COLORS.textMuted = '#94a3b8';
+    COLORS.textMain = '#f8fafc';
+  } else {
+    COLORS.card = '#f8fafc';
+    COLORS.border = '#e2e8f0';
+    COLORS.textMuted = '#64748b';
+    COLORS.textMain = '#0f172a';
+  }
+
+  const styles = getStyles(COLORS);
   if (totalPages <= 1) return null;
 
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -67,7 +82,7 @@ export default function Pagination({
   );
 }
 
-const styles = StyleSheet.create({
+function getStyles(COLORS: any) { return StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -95,7 +110,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.card,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -111,4 +126,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.textMain,
   },
-});
+}); }
