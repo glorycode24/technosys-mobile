@@ -3529,6 +3529,8 @@ export default function App() {
                   <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
                 </View>
               )}
+            </ScrollView>
+          )}
 
 
           {activeTab === 'tickets' && (
