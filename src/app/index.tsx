@@ -2598,7 +2598,7 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
               {/* Premium Header widget */}
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-                <View>
+                <View style={{ flex: 1, marginRight: 16 }}>
                   <Text style={styles.greeting}>{t('welcomeBack')}</Text>
                   <Text style={styles.name}>{profile?.full_name || 'Technician'}</Text>
                   {(() => {
@@ -2629,7 +2629,7 @@ export default function App() {
                     height: 12,
                     borderRadius: 6,
                     borderWidth: 2,
-                    borderColor: '#ffffff',
+                    borderColor: COLORS.background,
                     backgroundColor: isOnline ? COLORS.primary : COLORS.danger
                   }} />
                 </View>
