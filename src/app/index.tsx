@@ -4276,7 +4276,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
     elevation: 2,
   },
   scanningCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: COLORS.border,
     borderWidth: 1,
     borderRadius: 20,
@@ -4289,7 +4289,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
     elevation: 2,
   },
   activeCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: 'transparent',
     borderWidth: 2,
     borderRadius: 20,
@@ -4316,7 +4316,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     marginTop: 8,
   },
   timeOutSecondaryButton: {
@@ -4385,7 +4385,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
   directionsButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: COLORS.border,
     borderWidth: 1,
     borderRadius: 10,
@@ -4407,7 +4407,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
     borderRadius: 8,
   },
   emptyCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: COLORS.whiteCard,
     borderColor: COLORS.border,
     borderWidth: 1,
     borderStyle: 'dashed',
