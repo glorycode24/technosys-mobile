@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "hris-mobile",
-    "slug": "hris-mobile",
+    "name": "TechnoSys Mobile",
+    "slug": "technosys-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
