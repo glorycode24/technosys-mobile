@@ -3363,7 +3363,7 @@ export default function App() {
                   const daysWorked = cycleLogs.length || 10;
                   const totalHours = cycleLogs.reduce((sum, log) => sum + Number(log.total_hours || 0), 0) || (daysWorked * 8);
                   
-                  const baseHourlyRate = Number(profile?.base_salary || 20000) / 160;
+                  const baseHourlyRate = Number(profile?.base_salary || 20000) / 208;
                   const expectedRegularPay = baseHourlyRate * totalHours;
                   const holidayBonus = Math.max(0, Number(payslip.gross_pay) - expectedRegularPay);
                   const holidayHours = holidayBonus > 0 ? Math.round(holidayBonus / (baseHourlyRate * 0.3)) : 0;
