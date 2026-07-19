@@ -1349,12 +1349,12 @@ export default function App() {
     };
   }, [session, profile, language]);
 
-  // Real-time Schedules Sync
+  // Real-time Global Technician Sync
   useEffect(() => {
     let channel: any;
     if (session) {
       channel = supabase
-        .channel('schedules_realtime')
+        .channel('global_technician_realtime')
         .on(
           'postgres_changes',
           { 
@@ -1365,6 +1365,85 @@ export default function App() {
           },
           async (payload) => {
             console.log('Realtime schedule change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'leaves',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime leave status change detected:', payload);
+            await fetchDashboardData(session.user.id);
+            await fetchLeaves();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'time_logs',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime time log change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'profiles',
+            filter: `id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime profile change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'payslips',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime payslip change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'overtime_requests',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime OT request change detected:', payload);
+            await fetchDashboardData(session.user.id);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'payroll_disputes',
+            filter: `technician_id=eq.${session.user.id}`
+          },
+          async (payload) => {
+            console.log('Realtime dispute change detected:', payload);
             await fetchDashboardData(session.user.id);
           }
         )
