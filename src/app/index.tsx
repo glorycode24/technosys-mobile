@@ -149,6 +149,7 @@ Alert.alert = (title: string, message?: string, buttons?: any[]) => {
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useGeofence } from '../hooks/useGeofence';
 import GeofenceMobileMap from '../components/GeofenceMobileMap';
+import HybridCamera from '../components/HybridCamera';
 import { TicketsTab } from '../components/TicketsTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -300,16 +301,60 @@ const LoginScreen = ({ onLogin }: any) => {
   const styles = getStyles(COLORS);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
 
-  const handleLogin = async () => {
+  React.useEffect(() => {
+    let timer: any;
+    if (cooldown > 0) {
+      timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
+  const handleSendOtp = async () => {
+    if (!phone || phone.length !== 10) {
+      setErrorMsg("Please enter a valid 10-digit number");
+      return;
+    }
+    setLoading(true);
+    setErrorMsg(null);
+    const { error } = await supabase.auth.signInWithOtp({ phone: '+63' + phone });
+    if (error) {
+      setErrorMsg(error.message);
+    } else {
+      setOtpSent(true);
+      setCooldown(60);
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length !== 6) {
+      setErrorMsg("Please enter the 6-digit OTP");
+      return;
+    }
+    setLoading(true);
+    setErrorMsg(null);
+    const { data, error } = await supabase.auth.verifyOtp({ phone: '+63' + phone, token: otp, type: 'sms' });
+    if (error) {
+      setErrorMsg(error.message);
+    } else {
+      onLogin(data.session);
+    }
+    setLoading(false);
+  };
+
+  const handleEmailLogin = async () => {
     setLoading(true);
     setErrorMsg(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setErrorMsg(error.message);
-      Alert.alert('Login Failed', error.message);
     } else {
       onLogin(data.session);
     }
@@ -343,33 +388,87 @@ const LoginScreen = ({ onLogin }: any) => {
             </View>
           )}
 
-          <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Email Address</Text>
-          <TextInput 
-            style={styles.input}
-            placeholder="employee@technocycle.com"
-            placeholderTextColor={COLORS.textMuted}
-            autoCapitalize="none"
-            value={email}
-            onChangeText={setEmail}
-          />
+          {loginMethod === 'phone' ? (
+            <View>
+              <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Phone Number</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: otpSent ? 16 : 24, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: '#fff', overflow: 'hidden' }}>
+                <View style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 16, height: 50, justifyContent: 'center', borderRightWidth: 1, borderRightColor: COLORS.border }}>
+                  <Text style={{ fontWeight: 'bold', color: COLORS.textMuted }}>+63</Text>
+                </View>
+                <TextInput 
+                  style={{ flex: 1, height: 50, paddingHorizontal: 16, fontSize: 16, color: COLORS.textMain, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}
+                  placeholder="9171234567"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  editable={!otpSent}
+                  value={phone}
+                  onChangeText={(text) => setPhone(text.replace(/^0/, '').replace(/\D/g, ''))}
+                />
+              </View>
 
-          <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Password</Text>
-          <TextInput 
-            style={[styles.input, { marginBottom: 24 }]}
-            placeholder="••••••••"
-            placeholderTextColor={COLORS.textMuted}
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
+              {otpSent && (
+                <View style={{ marginBottom: 24 }}>
+                  <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>6-Digit OTP</Text>
+                  <TextInput 
+                    style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: '#fff', height: 50, paddingHorizontal: 16, fontSize: 20, color: COLORS.textMain, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', letterSpacing: 8, textAlign: 'center' }}
+                    placeholder="123456"
+                    placeholderTextColor={COLORS.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={otp}
+                    onChangeText={(text) => setOtp(text.replace(/\D/g, ''))}
+                  />
+                </View>
+              )}
 
-          <TouchableOpacity 
-            style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 17 }}>Secure Login</Text>}
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ backgroundColor: (cooldown > 0 && !otpSent) ? '#94a3b8' : COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }}
+                onPress={otpSent ? handleVerifyOtp : handleSendOtp}
+                disabled={loading || (cooldown > 0 && !otpSent)}
+              >
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 17 }}>{otpSent ? 'Verify OTP & Login' : cooldown > 0 ? `Resend OTP in ${cooldown}s` : 'Send OTP'}</Text>}
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={() => { setLoginMethod('email'); setErrorMsg(null); }} style={{ marginTop: 24, alignItems: 'center', padding: 8 }}>
+                <Text style={{ color: COLORS.textMuted, fontSize: 13, fontWeight: '600' }}>Didn't receive SMS? Use Email instead</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View>
+              <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Email Address</Text>
+              <TextInput 
+                style={styles.input}
+                placeholder="employee@technocycle.com"
+                placeholderTextColor={COLORS.textMuted}
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+
+              <Text style={{ color: COLORS.textMain, marginBottom: 8, fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase' }}>Password</Text>
+              <TextInput 
+                style={[styles.input, { marginBottom: 24 }]}
+                placeholder="••••••••"
+                placeholderTextColor={COLORS.textMuted}
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+
+              <TouchableOpacity 
+                style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }}
+                onPress={handleEmailLogin}
+                disabled={loading}
+              >
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 17 }}>Secure Login</Text>}
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={() => { setLoginMethod('phone'); setErrorMsg(null); }} style={{ marginTop: 24, alignItems: 'center', padding: 8 }}>
+                <Text style={{ color: COLORS.primary, fontSize: 13, fontWeight: '600' }}>Back to Phone Login</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -642,6 +741,8 @@ export default function App() {
   const [profile, setProfile] = useState<any>(null);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [payslip, setPayslip] = useState<any>(null);
+  const [payslips, setPayslips] = useState<any[]>([]);
+  const [searchPayslip, setSearchPayslip] = useState('');
   const [leaveAlert, setLeaveAlert] = useState<any>(null);
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -720,6 +821,7 @@ export default function App() {
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
+  const [isCameraMode, setIsCameraMode] = useState(false);
   const [scanType, setScanType] = useState<'in' | 'out' | null>(null);
   const [scanCountdown, setScanCountdown] = useState(180);
   const scanTypeRef = React.useRef<'in' | 'out' | null>(null);
@@ -1079,7 +1181,7 @@ export default function App() {
   // Offline queue state
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
 
-  const checkQueueStatus = async () => {
+  const checkQueueStatus = async () => { await AsyncStorage.removeItem('OFFLINE_TRANSACTION_QUEUE'); 
     const queue = await syncQueue.getQueue();
     setOfflineQueueCount(queue.length);
   };
@@ -1571,10 +1673,11 @@ export default function App() {
       
       const fetchProfilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
       const fetchSchedulesPromise = supabase.from('schedules').select('*, senior_partner:profiles!senior_partner_id(full_name)').eq('technician_id', userId).order('start_time', { ascending: true });
-      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const fetchPayslipsPromise = supabase.from('payslips').select('*').eq('technician_id', userId).eq('status', 'published').order('created_at', { ascending: false });
       const fetchTimeLogsPromise = supabase.from('time_logs')
         .select('*')
         .eq('technician_id', userId)
+        .gte('created_at', new Date(Date.now() - 86400000).toISOString())
         .order('created_at', { ascending: false })
         .limit(10);
       const fetchAnnouncementsPromise = supabase.from('announcements')
@@ -1587,7 +1690,7 @@ export default function App() {
 
       const [profResult, schedsResult, payslipsResult, logsResult, announcementsResult, leavesResult] = await withTimeout(
         Promise.all([fetchProfilePromise, fetchSchedulesPromise, fetchPayslipsPromise, fetchTimeLogsPromise, fetchAnnouncementsPromise, fetchLeavesPromise]),
-        10000
+        20000
       );
 
       const isNetworkErr = (err: any) => {
@@ -1605,7 +1708,8 @@ export default function App() {
 
       const prof = profResult.data;
       const scheds = schedsResult.data || [];
-      const pay = payslipsResult.data;
+      const pay = payslipsResult.data && payslipsResult.data.length > 0 ? payslipsResult.data[0] : null;
+      setPayslips(payslipsResult.data || []);
       const logs = logsResult.data || [];
       const anns = announcementsResult.data || [];
       const leaves = leavesResult.data || [];
@@ -2290,7 +2394,7 @@ export default function App() {
         throw error;
       }
 
-      Alert.alert(t('biometricScanMatched'), t('workedHours', { hours: diffHours }));
+      setActiveTimeLog((prev: any) => ({ ...prev, app_time_out: timeOutTime, total_hours: diffHours })); Alert.alert(t('biometricScanMatched'), t('workedHours', { hours: diffHours }));
       await fetchDashboardData(session.user.id);
     } catch (e: any) {
       Alert.alert('Time Out Failed', e.message || 'An error occurred.');
@@ -2724,9 +2828,6 @@ export default function App() {
                         <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain, textAlign: 'center', marginBottom: 6 }}>
                           {language === 'fil' ? 'Naghihintay ng Biometric Swipe...' : 'Awaiting Biometric Swipe...'}
                         </Text>
-                        <Text style={{ fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 16, paddingHorizontal: 12 }}>
-                          {language === 'fil' ? 'Paki-swipe ang iyong daliri sa wall reader terminal upang makumpleto ang pag-verify.' : 'Please place your registered finger on the physical biometric machine terminal.'}
-                        </Text>
                         <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.danger, marginBottom: 16 }}>
                           ⏱️ {Math.floor(scanCountdown / 60)}:{(scanCountdown % 60).toString().padStart(2, '0')}
                         </Text>
@@ -2744,36 +2845,135 @@ export default function App() {
                             {t('cancel')}
                           </Text>
                         </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setIsWaitingForScan(false);
+                            setIsCameraMode(true);
+                          }}
+                          style={[styles.cancelScanButton, { backgroundColor: '#10b981', marginTop: 8 }]}
+                        >
+                          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }}>
+                            📷 {language === 'fil' ? 'Gamitin ang Camera (Hybrid Mode)' : 'Use Camera (Hybrid Mode)'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     );
                   }
 
-                  if (!activeTimeLog) {
+                  if (isCameraMode) {
                     return (
-                      <TouchableOpacity 
-                        style={styles.readyCard} 
-                        onPress={handleTimeIn} 
-                        disabled={timeInLoading}
-                      >
-                        {timeInLoading ? (
-                          <ActivityIndicator color={COLORS.primary} />
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
-                            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
-                              <Feather name="map-pin" size={24} color={COLORS.primary} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ color: COLORS.textMain, fontWeight: '800', fontSize: 18, marginBottom: 4 }}>
-                                {language === 'fil' ? 'Mag-Clock In' : 'Locate Office & Check In'}
-                              </Text>
-                              <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
-                                📍 {t('locationVerificationDetails')}
-                              </Text>
-                            </View>
-                            <Feather name="chevron-right" size={20} color={COLORS.textMuted} />
+                      <HybridCamera 
+                        language={language as any} 
+                        onCancel={() => {
+                          setIsCameraMode(false);
+                          setIsWaitingForScan(true);
+                        }}
+                        onPhotoTaken={async (photoUri) => {
+                          try {
+                            const response = await fetch(photoUri);
+                            const blob = await response.blob();
+                            let ext = 'jpg';
+                            if (photoUri.startsWith('data:')) {
+                               const match = photoUri.match(/data:image\/([a-zA-Z0-9]+);/);
+                               if (match && match[1]) ext = match[1];
+                            } else {
+                               const dotIdx = photoUri.lastIndexOf('.');
+                               if (dotIdx !== -1) ext = photoUri.substring(dotIdx + 1);
+                            }
+                            const fileName = `${session?.user?.id}-${Date.now()}.${ext}`;
+                            const { data, error } = await supabase.storage.from('dtr-selfies').upload(fileName, blob);
+                            if (error) {
+                              Alert.alert('Upload Failed', error.message);
+                              return;
+                            }
+
+                            // Proceed with time in/out logic using fileName
+                            const type = scanTypeRef.current;
+                            const loc = pendingLocationRef.current;
+                            if (type === 'in') {
+                               const timeInPayload = {
+                                technician_id: session?.user?.id,
+                                app_time_in: new Date().toISOString(),
+                                photo_url: fileName,
+                                geofence_status: loc?.status || 'inside',
+                                latitude: loc?.lat || null,
+                                longitude: loc?.lng || null,
+                                is_mocked: false,
+                                is_suspicious: false,
+                                gps_accuracy: null
+                              };
+                              const { data: insertData, error: insertErr } = await supabase.from('time_logs').insert(timeInPayload).select().single();
+                              if (insertErr) {
+                                console.log("INSERT ERROR PAYLOAD:", timeInPayload);
+                                console.log("INSERT ERROR:", insertErr);
+                                Alert.alert('Error', insertErr.message);
+                              }
+                              else { 
+                                setActiveTimeLog(insertData);
+                                Alert.alert('Success', 'Clock In successful (Pending Approval)'); 
+                                
+                              }
+                            } else if (type === 'out') {
+                              const { error: updateErr } = await supabase.from('time_logs').update({
+                                app_time_out: new Date().toISOString(),
+                                is_suspicious: false
+                              }).eq('technician_id', session?.user?.id).is('app_time_out', null);
+                              if (updateErr) {
+                                console.log("UPDATE ERROR:", updateErr);
+                                Alert.alert('Error', updateErr.message);
+                              }
+                              else setActiveTimeLog((prev: any) => ({ ...prev, app_time_out: new Date().toISOString() })); Alert.alert('Success', 'Clock Out successful'); await fetchDashboardData(session?.user?.id);
+                            }
+
+                            setIsCameraMode(false);
+                            setScanType(null);
+                            scanTypeRef.current = null;
+                            pendingLocationRef.current = null;
+                          } catch (e: any) {
+                            Alert.alert('Error', e.message);
+                          }
+                        }}
+                      />
+                    );
+                  }
+
+                  if (!activeTimeLog || activeTimeLog.photo_status === 'rejected') {
+                    return (
+                      <View>
+                        {activeTimeLog?.photo_status === 'rejected' && (
+                          <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: 12, borderRadius: 12, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="alert-circle" size={20} color={COLORS.danger} style={{ marginRight: 8 }} />
+                            <Text style={{ color: COLORS.danger, fontSize: 13, flex: 1 }}>
+                              {language === 'fil' ? 'Tinanggihan ang iyong huling selfie. Mangyaring mag-Clock In muli.' : 'Your last selfie was rejected. Please clock in again.'}
+                            </Text>
                           </View>
                         )}
-                      </TouchableOpacity>
+                        <TouchableOpacity 
+                          style={styles.readyCard} 
+                          onPress={handleTimeIn} 
+                          disabled={timeInLoading}
+                        >
+                          {timeInLoading ? (
+                            <ActivityIndicator color={COLORS.primary} />
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+                              <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(16, 185, 129, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                                <Feather name="map-pin" size={24} color={COLORS.primary} />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: COLORS.textMain, fontWeight: '800', fontSize: 18, marginBottom: 4 }}>
+                                  {language === 'fil' ? 'Mag-Clock In' : 'Locate Office & Check In'}
+                                </Text>
+                                <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>
+                                  📍 {t('locationVerificationDetails')}
+                                </Text>
+                              </View>
+                              <Feather name="chevron-right" size={20} color={COLORS.textMuted} />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                     );
                   }
 
@@ -2792,6 +2992,12 @@ export default function App() {
                           <Text style={{ color: COLORS.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                             {language === 'fil' ? 'KASALUKUYANG SHIFT' : 'ACTIVE SHIFT'}
                           </Text>
+                          
+                          {activeTimeLog.photo_status === 'pending' && (
+                            <View style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 6 }}>
+                              <Text style={{ color: '#d97706', fontSize: 11, fontWeight: 'bold' }}>PENDING APPROVAL</Text>
+                            </View>
+                          )}
                           
                           <ActiveShiftTimer startTime={activeTimeLog.app_time_in} />
                           
@@ -3223,9 +3429,20 @@ export default function App() {
                 <Text style={styles.name}>{t('payrollTab') || 'My Earnings'}</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
-              {payslip ? (
-                (() => {
-                  // Calculate itemized details
+
+              <TextInput 
+                placeholder={language === 'fil' ? 'Hanapin ang Petsa o Halaga...' : 'Search Date or Amount...'} 
+                placeholderTextColor={COLORS.textMuted}
+                style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border }}
+                value={searchPayslip}
+                onChangeText={setSearchPayslip}
+              />
+
+              {payslips && payslips.length > 0 ? (
+                payslips
+                  .filter(p => p.period_start.includes(searchPayslip) || p.period_end.includes(searchPayslip) || (p.net_pay && p.net_pay.toString().includes(searchPayslip)))
+                  .map((p, idx) => {
+                  const payslip = p;
                   const cycleLogs = dtrLogs.filter(log => {
                     const logDate = log.created_at ? log.created_at.split('T')[0] : '';
                     return logDate >= payslip.period_start && logDate <= payslip.period_end;
@@ -3241,8 +3458,8 @@ export default function App() {
                   const withholdingTax = Math.max(0, Number(payslip.gross_pay) - Number(payslip.sss_deduction) - Number(payslip.philhealth_deduction) - Number(payslip.pagibig_deduction) - Number(payslip.net_pay));
 
                   return (
-                    <View style={styles.payslipCard}>
-                      <Text style={styles.sectionTitle}>{language === 'fil' ? 'Huling Payslip' : 'Latest Payslip'}</Text>
+                    <View key={idx} style={styles.payslipCard}>
+                      <Text style={styles.sectionTitle}>{language === 'fil' ? 'Huling Payslip' : 'Payslip Record'}</Text>
                       <Text style={styles.period}>{language === 'fil' ? 'Siklo' : 'Cycle'}: {payslip.period_start} to {payslip.period_end}</Text>
                       
                       <View style={styles.netPayBox}>
@@ -3250,7 +3467,6 @@ export default function App() {
                         <Text style={styles.netPayAmount}>{formatPhp(payslip.net_pay)}</Text>
                       </View>
 
-                      {/* Itemized Table */}
                       <Text style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginTop: 8 }}>
                         {language === 'fil' ? 'PAGHAHATI-HATI NG KITA' : 'EARNINGS BREAKDOWN'}
                       </Text>
@@ -3293,10 +3509,12 @@ export default function App() {
                         </View>
                       </View>
 
-                      {/* Dispute Payslip Button */}
                       <TouchableOpacity 
-                        onPress={() => setShowDisputeModal(true)}
-                        style={{ backgroundColor: COLORS.danger, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 12 }}
+                        onPress={() => {
+                            setPayslip(payslip);
+                            setShowDisputeModal(true);
+                        }}
+                        style={{ backgroundColor: COLORS.danger, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 12, marginBottom: 24 }}
                       >
                         <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
                           {language === 'fil' ? 'I-dispute ang Payslip' : 'Dispute Payslip'}
@@ -3304,15 +3522,14 @@ export default function App() {
                       </TouchableOpacity>
                     </View>
                   );
-                })()
+                })
               ) : (
                 <View style={[styles.payslipCard, { alignItems: 'center', paddingVertical: 60 }]}>
                   <Feather name="file-text" size={48} color={COLORS.border} style={{ marginBottom: 16 }} />
                   <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
                 </View>
               )}
-            </ScrollView>
-          )}
+
 
           {activeTab === 'tickets' && (
             <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} isDarkMode={isDarkMode} />
@@ -4454,7 +4671,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
     backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 100000,
+    zIndex: 200000,
   } as ViewStyle,
   splashLogo: {
     width: 110,

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "hris-mobile",
-    "slug": "hris-mobile",
+    "name": "TechnoSys Mobile",
+    "slug": "technosys-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.technosys.hrismobile"
     },
     "web": {
       "output": "static",
@@ -35,6 +36,7 @@
           }
         }
       ],
+      "expo-image",
       [
         "expo-location",
         {

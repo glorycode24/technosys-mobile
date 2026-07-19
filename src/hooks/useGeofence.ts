@@ -327,7 +327,7 @@ export function useGeofence() {
       }
     } catch (err: any) {
       // Presentation Fallback: Triggered when native GPS permissions or hardware check fails (e.g., in web browser testing)
-      console.warn("GPS check failed. Activating presentation fallback simulator...", err);
+      if (Platform.OS !== 'web') { const errorMsg = err.message || 'Location timeout or GPS error on physical device.'; setResult(prev => ({ ...prev, status: 'error', error: errorMsg })); return { status: 'error', error: errorMsg } as const; } console.warn("GPS check failed. Activating presentation fallback simulator...", err);
       
       let fetchedOffices = officesRef.current;
       if (fetchedOffices.length === 0) {
@@ -423,3 +423,6 @@ export function useGeofence() {
 
   return { ...result, offices, selectedOfficeId, setSelectedOfficeId, checkLocation, reset };
 }
+
+
+
