@@ -3553,6 +3553,15 @@ export default function App() {
                 {/* Highly Accessible Log Out Row */}
                 <TouchableOpacity 
                   onPress={async () => {
+                    geofence.reset();
+                    setBranchDropdownOpen(false);
+                    setShowLeavesModal(false);
+                    setShowApplyLeaveModal(false);
+                    setShowDisputeModal(false);
+                    setSelectedAnnouncement(null);
+                    setShowOtModal(false);
+                    setShowDtrModal(false);
+                    setShowErrorDetails(false);
                     setSession(null); setProfile(null); setSchedules([]); setPayslip(null); setActiveTimeLog(null); setActiveTab('home');
                     try { await supabase.auth.signOut(); } catch(e) {}
                   }}
