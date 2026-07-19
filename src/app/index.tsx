@@ -631,6 +631,7 @@ export default function App() {
   const [timeOutLoading, setTimeOutLoading] = useState(false);
   const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<any | null>(null);
   const [showOtModal, setShowOtModal] = useState(false);
   const [otHours, setOtHours] = useState("1");
   const [otReason, setOtReason] = useState("");
@@ -642,6 +643,12 @@ export default function App() {
   // Intercept physical back button to close modals / redirect tabs
   useEffect(() => {
     const onBackPress = () => {
+      // 0. Close announcement detail modal
+      if (selectedAnnouncement) {
+        setSelectedAnnouncement(null);
+        return true;
+      }
+      
       // 1. Close leaves forms
       if (showApplyLeaveModal) {
         setShowApplyLeaveModal(false);
@@ -677,7 +684,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [showLeavesModal, showApplyLeaveModal, showOtModal, showDisputeModal, activeTab]);
+  }, [showLeavesModal, showApplyLeaveModal, showOtModal, showDisputeModal, activeTab, selectedAnnouncement]);
 
   // Phase 8: Two-Factor Biometric Scan States & Refs
   const [isWaitingForScan, setIsWaitingForScan] = useState(false);
@@ -3033,8 +3040,10 @@ export default function App() {
                       contentContainerStyle={{ paddingRight: 16 }}
                     >
                       {filteredAnnouncements.map((ann) => (
-                        <View 
+                        <TouchableOpacity 
                           key={ann.id} 
+                          onPress={() => setSelectedAnnouncement(ann)}
+                          activeOpacity={0.8}
                           style={{
                             width: 280,
                             backgroundColor: COLORS.card,
@@ -3069,7 +3078,7 @@ export default function App() {
                           <Text style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 18, paddingLeft: 6 }} numberOfLines={3}>
                             {getBilingualText(ann.content, language)}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       ))}
                     </ScrollView>
                   </View>
@@ -4111,6 +4120,60 @@ export default function App() {
           </Modal>
         );
       })()}
+
+      {selectedAnnouncement && (
+        <Modal 
+          animationType="slide" 
+          transparent={false} 
+          visible={!!selectedAnnouncement} 
+          onRequestClose={() => setSelectedAnnouncement(null)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20, 
+              paddingVertical: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: COLORS.border
+            }}>
+              <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={{ padding: 8, marginLeft: -8 }}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain }}>
+                {language === 'fil' ? 'Detalye ng Anunsyo' : 'Announcement Details'}
+              </Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 60 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  📢 {selectedAnnouncement.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
+                </Text>
+                <Text style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 12 }}>
+                  {new Date(selectedAnnouncement.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </Text>
+              </View>
+
+              <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.textMain, marginBottom: 16, lineHeight: 28 }}>
+                {getBilingualText(selectedAnnouncement.title, language)}
+              </Text>
+
+              <View style={{ 
+                height: 1, 
+                backgroundColor: COLORS.border, 
+                marginBottom: 20 
+              }} />
+
+              <Text style={{ fontSize: 14, color: COLORS.textMain, lineHeight: 24 }}>
+                {getBilingualText(selectedAnnouncement.content, language)}
+              </Text>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
     </View>
   );
 
