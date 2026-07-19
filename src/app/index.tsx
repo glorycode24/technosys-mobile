@@ -254,7 +254,7 @@ async function registerForPushNotificationsAsync(userId: string) {
 }
 
 // Clean White Professional Theme
-const COLORS = {
+let COLORS = {
   background: '#ffffff',
   card: '#f8fafc',
   primary: '#10b981',
@@ -262,7 +262,9 @@ const COLORS = {
   textMain: '#0f172a',
   textMuted: '#64748b',
   danger: '#ef4444',
-  border: '#e2e8f0'
+  border: '#e2e8f0',
+  whiteCard: '#ffffff',
+  isDarkMode: false
 };
 
 const FadeInView = ({ children, currentTab }: any) => {
@@ -3478,14 +3480,14 @@ export default function App() {
                   </View>
                   
                   {/* Segmented language switcher */}
-                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: '#e2e8f0', borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
+                  <View style={{ position: 'relative', width: 116, height: 32, backgroundColor: COLORS.border, borderRadius: 8, flexDirection: 'row', alignItems: 'center', padding: 2 }}>
                     <Animated.View style={{
                       position: 'absolute',
                       top: 2,
                       bottom: 2,
                       left: 0,
                       width: 56,
-                      backgroundColor: '#ffffff',
+                      backgroundColor: COLORS.whiteCard,
                       borderRadius: 6,
                       transform: [{
                         translateX: langAnim.interpolate({
@@ -4262,7 +4264,7 @@ function getStyles(COLORS: any) { return StyleSheet.create({
   timeInSuccess: { backgroundColor: COLORS.primaryDim, padding: 24, borderRadius: 20, alignItems: 'center', borderColor: COLORS.primary, borderWidth: 1 },
   
   readyCard: {
-    backgroundColor: '#f0fdf4',
+    backgroundColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4',
     borderColor: 'rgba(16, 185, 129, 0.3)',
     borderWidth: 1,
     borderRadius: 20,
@@ -4359,15 +4361,15 @@ function getStyles(COLORS: any) { return StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
-    backgroundColor: 'rgba(15, 23, 42, 0.05)',
+    backgroundColor: COLORS.isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.1)',
+    borderColor: COLORS.isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.1)',
   },
   attendanceBadgeText: {
     fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
-    color: '#475569',
+    color: COLORS.isDarkMode ? '#94a3b8' : '#475569',
   },
   dispatchTitle: {
     color: COLORS.textMain,
