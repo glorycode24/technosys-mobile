@@ -299,6 +299,7 @@ const FadeInView = ({ children, currentTab }: any) => {
 
 const LoginScreen = ({ onLogin }: any) => {
   const styles = getStyles(COLORS);
+  const [loginMethod, setLoginMethod] = useState<'phone'|'email'>('phone');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
