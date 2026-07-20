@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Picker } from '@react-native-picker/picker';
 import { 
   StyleSheet, Text, View, ScrollView, TouchableOpacity, 
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
@@ -554,7 +556,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         fetchLeaves();
       } catch (err: any) {
         const errMessage = err.message || '';
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
 
         if (isNetworkError) {
           await syncQueue.addToQueue('leave_request', payload);
@@ -645,7 +647,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         fetchTickets();
       } catch (e: any) {
         const errMessage = e.message || '';
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
         if (isNetworkError) {
           await handleOffline();
         } else {
@@ -720,7 +722,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         fetchTickets();
       } catch (e: any) {
         const errMessage = e.message || '';
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
         if (isNetworkError) {
           await handleOffline();
         } else {
@@ -790,7 +792,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       fetchTickets();
     } catch (e: any) {
       const errMessage = e.message || '';
-      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+      const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
       if (isNetworkError) {
         await handleOffline();
       } else {
@@ -993,7 +995,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       fetchComments(selectedTicket.id);
     } catch (e: any) {
       const errMessage = e.message || '';
-      const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+      const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
       if (isNetworkError) {
         await handleOfflineComment();
       } else {
@@ -1195,7 +1197,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
               fetchTickets();
             } catch (e: any) {
               const errMessage = e.message || '';
-              const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timed out') || errMessage.includes('timeout');
+              const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
               if (isNetworkError) {
                 await handleOfflineClose();
               } else {
@@ -1535,59 +1537,39 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
 
           <View style={styles.formCard}>
             <Text style={styles.label}>{t('requestCategory')}</Text>
-            <View style={styles.categoriesGrid}>
-              {['Leave Request', 'Payroll Dispute', 'Benefits Inquiry', 'Equipment Issue', 'Other'].map(cat => {
-                const isActive = category === cat;
-                const catTheme = getCategoryTheme(cat);
-                
-                // Get translation label
-                let catLabel = cat;
-                if (cat === 'Leave Request') catLabel = t('leaveRequest');
-                else if (cat === 'Payroll Dispute') catLabel = t('payrollDispute');
-                else if (cat === 'Benefits Inquiry') catLabel = t('benefitsInquiry');
-                else if (cat === 'Equipment Issue') catLabel = t('equipmentIssue');
-                else if (cat === 'Other') catLabel = t('other');
-
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[
-                      styles.categoryOption, 
-                      isActive ? { borderColor: catTheme.text, backgroundColor: catTheme.bg } : {}
-                    ]}
-                    onPress={() => setCategory(cat)}
+            <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
+                  <Picker
+                    selectedValue={leaveType}
+                    onValueChange={(itemValue) => setLeaveType(itemValue)}
+                    style={{ width: '100%', height: 50 }}
                   >
-                    <Feather name={catTheme.icon as any} size={14} color={isActive ? catTheme.text : COLORS.textMuted} style={{ marginRight: 6 }} />
-                    <Text style={[styles.categoryOptionText, isActive ? { color: catTheme.text, fontWeight: 'bold' } : {}]}>
-                      {catLabel}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                    <Picker.Item label={t('sick')} value="sick" />
+                    <Picker.Item label={t('vacation')} value="vacation" />
+                    <Picker.Item label={t('wedding')} value="wedding" />
+                    <Picker.Item label={t('paternal')} value="paternal" />
+                    <Picker.Item label={t('maternal')} value="maternal" />
+                    <Picker.Item label={t('emergency')} value="emergency" />
+                    <Picker.Item label={t('unpaid')} value="unpaid" />
+                  </Picker>
+                </View>
 
             {category === 'Leave Request' && (
               <>
                 <Text style={styles.label}>{t('leaveClassification')}</Text>
-                <View style={styles.categoriesGrid}>
-                  {(['sick', 'vacation', 'wedding', 'paternal', 'maternal', 'emergency', 'unpaid'] as const).map((type) => {
-                    const active = leaveType === type;
-                    const details = getLeaveTypeDetails(type);
-                    return (
-                      <TouchableOpacity
-                        key={type}
-                        style={[
-                          styles.categoryOption,
-                          active ? { borderColor: details.color, backgroundColor: details.bg } : {}
-                        ]}
-                        onPress={() => setLeaveType(type)}
-                      >
-                        <Text style={[styles.categoryOptionText, active ? { color: details.color, fontWeight: 'bold' } : {}]}>
-                          {details.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
+                  <Picker
+                    selectedValue={leaveType}
+                    onValueChange={(itemValue) => setLeaveType(itemValue)}
+                    style={{ width: '100%', height: 50 }}
+                  >
+                    <Picker.Item label={t('sick')} value="sick" />
+                    <Picker.Item label={t('vacation')} value="vacation" />
+                    <Picker.Item label={t('wedding')} value="wedding" />
+                    <Picker.Item label={t('paternal')} value="paternal" />
+                    <Picker.Item label={t('maternal')} value="maternal" />
+                    <Picker.Item label={t('emergency')} value="emergency" />
+                    <Picker.Item label={t('unpaid')} value="unpaid" />
+                  </Picker>
                 </View>
 
                 <Text style={styles.label}>{t('quickPresets')}</Text>
@@ -1615,35 +1597,71 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.label}>{t('startDateLabel')}</Text>
-                    <TouchableOpacity
-                      style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
-                      onPress={() => {
-                        setSelectingDateType('start');
-                        setShowCalendarModal(true);
-                      }}
-                    >
-                      <Text style={{ fontSize: 14, color: startDate ? COLORS.textMain : COLORS.textMuted }}>
-                        {startDate || 'YYYY-MM-DD'}
-                      </Text>
-                      <Feather name="calendar" size={16} color={COLORS.textMuted} />
-                    </TouchableOpacity>
+                    {Platform.OS === 'ios' ? (
+                      <DateTimePicker
+                        value={startDate ? new Date(startDate) : new Date()}
+                        mode="date"
+                        display="spinner"
+                        onChange={(event, date) => {
+                          if (date) setStartDate(date.toISOString().split('T')[0]);
+                        }}
+                        style={{ height: 120 }}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                        onPress={() => setSelectingDateType('start')}
+                      >
+                        <Text style={{ fontSize: 14, color: startDate ? COLORS.textMain : COLORS.textMuted }}>
+                          {startDate || 'YYYY-MM-DD'}
+                        </Text>
+                        <Feather name="calendar" size={18} color={COLORS.textMuted} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.label}>{t('endDateLabel')}</Text>
-                    <TouchableOpacity
-                      style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
-                      onPress={() => {
-                        setSelectingDateType('end');
-                        setShowCalendarModal(true);
-                      }}
-                    >
-                      <Text style={{ fontSize: 14, color: endDate ? COLORS.textMain : COLORS.textMuted }}>
-                        {endDate || 'YYYY-MM-DD'}
-                      </Text>
-                      <Feather name="calendar" size={16} color={COLORS.textMuted} />
-                    </TouchableOpacity>
+                    {Platform.OS === 'ios' ? (
+                      <DateTimePicker
+                        value={endDate ? new Date(endDate) : new Date()}
+                        mode="date"
+                        display="spinner"
+                        onChange={(event, date) => {
+                          if (date) setEndDate(date.toISOString().split('T')[0]);
+                        }}
+                        style={{ height: 120 }}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.inputCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                        onPress={() => setSelectingDateType('end')}
+                      >
+                        <Text style={{ fontSize: 14, color: endDate ? COLORS.textMain : COLORS.textMuted }}>
+                          {endDate || 'YYYY-MM-DD'}
+                        </Text>
+                        <Feather name="calendar" size={18} color={COLORS.textMuted} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
+                {Platform.OS === 'android' && selectingDateType && (
+                  <DateTimePicker
+                    value={
+                      selectingDateType === 'start' && startDate ? new Date(startDate) :
+                      selectingDateType === 'end' && endDate ? new Date(endDate) : new Date()
+                    }
+                    mode="date"
+                    display="default"
+                    onChange={(event, date) => {
+                      if (event.type === 'set' && date) {
+                        const dateStr = date.toISOString().split('T')[0];
+                        if (selectingDateType === 'start') setStartDate(dateStr);
+                        else if (selectingDateType === 'end') setEndDate(dateStr);
+                      }
+                      setSelectingDateType(null);
+                    }}
+                  />
+                )}
 
                 <Text style={styles.label}>{t('reasonLabel')}</Text>
                 <TextInput
@@ -1697,25 +1715,20 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
             {category === 'Equipment Issue' && (
               <>
                 <Text style={styles.label}>{t('equipmentType')}</Text>
-                <View style={styles.categoriesGrid}>
-                  {(['tool', 'vehicle', 'device', 'other'] as const).map((type) => {
-                    const active = equipmentType === type;
-                    const label = type === 'tool' ? t('tool') : type === 'vehicle' ? t('vehicle') : type === 'device' ? t('device') : t('other');
-                    return (
-                      <TouchableOpacity
-                        key={type}
-                        style={[
-                          styles.categoryOption,
-                          active ? { borderColor: COLORS.rose, backgroundColor: COLORS.roseDim } : {}
-                        ]}
-                        onPress={() => setEquipmentType(type)}
-                      >
-                        <Text style={[styles.categoryOptionText, active ? { color: COLORS.rose, fontWeight: 'bold' } : {}]}>
-                          {label.toUpperCase()}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
+                  <Picker
+                    selectedValue={leaveType}
+                    onValueChange={(itemValue) => setLeaveType(itemValue)}
+                    style={{ width: '100%', height: 50 }}
+                  >
+                    <Picker.Item label={t('sick')} value="sick" />
+                    <Picker.Item label={t('vacation')} value="vacation" />
+                    <Picker.Item label={t('wedding')} value="wedding" />
+                    <Picker.Item label={t('paternal')} value="paternal" />
+                    <Picker.Item label={t('maternal')} value="maternal" />
+                    <Picker.Item label={t('emergency')} value="emergency" />
+                    <Picker.Item label={t('unpaid')} value="unpaid" />
+                  </Picker>
                 </View>
 
                 <Text style={styles.label}>{t('serialNumber')}</Text>

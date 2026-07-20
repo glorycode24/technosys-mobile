@@ -325,7 +325,11 @@ const LoginScreen = ({ onLogin }: any) => {
     setErrorMsg(null);
     const { error } = await supabase.auth.signInWithOtp({ phone: '+63' + phone });
     if (error) {
-      setErrorMsg(error.message);
+      if (error.message.toLowerCase().includes('unsupported phone provider') || error.message.toLowerCase().includes('sms provider')) {
+        setErrorMsg("SMS login is currently disabled by the administrator. Please contact support or use a test account.");
+      } else {
+        setErrorMsg(error.message);
+      }
     } else {
       setOtpSent(true);
       setCooldown(60);
@@ -3528,6 +3532,9 @@ export default function App() {
                   <Text style={{ color: COLORS.textMuted }}>No published payslips found.</Text>
                 </View>
               )}
+            </ScrollView>
+          )}
+
 
 
           {activeTab === 'tickets' && (
