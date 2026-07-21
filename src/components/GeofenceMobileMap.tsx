@@ -5,8 +5,8 @@ import { getDistance } from 'geolib';
 import { Feather } from '@expo/vector-icons';
 
 interface GeofenceMobileMapProps {
-  userLat: number;
-  userLng: number;
+  userLat?: number;
+  userLng?: number;
   branchLat: number;
   branchLng: number;
   radius: number;
@@ -21,7 +21,7 @@ export default function GeofenceMobileMap({
   radius,
   branchName
 }: GeofenceMobileMapProps) {
-  // If coordinates are invalid, show a placeholder
+  // If branch coordinates are invalid, show a placeholder
   if (!branchLat || !branchLng) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }]}>
@@ -30,12 +30,15 @@ export default function GeofenceMobileMap({
     );
   }
 
-  // Calculate distance
-  const distance = getDistance(
-    { latitude: userLat, longitude: userLng },
-    { latitude: branchLat, longitude: branchLng }
-  );
-  const isInside = distance <= radius;
+  // Calculate distance only if user coordinates exist
+  const hasUserLocation = userLat !== undefined && userLng !== undefined;
+  const distance = hasUserLocation 
+    ? getDistance(
+        { latitude: userLat, longitude: userLng },
+        { latitude: branchLat, longitude: branchLng }
+      )
+    : Infinity;
+  const isInside = hasUserLocation && distance <= radius;
 
   // Format display text
   const displayDistance = distance >= 1000 
@@ -79,18 +82,18 @@ export default function GeofenceMobileMap({
           fillColor={isInside ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.05)'}
         />
 
-        {/* User Marker */}
-        {userLat && userLng ? (
+        {/* User Location Marker */}
+        {hasUserLocation && (
           <Marker
-            coordinate={{ latitude: userLat, longitude: userLng }}
-            title="You"
-            description={`Distance: ${displayDistance}`}
+            coordinate={{ latitude: userLat!, longitude: userLng! }}
+            title="You are here"
+            zIndex={2}
           >
-            <View style={[styles.userMarkerGlow, { backgroundColor: isInside ? 'rgba(59, 130, 246, 0.3)' : 'rgba(239, 68, 68, 0.3)' }]}>
-              <View style={[styles.userMarker, { backgroundColor: isInside ? '#3b82f6' : '#ef4444' }]} />
+            <View style={[styles.pulseCircle, { backgroundColor: isInside ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)' }]}>
+              <View style={[styles.userDot, { backgroundColor: isInside ? COLORS.success : COLORS.danger }]} />
             </View>
           </Marker>
-        ) : null}
+        )}
       </MapView>
 
       <View style={styles.footerLabel}>
