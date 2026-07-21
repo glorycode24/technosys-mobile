@@ -89,8 +89,8 @@ export default function GeofenceMobileMap({
             title="You are here"
             zIndex={2}
           >
-            <View style={[styles.pulseCircle, { backgroundColor: isInside ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)' }]}>
-              <View style={[styles.userDot, { backgroundColor: isInside ? COLORS.success : COLORS.danger }]} />
+            <View style={[styles.userMarkerGlow, { backgroundColor: isInside ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)' }]}>
+              <View style={[styles.userMarker, { backgroundColor: isInside ? '#10b981' : '#ef4444' }]} />
             </View>
           </Marker>
         )}
