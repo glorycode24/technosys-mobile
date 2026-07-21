@@ -151,6 +151,7 @@ import { useGeofence } from '../hooks/useGeofence';
 import GeofenceMobileMap from '../components/GeofenceMobileMap';
 import HybridCamera from '../components/HybridCamera';
 import { TicketsTab } from '../components/TicketsTab';
+import SchedulesTab from '../components/SchedulesTab';
 import { syncQueue } from '../lib/syncQueue';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../lib/timeout';
@@ -748,6 +749,7 @@ export default function App() {
   const [payslip, setPayslip] = useState<any>(null);
   const [payslips, setPayslips] = useState<any[]>([]);
   const [searchPayslip, setSearchPayslip] = useState('');
+  const [showPayslipHistory, setShowPayslipHistory] = useState(false);
   const [leaveAlert, setLeaveAlert] = useState<any>(null);
   const [timeInLoading, setTimeInLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -774,7 +776,7 @@ export default function App() {
   const [otHours, setOtHours] = useState("1");
   const [otReason, setOtReason] = useState("");
   const [otSubmitting, setOtSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'payslip' | 'profile' | 'tickets'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'schedules' | 'payslip' | 'profile' | 'tickets'>('home');
   const geofence = useGeofence();
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
 
@@ -2741,7 +2743,7 @@ export default function App() {
                     const badgeBg = isTechnician ? 'rgba(99, 102, 241, 0.1)' : isHelper ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)';
                     const badgeBorder = isTechnician ? 'rgba(99, 102, 241, 0.2)' : isHelper ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)';
                     const badgeText = isTechnician ? '#4f46e5' : isHelper ? '#d97706' : '#059669';
-                    const badgeLabel = isTechnician ? t('fieldTechnician') : isHelper ? t('fieldHelper') : t('active');
+                    const badgeLabel = profile?.role ? profile.role.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : t('active');
                     return (
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
                         <View style={{ backgroundColor: badgeBg, borderColor: badgeBorder, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
@@ -3311,7 +3313,7 @@ export default function App() {
                               📢 {ann.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
                             </Text>
                             <Text style={{ fontSize: 9, color: COLORS.textMuted }}>
-                              {new Date(ann.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { month: 'short', day: 'numeric' })}
+                              {new Date(ann.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { month: 'long', day: 'numeric' })}
                             </Text>
                           </View>
                           <Text style={{ fontSize: 14, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 6, paddingLeft: 6 }} numberOfLines={1}>
@@ -3428,24 +3430,19 @@ export default function App() {
           )}
 
           {activeTab === 'payslip' && (
+            <>
             <ScrollView contentContainerStyle={styles.content}>
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={styles.name}>{t('payrollTab') || 'My Earnings'}</Text>
                 <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
 
-              <TextInput 
-                placeholder={language === 'fil' ? 'Hanapin ang Petsa o Halaga...' : 'Search Date or Amount...'} 
-                placeholderTextColor={COLORS.textMuted}
-                style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border }}
-                value={searchPayslip}
-                onChangeText={setSearchPayslip}
-              />
+              <TouchableOpacity onPress={() => setShowPayslipHistory(true)} style={{ backgroundColor: COLORS.border, padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 16 }}>
+                <Text style={{ color: COLORS.textMain, fontWeight: 'bold' }}>{language === 'fil' ? 'Tingnan ang Kasaysayan' : 'View Payslip History'}</Text>
+              </TouchableOpacity>
 
               {payslips && payslips.length > 0 ? (
-                payslips
-                  .filter(p => p.period_start.includes(searchPayslip) || p.period_end.includes(searchPayslip) || (p.net_pay && p.net_pay.toString().includes(searchPayslip)))
-                  .map((p, idx) => {
+                [payslips[0]].map((p, idx) => {
                   const payslip = p;
                   const cycleLogs = dtrLogs.filter(log => {
                     const logDate = log.created_at ? log.created_at.split('T')[0] : '';
@@ -3464,7 +3461,7 @@ export default function App() {
                   return (
                     <View key={idx} style={styles.payslipCard}>
                       <Text style={styles.sectionTitle}>{language === 'fil' ? 'Huling Payslip' : 'Payslip Record'}</Text>
-                      <Text style={styles.period}>{language === 'fil' ? 'Siklo' : 'Cycle'}: {payslip.period_start} to {payslip.period_end}</Text>
+                      <Text style={styles.period}>{language === 'fil' ? 'Siklo' : 'Cycle'}: {new Date(payslip.period_start).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} to {new Date(payslip.period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</Text>
                       
                       <View style={styles.netPayBox}>
                         <Text style={styles.netPayLabel}>{language === 'fil' ? 'Kabuuang Netong Sahod' : 'Net Take-Home Pay'}</Text>
@@ -3534,9 +3531,42 @@ export default function App() {
                 </View>
               )}
             </ScrollView>
+
+            <Modal visible={showPayslipHistory} animationType="slide" transparent={true} onRequestClose={() => setShowPayslipHistory(false)}>
+              <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                <View style={{ backgroundColor: COLORS.background, height: '80%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: COLORS.textMain }}>{language === 'fil' ? 'Kasaysayan ng Payslip' : 'Payslip History'}</Text>
+                    <TouchableOpacity onPress={() => setShowPayslipHistory(false)}>
+                      <Feather name="x" size={24} color={COLORS.textMain} />
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput 
+                    placeholder={language === 'fil' ? 'Hanapin ang Petsa...' : 'Search Date...'} 
+                    placeholderTextColor={COLORS.textMuted}
+                    style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border }}
+                    value={searchPayslip}
+                    onChangeText={setSearchPayslip}
+                  />
+                  <ScrollView>
+                    {payslips.filter(p => p.period_start.includes(searchPayslip) || p.period_end.includes(searchPayslip) || (p.net_pay && p.net_pay.toString().includes(searchPayslip))).map((p, idx) => (
+                      <TouchableOpacity key={idx} style={{ padding: 16, backgroundColor: '#fff', borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: COLORS.border }} onPress={() => { setShowPayslipHistory(false); setPayslip(p); setShowDisputeModal(true); }}>
+                        <Text style={{ fontWeight: 'bold', color: COLORS.textMain }}>{new Date(p.period_start).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} - {new Date(p.period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</Text>
+                        <Text style={{ color: COLORS.primary, marginTop: 4 }}>Net Pay: {Number(p.net_pay).toLocaleString('en-US', { style: 'currency', currency: 'PHP' })}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
+            </Modal>
+            </>
           )}
 
 
+
+          {activeTab === 'schedules' && (
+            <SchedulesTab userId={session.user.id} language={language} isOnline={isOnline} />
+          )}
 
           {activeTab === 'tickets' && (
             <TicketsTab userId={session.user.id} fullName={profile?.full_name || 'Technician'} language={language} isOnline={isOnline} isDarkMode={isDarkMode} />
@@ -3577,7 +3607,7 @@ export default function App() {
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: COLORS.textMain, fontSize: 18, fontWeight: 'bold', marginBottom: 2 }}>{profile?.full_name}</Text>
                   <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 6 }}>
-                    {profile?.role === 'technician' ? t('fieldTechnician') : profile?.role === 'helper' ? t('fieldHelper') : t('active')}
+                    {profile?.role ? profile.role.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : t('active')}
                   </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: isOnline ? COLORS.primary : COLORS.danger, marginRight: 6 }} />
@@ -3634,7 +3664,7 @@ export default function App() {
 
                 {/* File Leave Directly (Interactive Portal) */}
                 <TouchableOpacity 
-                  onPress={() => { setShowLeavesModal(true); fetchLeaves(); }}
+                  onPress={() => setActiveTab('tickets')}
                   style={{ padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -3812,6 +3842,12 @@ export default function App() {
             <View style={[styles.navDot, { backgroundColor: activeTab === 'home' ? COLORS.primary : 'transparent' }]} />
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('schedules')}>
+            <Feather name="calendar" size={24} color={activeTab === 'schedules' ? COLORS.primary : COLORS.textMuted} />
+            <Text style={[styles.navText, { color: activeTab === 'schedules' ? COLORS.primary : COLORS.textMuted }]}>{language === 'fil' ? 'Iskedyul' : 'Schedule'}</Text>
+            <View style={[styles.navDot, { backgroundColor: activeTab === 'schedules' ? COLORS.primary : 'transparent' }]} />
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('tickets')}>
             <Feather name="message-square" size={24} color={activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted} />
             <Text style={[styles.navText, { color: activeTab === 'tickets' ? COLORS.primary : COLORS.textMuted }]}>{t('supportTab')}</Text>
@@ -3871,8 +3907,8 @@ export default function App() {
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
               {leaves.map((item) => {
-                const startStr = new Date(item.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                const endStr = new Date(item.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const startStr = new Date(item.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                const endStr = new Date(item.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
                 
                 let badgeColor = '#f59e0b'; // pending
                 if (item.status === 'approved') badgeColor = COLORS.primary;
@@ -4094,7 +4130,7 @@ export default function App() {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 40 }}>
               <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 }}>
-                {language === 'fil' ? 'Siklo ng Payslip' : 'Payslip Cycle'}: {payslip?.period_start} to {payslip?.period_end}
+                {language === 'fil' ? 'Siklo ng Payslip' : 'Payslip Cycle'}: {payslip?.period_start ? new Date(payslip.period_start).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : ''} to {payslip?.period_end ? new Date(payslip.period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : ''}
               </Text>
               <Text style={{ fontSize: 13, fontWeight: 'bold', color: COLORS.textMain, marginBottom: 8 }}>
                 {language === 'fil' ? 'Kabuuang Netong Sahod' : 'Net Take-Home Pay'}: {formatPhp(payslip?.net_pay)}
@@ -4176,7 +4212,7 @@ export default function App() {
           ) : (
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
               {dtrLogs.map((log) => {
-                const logDate = new Date(log.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const logDate = new Date(log.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
                 const timeInStr = log.app_time_in ? formatTime(log.app_time_in) : '--:--';
                 const timeOutStr = log.app_time_out ? formatTime(log.app_time_out) : '--:--';
                 const hours = log.total_hours !== null ? `${log.total_hours} hrs` : t('active');

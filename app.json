@@ -18,7 +18,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.technosys.hrismobile"
+      "package": "com.technosys.hrismobile",
+      "versionCode": 5
     },
     "web": {
       "output": "static",

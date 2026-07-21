@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Animated, Easing, Platform } from 'react-native';
+import { StyleSheet, View, Text, Animated, Easing, Platform, TouchableOpacity, Linking } from 'react-native';
 import { getDistance } from 'geolib';
 import { Feather } from '@expo/vector-icons';
 
@@ -172,6 +172,13 @@ export default function GeofenceMobileMap({
           🛰️ <Text style={{ fontWeight: 'bold' }}>TechnoSys Radar Map:</Text> Showing relative distance to {branchName} ({radius}m geofence).
         </Text>
       </View>
+      <TouchableOpacity 
+        style={styles.mapButton} 
+        onPress={() => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${branchLat},${branchLng}`)}
+      >
+        <Feather name="map" size={16} color="#fff" style={{ marginRight: 6 }} />
+        <Text style={styles.mapButtonText}>Navigate via Google Maps</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -185,7 +192,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1e293b',
     marginVertical: 12,
-    backgroundColor: '#0b1329'
+    backgroundColor: '#0b1329',
+    paddingBottom: 12
   },
   radarConsole: {
     width: '100%',
@@ -291,8 +299,23 @@ const styles = StyleSheet.create({
     borderTopColor: '#1e293b'
   },
   footerText: {
-    color: '#94a3b8',
-    fontSize: 9.5,
-    textAlign: 'center'
+    color: '#cbd5e1',
+    fontSize: 11,
+    lineHeight: 16
+  },
+  mapButton: {
+    backgroundColor: '#3b82f6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingVertical: 10,
+    borderRadius: 8
+  },
+  mapButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13
   }
 });
