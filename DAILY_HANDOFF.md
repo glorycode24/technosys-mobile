@@ -1,4 +1,28 @@
 # Daily Shift Handoff
+**Date & Time:** 2026-07-21T22:46:05+08:00
+**Project:** TechnoSys (Azirielle/technosys-mobile)
+
+## Modules Touched
+- Mobile App (hris-mobile)
+- Map Components & Geolocation Logic
+- Auth / Login Flow
+
+## Accomplished Today
+- **App Crash Diagnostics (Native Hotfix 1):** Identified and resolved a fatal Javascript runtime error caused by passing `undefined` user coordinates to the `geolib` distance calculator on initial app launch. The map component now gracefully waits for GPS initialization.
+- **App Crash Diagnostics (Native Hotfix 2):** Identified and resolved an instant Force Close `ReferenceError`. The `loginMethod` variable was accidentally scoped inside `App()` but triggered in `LoginScreen()`. Safely refactored the scope and eliminated the crash.
+- **TypeScript Health:** Fixed lingering Type warnings in `TicketsTab.tsx` related to string-vs-number comparison checks, ensuring a clean `npx tsc --noEmit` build.
+- **Source Control Management:** Successfully pushed and merged the double hotfix into GitHub `main` via `glorycode24/combined-features` branch.
+
+## Pending/Blockers
+- **None!** All major features requested today are working, and the immediate application crash bug has been fully resolved and tested via APK compilation.
+
+## Next Actions
+- **User Action:** Continue testing the mobile app build on the physical Android device. Verify that the geofence maps load correctly once GPS signal is acquired, and confirm the adaptive icon displays beautifully.
+- **Goal:** Prep for final capstone system defense!
+
+---
+
+# Previous Shift Handoff
 **Date & Time:** 2026-07-21T21:25:55+08:00
 **Project:** TechnoSys (Azirielle/technosys-mobile & Azirielle/technosys-admin)
 
