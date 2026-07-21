@@ -307,6 +307,7 @@ const LoginScreen = ({ onLogin }: any) => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
 
   React.useEffect(() => {
     let timer: any;
@@ -593,7 +594,6 @@ export default function App() {
   const styles = getStyles(COLORS);
   const { width } = useWindowDimensions();
   const [session, setSession] = useState<any>(null);
-  const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
   const [isLocked, setIsLocked] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(true);
 

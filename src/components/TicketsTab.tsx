@@ -531,7 +531,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         if (error) {
           const errMessage = error.message || '';
           const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
 
           if (isNetworkError) {
             // Add to offline sync queue
@@ -556,7 +556,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         fetchLeaves();
       } catch (err: any) {
         const errMessage = err.message || '';
-        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
+        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (Number(status) === 0 || Number(status) >= 500));
 
         if (isNetworkError) {
           await syncQueue.addToQueue('leave_request', payload);
@@ -630,7 +630,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         if (error) {
           const errMessage = error.message || '';
           const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
           if (isNetworkError) {
             await handleOffline();
             return;
@@ -647,7 +647,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         fetchTickets();
       } catch (e: any) {
         const errMessage = e.message || '';
-        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
+        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (Number(status) === 0 || Number(status) >= 500));
         if (isNetworkError) {
           await handleOffline();
         } else {
@@ -706,7 +706,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         if (error) {
           const errMessage = error.message || '';
           const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
           if (isNetworkError) {
             await handleOffline();
             return;
@@ -722,7 +722,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         fetchTickets();
       } catch (e: any) {
         const errMessage = e.message || '';
-        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
+        const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (Number(status) === 0 || Number(status) >= 500));
         if (isNetworkError) {
           await handleOffline();
         } else {
@@ -775,7 +775,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (error) {
         const errMessage = error.message || '';
         const status = (error as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
         if (isNetworkError) {
           await handleOffline();
           return;
@@ -792,7 +792,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       fetchTickets();
     } catch (e: any) {
       const errMessage = e.message || '';
-      const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
+      const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (Number(status) === 0 || Number(status) >= 500));
       if (isNetworkError) {
         await handleOffline();
       } else {
@@ -976,7 +976,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (error) {
         const errMessage = error.message || '';
         const status = (error as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
         if (isNetworkError) {
           await handleOfflineComment();
           return;
@@ -995,7 +995,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       fetchComments(selectedTicket.id);
     } catch (e: any) {
       const errMessage = e.message || '';
-      const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
+      const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (Number(status) === 0 || Number(status) >= 500));
       if (isNetworkError) {
         await handleOfflineComment();
       } else {
@@ -1072,7 +1072,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (fetchErr) {
         const errMessage = fetchErr.message || '';
         const status = (fetchErr as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
         
         if (isNetworkError) {
           await handleOfflineFallback({ quantity: selectedPart.quantity, name: selectedPart.name, unit: selectedPart.unit });
@@ -1099,7 +1099,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (updateErr) {
         const errMessage = updateErr.message || '';
         const status = (updateErr as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
 
         if (isNetworkError) {
           await handleOfflineFallback({ quantity: item.quantity, name: item.name, unit: item.unit });
@@ -1123,7 +1123,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (txErr) {
         const errMessage = txErr.message || '';
         const status = (txErr as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
 
         if (isNetworkError) {
           await handleOfflineFallback({ quantity: item.quantity, name: item.name, unit: item.unit });
@@ -1185,7 +1185,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
               if (error) {
                 const errMessage = error.message || '';
                 const status = (error as any).status;
-                const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+                const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
                 if (isNetworkError) {
                   await handleOfflineClose();
                   return;
@@ -1197,7 +1197,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
               fetchTickets();
             } catch (e: any) {
               const errMessage = e.message || '';
-              const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (status === 0 || status >= 500));
+              const msg = errMessage.toLowerCase(); const isNetworkError = msg.includes('fetch') || msg.includes('network') || msg.includes('timeout') || msg.includes('unknownhostexception') || msg.includes('failed to connect') || (typeof status !== 'undefined' && (Number(status) === 0 || Number(status) >= 500));
               if (isNetworkError) {
                 await handleOfflineClose();
               } else {
