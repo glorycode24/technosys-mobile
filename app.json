@@ -8,9 +8,17 @@
     "scheme": "hrismobile",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "config": {
+        "googleMapsApiKey": "AIzaSyC3u_bUxVcLxnHfWrBsi0me2R3MKQ-WV1Y"
+      }
     },
     "android": {
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyC3u_bUxVcLxnHfWrBsi0me2R3MKQ-WV1Y"
+        }
+      },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
