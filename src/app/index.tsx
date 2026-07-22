@@ -4299,7 +4299,7 @@ export default function App() {
               padding: 20
             }}>
               <View style={{
-                backgroundColor: '#ffffff',
+                backgroundColor: COLORS.card,
                 borderRadius: 24,
                 width: '88%',
                 maxWidth: 340,
@@ -4307,11 +4307,11 @@ export default function App() {
                 alignItems: 'center',
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 10 },
-                shadowOpacity: 0.15,
+                shadowOpacity: 0.25,
                 shadowRadius: 20,
                 elevation: 10,
                 borderWidth: 1,
-                borderColor: '#f1f5f9'
+                borderColor: COLORS.border
               }}>
                 {/* Icon Container */}
                 <View style={{
@@ -4330,7 +4330,7 @@ export default function App() {
                 <Text style={{
                   fontSize: 18,
                   fontWeight: '800',
-                  color: '#0f172a',
+                  color: COLORS.textMain,
                   textAlign: 'center',
                   marginBottom: 8
                 }}>
@@ -4341,7 +4341,7 @@ export default function App() {
                 {activeAlert.message ? (
                   <Text style={{
                     fontSize: 14,
-                    color: '#475569',
+                    color: COLORS.textMuted,
                     textAlign: 'center',
                     lineHeight: 20,
                     marginBottom: 24
@@ -4363,19 +4363,19 @@ export default function App() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: 8,
-                        backgroundColor: '#f8fafc',
+                        backgroundColor: COLORS.background,
                         borderRadius: 10,
                         borderWidth: 1,
-                        borderColor: '#e2e8f0'
+                        borderColor: COLORS.border
                       }}
                     >
                       <Feather 
                         name={showErrorDetails ? "chevron-up" : "chevron-down"} 
                         size={16} 
-                        color="#64748b" 
+                        color={COLORS.textMuted} 
                         style={{ marginRight: 6 }} 
                       />
-                      <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '700' }}>
+                      <Text style={{ fontSize: 12, color: COLORS.textMuted, fontWeight: '700' }}>
                         {showErrorDetails 
                           ? (language === 'fil' ? 'Itago ang Detalye' : 'Hide Details') 
                           : (language === 'fil' ? 'Ipakita ang Detalye' : 'Show Details')}
@@ -4432,7 +4432,7 @@ export default function App() {
                         }}
                       >
                         <Text style={{
-                          color: isCancel ? '#64748b' : '#ffffff',
+                          color: isCancel ? COLORS.textMuted : '#ffffff',
                           fontSize: 15,
                           fontWeight: '700'
                         }}>
