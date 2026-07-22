@@ -578,17 +578,21 @@ export default function App() {
   if (isDarkMode) {
     COLORS.background = '#0f172a';
     COLORS.card = '#1e293b';
+    COLORS.whiteCard = '#1e293b';
     COLORS.primaryDim = 'rgba(16, 185, 129, 0.15)';
     COLORS.textMain = '#f8fafc';
     COLORS.textMuted = '#94a3b8';
     COLORS.border = '#334155';
+    COLORS.isDarkMode = true;
   } else {
     COLORS.background = '#ffffff';
     COLORS.card = '#f8fafc';
+    COLORS.whiteCard = '#ffffff';
     COLORS.primaryDim = 'rgba(16, 185, 129, 0.1)';
     COLORS.textMain = '#0f172a';
     COLORS.textMuted = '#64748b';
     COLORS.border = '#e2e8f0';
+    COLORS.isDarkMode = false;
   }
 
   const styles = getStyles(COLORS);
@@ -4586,14 +4590,14 @@ function getStyles(COLORS: any) { return StyleSheet.create({
   timeInSuccess: { backgroundColor: COLORS.primaryDim, padding: 24, borderRadius: 20, alignItems: 'center', borderColor: COLORS.primary, borderWidth: 1 },
   
   readyCard: {
-    backgroundColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.12)' : '#f0fdf4',
+    borderColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.3)',
     borderWidth: 1,
     borderRadius: 20,
     padding: 20,
     shadowColor: '#10b981',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: COLORS.isDarkMode ? 0.2 : 0.08,
     shadowRadius: 8,
     elevation: 2,
   },
