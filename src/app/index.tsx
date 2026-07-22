@@ -3446,7 +3446,7 @@ export default function App() {
               <TextInput 
                 placeholder={language === 'fil' ? 'Hanapin ang Petsa o Halaga...' : 'Search Date or Amount...'} 
                 placeholderTextColor={COLORS.textMuted}
-                style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border }}
+                style={{ backgroundColor: COLORS.card, padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border, color: COLORS.textMain }}
                 value={searchPayslip}
                 onChangeText={setSearchPayslip}
               />
@@ -3808,7 +3808,7 @@ export default function App() {
       {appContent}
 
       {showLeavesModal && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.background, zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <TouchableOpacity onPress={() => setShowLeavesModal(false)} style={{ padding: 8, marginLeft: -8 }}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
@@ -3823,7 +3823,7 @@ export default function App() {
             onPress={() => setShowApplyLeaveModal(true)}
             style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}
           >
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'Mag-file ng Bagong Leave' : 'File New Leave Request'}</Text>
+            <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'Mag-file ng Bagong Leave' : 'File New Leave Request'}</Text>
           </TouchableOpacity>
 
           {leavesLoading && leaves.length === 0 ? (
@@ -3864,7 +3864,7 @@ export default function App() {
                     {item.attachment_url && (
                       <TouchableOpacity 
                         onPress={() => Linking.openURL(item.attachment_url)}
-                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e2e8f0', padding: 8, borderRadius: 8, alignSelf: 'flex-start' }}
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.border, padding: 8, borderRadius: 8, alignSelf: 'flex-start' }}
                       >
                         <Feather name="file" size={14} color={COLORS.textMain} style={{ marginRight: 6 }} />
                         <Text style={{ fontSize: 11, color: COLORS.textMain, fontWeight: 'bold' }}>{language === 'fil' ? 'Tingnan ang Attachment' : 'View Attachment'}</Text>
@@ -3880,7 +3880,7 @@ export default function App() {
 
       {showApplyLeaveModal && (
         <Modal animationType="slide" transparent={false} visible={showApplyLeaveModal} onRequestClose={() => setShowApplyLeaveModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background, padding: 20 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
               <TouchableOpacity onPress={() => setShowApplyLeaveModal(false)} style={{ padding: 8, marginLeft: -8 }}>
                 <Feather name="x" size={24} color={COLORS.textMain} />
@@ -3968,7 +3968,7 @@ export default function App() {
                 disabled={leaveSubmitLoading}
                 style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
               >
-                {leaveSubmitLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
+                {leaveSubmitLoading ? <ActivityIndicator color={COLORS.background} size="small" /> : <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>
@@ -3977,7 +3977,7 @@ export default function App() {
 
       {showOtModal && (
         <Modal animationType="slide" transparent={false} visible={showOtModal} onRequestClose={() => setShowOtModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background, padding: 20 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
               <TouchableOpacity onPress={() => setShowOtModal(false)} style={{ padding: 8, marginLeft: -8 }}>
                 <Feather name="x" size={24} color={COLORS.textMain} />
@@ -3999,7 +3999,7 @@ export default function App() {
                 {language === 'fil' ? 'Petsa ng Overtime' : 'Overtime Date'}
               </Text>
               <TextInput 
-                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMuted, marginBottom: 16, backgroundColor: 'rgba(244, 244, 245, 0.5)' }}
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMuted, marginBottom: 16, backgroundColor: COLORS.card }}
                 value={new Date().toLocaleDateString(undefined, { dateStyle: 'long' })}
                 editable={false}
               />
@@ -4034,9 +4034,9 @@ export default function App() {
                 style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
               >
                 {otSubmitting ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={COLORS.background} size="small" />
                 ) : (
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                  <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>
                     {language === 'fil' ? 'I-submit ang OT Request' : 'Submit OT Request'}
                   </Text>
                 )}
@@ -4049,8 +4049,8 @@ export default function App() {
       
       {showPayslipDetailsModal && payslip && (
         <Modal animationType="slide" transparent={false} visible={showPayslipDetailsModal} onRequestClose={() => setShowPayslipDetailsModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
               <TouchableOpacity onPress={() => setShowPayslipDetailsModal(false)} style={{ padding: 8, marginLeft: -8 }}>
                 <Feather name="arrow-left" size={24} color={COLORS.textMain} />
               </TouchableOpacity>
@@ -4071,7 +4071,7 @@ export default function App() {
                   {language === 'fil' ? 'PAGHAHATI-HATI NG KITA' : 'EARNINGS BREAKDOWN'}
                 </Text>
                 
-                <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 20 }}>
+                <View style={{ backgroundColor: COLORS.card, borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 20 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
                     <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Base Regular Pay' : 'Base Regular Pay'}</Text>
                     <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 13 }}>{formatPhp(Math.min(Number(payslip.gross_pay), (Number(profile?.base_salary || 20000) / 208) * 80))}</Text>
@@ -4086,7 +4086,7 @@ export default function App() {
                   {language === 'fil' ? 'MGA BINAWAS (DEDUCTIONS)' : 'DEDUCTIONS & ADJUSTMENTS'}
                 </Text>
 
-                <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8 }}>
+                <View style={{ backgroundColor: COLORS.card, borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
                     <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>SSS Contribution</Text>
                     <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.sss_deduction)}</Text>
@@ -4112,7 +4112,7 @@ export default function App() {
                   }}
                   style={{ backgroundColor: COLORS.danger, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 24, marginBottom: 12 }}
                 >
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                  <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>
                     {language === 'fil' ? 'I-dispute ang Payslip' : 'Dispute Payslip'}
                   </Text>
                 </TouchableOpacity>
@@ -4192,7 +4192,7 @@ export default function App() {
       )}
 
       {showDtrModal && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.background, zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <TouchableOpacity onPress={() => setShowDtrModal(false)} style={{ padding: 8, marginLeft: -8 }}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
