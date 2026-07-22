@@ -370,7 +370,7 @@ const LoginScreen = ({ onLogin }: any) => {
     <SafeAreaView style={styles.safeArea}>
       <View style={[styles.container, { justifyContent: 'center', padding: 20 }]}>
         <View style={{ alignItems: 'center', marginBottom: 24 }}>
-          <Image source={require('../../assets/logo.png')} style={{ width: 90, height: 90, resizeMode: 'contain', marginBottom: 8 }} />
+          <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 90, height: 90, resizeMode: 'contain', marginBottom: 8 }} />
           <Text style={{ color: COLORS.primary, fontSize: 15, fontWeight: '600', letterSpacing: 2 }}>EMPLOYEE PORTAL</Text>
         </View>
         
@@ -578,17 +578,21 @@ export default function App() {
   if (isDarkMode) {
     COLORS.background = '#0f172a';
     COLORS.card = '#1e293b';
+    COLORS.whiteCard = '#1e293b';
     COLORS.primaryDim = 'rgba(16, 185, 129, 0.15)';
     COLORS.textMain = '#f8fafc';
     COLORS.textMuted = '#94a3b8';
     COLORS.border = '#334155';
+    COLORS.isDarkMode = true;
   } else {
     COLORS.background = '#ffffff';
     COLORS.card = '#f8fafc';
+    COLORS.whiteCard = '#ffffff';
     COLORS.primaryDim = 'rgba(16, 185, 129, 0.1)';
     COLORS.textMain = '#0f172a';
     COLORS.textMuted = '#64748b';
     COLORS.border = '#e2e8f0';
+    COLORS.isDarkMode = false;
   }
 
   const styles = getStyles(COLORS);
@@ -2759,7 +2763,7 @@ export default function App() {
                   })()}
                 </View>
                 <View style={{ position: 'relative' }}>
-                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                  <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
                   <View style={{
                     position: 'absolute',
                     bottom: 2,
@@ -3436,13 +3440,13 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={styles.name}>{t('payrollTab') || 'My Earnings'}</Text>
-                <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
 
               <TextInput 
                 placeholder={language === 'fil' ? 'Hanapin ang Petsa o Halaga...' : 'Search Date or Amount...'} 
                 placeholderTextColor={COLORS.textMuted}
-                style={{ backgroundColor: '#fff', padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border }}
+                style={{ backgroundColor: COLORS.card, padding: 14, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border, color: COLORS.textMain }}
                 value={searchPayslip}
                 onChangeText={setSearchPayslip}
               />
@@ -3511,7 +3515,7 @@ export default function App() {
             <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={[styles.name, { flex: 1, marginRight: 16 }]}>{t('profileTitle')}</Text>
                 <TouchableOpacity onPress={handleLogoTap} activeOpacity={0.7}>
-                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                  <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
                 </TouchableOpacity>
               </View>
 
@@ -3804,7 +3808,7 @@ export default function App() {
       {appContent}
 
       {showLeavesModal && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.background, zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <TouchableOpacity onPress={() => setShowLeavesModal(false)} style={{ padding: 8, marginLeft: -8 }}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
@@ -3819,7 +3823,7 @@ export default function App() {
             onPress={() => setShowApplyLeaveModal(true)}
             style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}
           >
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'Mag-file ng Bagong Leave' : 'File New Leave Request'}</Text>
+            <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'Mag-file ng Bagong Leave' : 'File New Leave Request'}</Text>
           </TouchableOpacity>
 
           {leavesLoading && leaves.length === 0 ? (
@@ -3860,7 +3864,7 @@ export default function App() {
                     {item.attachment_url && (
                       <TouchableOpacity 
                         onPress={() => Linking.openURL(item.attachment_url)}
-                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e2e8f0', padding: 8, borderRadius: 8, alignSelf: 'flex-start' }}
+                        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.border, padding: 8, borderRadius: 8, alignSelf: 'flex-start' }}
                       >
                         <Feather name="file" size={14} color={COLORS.textMain} style={{ marginRight: 6 }} />
                         <Text style={{ fontSize: 11, color: COLORS.textMain, fontWeight: 'bold' }}>{language === 'fil' ? 'Tingnan ang Attachment' : 'View Attachment'}</Text>
@@ -3876,7 +3880,7 @@ export default function App() {
 
       {showApplyLeaveModal && (
         <Modal animationType="slide" transparent={false} visible={showApplyLeaveModal} onRequestClose={() => setShowApplyLeaveModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background, padding: 20 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
               <TouchableOpacity onPress={() => setShowApplyLeaveModal(false)} style={{ padding: 8, marginLeft: -8 }}>
                 <Feather name="x" size={24} color={COLORS.textMain} />
@@ -3964,7 +3968,7 @@ export default function App() {
                 disabled={leaveSubmitLoading}
                 style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
               >
-                {leaveSubmitLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
+                {leaveSubmitLoading ? <ActivityIndicator color={COLORS.background} size="small" /> : <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>{language === 'fil' ? 'I-submit ang Application' : 'Submit Leave Request'}</Text>}
               </TouchableOpacity>
             </ScrollView>
           </SafeAreaView>
@@ -3973,7 +3977,7 @@ export default function App() {
 
       {showOtModal && (
         <Modal animationType="slide" transparent={false} visible={showOtModal} onRequestClose={() => setShowOtModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff', padding: 20 }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background, padding: 20 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 10 }}>
               <TouchableOpacity onPress={() => setShowOtModal(false)} style={{ padding: 8, marginLeft: -8 }}>
                 <Feather name="x" size={24} color={COLORS.textMain} />
@@ -3995,7 +3999,7 @@ export default function App() {
                 {language === 'fil' ? 'Petsa ng Overtime' : 'Overtime Date'}
               </Text>
               <TextInput 
-                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMuted, marginBottom: 16, backgroundColor: 'rgba(244, 244, 245, 0.5)' }}
+                style={{ borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, fontSize: 14, color: COLORS.textMuted, marginBottom: 16, backgroundColor: COLORS.card }}
                 value={new Date().toLocaleDateString(undefined, { dateStyle: 'long' })}
                 editable={false}
               />
@@ -4030,9 +4034,9 @@ export default function App() {
                 style={{ backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}
               >
                 {otSubmitting ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={COLORS.background} size="small" />
                 ) : (
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                  <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>
                     {language === 'fil' ? 'I-submit ang OT Request' : 'Submit OT Request'}
                   </Text>
                 )}
@@ -4045,8 +4049,8 @@ export default function App() {
       
       {showPayslipDetailsModal && payslip && (
         <Modal animationType="slide" transparent={false} visible={showPayslipDetailsModal} onRequestClose={() => setShowPayslipDetailsModal(false)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
               <TouchableOpacity onPress={() => setShowPayslipDetailsModal(false)} style={{ padding: 8, marginLeft: -8 }}>
                 <Feather name="arrow-left" size={24} color={COLORS.textMain} />
               </TouchableOpacity>
@@ -4067,7 +4071,7 @@ export default function App() {
                   {language === 'fil' ? 'PAGHAHATI-HATI NG KITA' : 'EARNINGS BREAKDOWN'}
                 </Text>
                 
-                <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 20 }}>
+                <View style={{ backgroundColor: COLORS.card, borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 20 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
                     <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>{language === 'fil' ? 'Base Regular Pay' : 'Base Regular Pay'}</Text>
                     <Text style={{ color: COLORS.textMain, fontWeight: '600', fontSize: 13 }}>{formatPhp(Math.min(Number(payslip.gross_pay), (Number(profile?.base_salary || 20000) / 208) * 80))}</Text>
@@ -4082,7 +4086,7 @@ export default function App() {
                   {language === 'fil' ? 'MGA BINAWAS (DEDUCTIONS)' : 'DEDUCTIONS & ADJUSTMENTS'}
                 </Text>
 
-                <View style={{ backgroundColor: '#ffffff', borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8 }}>
+                <View style={{ backgroundColor: COLORS.card, borderRadius: 16, borderLeftWidth: 0, borderRightWidth: 0, borderWidth: 1, borderColor: COLORS.border, padding: 12, marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
                     <Text style={{ color: COLORS.textMuted, fontSize: 13 }}>SSS Contribution</Text>
                     <Text style={{ color: COLORS.danger, fontWeight: 'bold', fontSize: 13 }}>- {formatPhp(payslip.sss_deduction)}</Text>
@@ -4108,7 +4112,7 @@ export default function App() {
                   }}
                   style={{ backgroundColor: COLORS.danger, padding: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 24, marginBottom: 12 }}
                 >
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>
+                  <Text style={{ color: COLORS.background, fontSize: 14, fontWeight: 'bold' }}>
                     {language === 'fil' ? 'I-dispute ang Payslip' : 'Dispute Payslip'}
                   </Text>
                 </TouchableOpacity>
@@ -4188,7 +4192,7 @@ export default function App() {
       )}
 
       {showDtrModal && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff', zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.background, zIndex: 99998, padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40 }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <TouchableOpacity onPress={() => setShowDtrModal(false)} style={{ padding: 8, marginLeft: -8 }}>
               <Feather name="arrow-left" size={24} color={COLORS.textMain} />
@@ -4264,7 +4268,7 @@ export default function App() {
       {splashVisible && (
         <Animated.View style={[styles.splashContainer, { opacity: splashOpacity }]} pointerEvents={splashVisible ? 'auto' : 'none'}>
           <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity, alignItems: 'center' }}>
-            <Image source={require('../../assets/logo.png')} style={styles.splashLogo} />
+            <Image source={require('../../assets/technocycle_logo.png')} style={styles.splashLogo} />
             <Animated.View style={{ opacity: taglineOpacity, transform: [{ translateY: taglineTranslateY }], alignItems: 'center' }}>
               <Text style={styles.splashBrand}>TECHNOSYS</Text>
               <Text style={styles.splashSubBrand}>Secure Field System</Text>
@@ -4295,7 +4299,7 @@ export default function App() {
               padding: 20
             }}>
               <View style={{
-                backgroundColor: '#ffffff',
+                backgroundColor: COLORS.card,
                 borderRadius: 24,
                 width: '88%',
                 maxWidth: 340,
@@ -4303,11 +4307,11 @@ export default function App() {
                 alignItems: 'center',
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 10 },
-                shadowOpacity: 0.15,
+                shadowOpacity: 0.25,
                 shadowRadius: 20,
                 elevation: 10,
                 borderWidth: 1,
-                borderColor: '#f1f5f9'
+                borderColor: COLORS.border
               }}>
                 {/* Icon Container */}
                 <View style={{
@@ -4326,7 +4330,7 @@ export default function App() {
                 <Text style={{
                   fontSize: 18,
                   fontWeight: '800',
-                  color: '#0f172a',
+                  color: COLORS.textMain,
                   textAlign: 'center',
                   marginBottom: 8
                 }}>
@@ -4337,7 +4341,7 @@ export default function App() {
                 {activeAlert.message ? (
                   <Text style={{
                     fontSize: 14,
-                    color: '#475569',
+                    color: COLORS.textMuted,
                     textAlign: 'center',
                     lineHeight: 20,
                     marginBottom: 24
@@ -4359,19 +4363,19 @@ export default function App() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: 8,
-                        backgroundColor: '#f8fafc',
+                        backgroundColor: COLORS.background,
                         borderRadius: 10,
                         borderWidth: 1,
-                        borderColor: '#e2e8f0'
+                        borderColor: COLORS.border
                       }}
                     >
                       <Feather 
                         name={showErrorDetails ? "chevron-up" : "chevron-down"} 
                         size={16} 
-                        color="#64748b" 
+                        color={COLORS.textMuted} 
                         style={{ marginRight: 6 }} 
                       />
-                      <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '700' }}>
+                      <Text style={{ fontSize: 12, color: COLORS.textMuted, fontWeight: '700' }}>
                         {showErrorDetails 
                           ? (language === 'fil' ? 'Itago ang Detalye' : 'Hide Details') 
                           : (language === 'fil' ? 'Ipakita ang Detalye' : 'Show Details')}
@@ -4428,7 +4432,7 @@ export default function App() {
                         }}
                       >
                         <Text style={{
-                          color: isCancel ? '#64748b' : '#ffffff',
+                          color: isCancel ? COLORS.textMuted : '#ffffff',
                           fontSize: 15,
                           fontWeight: '700'
                         }}>
@@ -4446,55 +4450,107 @@ export default function App() {
 
       {selectedAnnouncement && (
         <Modal 
-          animationType="slide" 
-          transparent={false} 
+          animationType="fade" 
+          transparent={true} 
           visible={!!selectedAnnouncement} 
           onRequestClose={() => setSelectedAnnouncement(null)}
         >
-          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
+          <TouchableOpacity 
+            style={{ 
+              flex: 1, 
+              backgroundColor: 'rgba(15, 23, 42, 0.65)', 
+              justifyContent: 'center', 
               alignItems: 'center', 
-              paddingHorizontal: 20, 
-              paddingVertical: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: COLORS.border
-            }}>
-              <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={{ padding: 8, marginLeft: -8 }}>
-                <Feather name="x" size={24} color={COLORS.textMain} />
-              </TouchableOpacity>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain }}>
-                {language === 'fil' ? 'Detalye ng Anunsyo' : 'Announcement Details'}
-              </Text>
-              <View style={{ width: 40 }} />
-            </View>
-
-            <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 60 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  📢 {selectedAnnouncement.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
-                </Text>
-                <Text style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 12 }}>
-                  {new Date(selectedAnnouncement.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                </Text>
+              padding: 20 
+            }} 
+            activeOpacity={1} 
+            onPress={() => setSelectedAnnouncement(null)}
+          >
+            <TouchableOpacity 
+              activeOpacity={1} 
+              onPress={(e) => e.stopPropagation()} 
+              style={{ 
+                width: '100%', 
+                maxWidth: 420, 
+                maxHeight: '80%', 
+                backgroundColor: COLORS.card, 
+                borderRadius: 24, 
+                borderWidth: 1, 
+                borderColor: COLORS.border, 
+                shadowColor: '#000', 
+                shadowOffset: { width: 0, height: 10 }, 
+                shadowOpacity: 0.25, 
+                shadowRadius: 20, 
+                elevation: 12, 
+                overflow: 'hidden' 
+              }}
+            >
+              {/* Modal Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                paddingHorizontal: 20, 
+                paddingVertical: 16, 
+                borderBottomWidth: 1, 
+                borderBottomColor: COLORS.border,
+                backgroundColor: COLORS.card
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(99, 102, 241, 0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                    <Feather name="bell" size={16} color="#6366f1" />
+                  </View>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.textMain }}>
+                    {language === 'fil' ? 'Anunsyo' : 'Announcement'}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={{ padding: 6, borderRadius: 12, backgroundColor: COLORS.border }}>
+                  <Feather name="x" size={18} color={COLORS.textMain} />
+                </TouchableOpacity>
               </View>
 
-              <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.textMain, marginBottom: 16, lineHeight: 28 }}>
-                {getBilingualText(selectedAnnouncement.title, language)}
-              </Text>
+              {/* Scrollable Body */}
+              <ScrollView contentContainerStyle={{ padding: 20 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <View style={{ backgroundColor: 'rgba(99, 102, 241, 0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      📢 {selectedAnnouncement.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: COLORS.textMuted, fontWeight: '500' }}>
+                    {new Date(selectedAnnouncement.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Text>
+                </View>
 
-              <View style={{ 
-                height: 1, 
-                backgroundColor: COLORS.border, 
-                marginBottom: 20 
-              }} />
+                <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain, marginBottom: 14, lineHeight: 24 }}>
+                  {getBilingualText(selectedAnnouncement.title, language)}
+                </Text>
 
-              <Text style={{ fontSize: 14, color: COLORS.textMain, lineHeight: 24 }}>
-                {getBilingualText(selectedAnnouncement.content, language)}
-              </Text>
-            </ScrollView>
-          </SafeAreaView>
+                <View style={{ height: 1, backgroundColor: COLORS.border, marginBottom: 16 }} />
+
+                <Text style={{ fontSize: 14, color: COLORS.textMain, lineHeight: 22 }}>
+                  {getBilingualText(selectedAnnouncement.content, language)}
+                </Text>
+              </ScrollView>
+
+              {/* Footer */}
+              <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.card }}>
+                <TouchableOpacity 
+                  onPress={() => setSelectedAnnouncement(null)} 
+                  style={{ 
+                    backgroundColor: COLORS.primary, 
+                    paddingVertical: 12, 
+                    borderRadius: 14, 
+                    alignItems: 'center' 
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
+                    {language === 'fil' ? 'Isara' : 'Close'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </Modal>
       )}
     </View>
@@ -4534,14 +4590,14 @@ function getStyles(COLORS: any) { return StyleSheet.create({
   timeInSuccess: { backgroundColor: COLORS.primaryDim, padding: 24, borderRadius: 20, alignItems: 'center', borderColor: COLORS.primary, borderWidth: 1 },
   
   readyCard: {
-    backgroundColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.12)' : '#f0fdf4',
+    borderColor: COLORS.isDarkMode ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.3)',
     borderWidth: 1,
     borderRadius: 20,
     padding: 20,
     shadowColor: '#10b981',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: COLORS.isDarkMode ? 0.2 : 0.08,
     shadowRadius: 8,
     elevation: 2,
   },
