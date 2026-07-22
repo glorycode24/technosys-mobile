@@ -315,7 +315,6 @@ const LoginScreen = ({ onLogin }: any) => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
-  const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
 
   React.useEffect(() => {
     let timer: any;
