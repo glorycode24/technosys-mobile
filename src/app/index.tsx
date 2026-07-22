@@ -370,7 +370,7 @@ const LoginScreen = ({ onLogin }: any) => {
     <SafeAreaView style={styles.safeArea}>
       <View style={[styles.container, { justifyContent: 'center', padding: 20 }]}>
         <View style={{ alignItems: 'center', marginBottom: 24 }}>
-          <Image source={require('../../assets/logo.png')} style={{ width: 90, height: 90, resizeMode: 'contain', marginBottom: 8 }} />
+          <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 90, height: 90, resizeMode: 'contain', marginBottom: 8 }} />
           <Text style={{ color: COLORS.primary, fontSize: 15, fontWeight: '600', letterSpacing: 2 }}>EMPLOYEE PORTAL</Text>
         </View>
         
@@ -2759,7 +2759,7 @@ export default function App() {
                   })()}
                 </View>
                 <View style={{ position: 'relative' }}>
-                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                  <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
                   <View style={{
                     position: 'absolute',
                     bottom: 2,
@@ -3436,7 +3436,7 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.content}>
               <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={styles.name}>{t('payrollTab') || 'My Earnings'}</Text>
-                <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
               </View>
 
               <TextInput 
@@ -3511,7 +3511,7 @@ export default function App() {
             <View style={[styles.header, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
                 <Text style={[styles.name, { flex: 1, marginRight: 16 }]}>{t('profileTitle')}</Text>
                 <TouchableOpacity onPress={handleLogoTap} activeOpacity={0.7}>
-                  <Image source={require('../../assets/logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
+                  <Image source={require('../../assets/technocycle_logo.png')} style={{ width: 56, height: 56, resizeMode: 'contain' }} />
                 </TouchableOpacity>
               </View>
 
@@ -4264,7 +4264,7 @@ export default function App() {
       {splashVisible && (
         <Animated.View style={[styles.splashContainer, { opacity: splashOpacity }]} pointerEvents={splashVisible ? 'auto' : 'none'}>
           <Animated.View style={{ transform: [{ scale: logoScale }], opacity: logoOpacity, alignItems: 'center' }}>
-            <Image source={require('../../assets/logo.png')} style={styles.splashLogo} />
+            <Image source={require('../../assets/technocycle_logo.png')} style={styles.splashLogo} />
             <Animated.View style={{ opacity: taglineOpacity, transform: [{ translateY: taglineTranslateY }], alignItems: 'center' }}>
               <Text style={styles.splashBrand}>TECHNOSYS</Text>
               <Text style={styles.splashSubBrand}>Secure Field System</Text>
