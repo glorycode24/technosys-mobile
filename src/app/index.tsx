@@ -4,6 +4,12 @@ import { supabase } from '../lib/supabase';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import { CopilotProvider, CopilotStep, walkthroughable, useCopilot } from 'react-native-copilot';
+
+const CopilotView = walkthroughable(View);
+const CopilotTouchableOpacity = walkthroughable(TouchableOpacity);
+
 
 // Global custom alert types & polyfill
 interface CustomAlertPayload {
@@ -563,7 +569,17 @@ function ActiveShiftTimer({ startTime }: ActiveShiftTimerProps) {
 }
 
 export default function App() {
+  return (
+    <CopilotProvider stopOnOutsideClick androidStatusBarVisible>
+      <MainAppContent />
+    </CopilotProvider>
+  );
+}
+
+function MainAppContent() {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const { start: startCopilot, copilotEvents } = useCopilot();
+  const pushNotificationState = usePushNotifications();
 
   useEffect(() => {
     const loadTheme = async () => {
@@ -1096,6 +1112,26 @@ export default function App() {
   useEffect(() => {
     activeAppLanguage = language;
   }, [language]);
+
+  useEffect(() => {
+    const checkCopilot = async () => {
+      const neverShow = await AsyncStorage.getItem('COPILOT_NEVER_SHOW');
+      if (neverShow !== 'true' && session) {
+        setTimeout(() => {
+          Alert.alert(
+            language === 'fil' ? 'Mabilis na Tour' : 'Quick Tour',
+            language === 'fil' ? 'Gusto mo bang kumuha ng mabilis na tour sa app?' : 'Would you like a quick tour of the app features?',
+            [
+              { text: language === 'fil' ? 'Simulan' : 'Start Tour', onPress: () => startCopilot() },
+              { text: language === 'fil' ? 'Laktawan' : 'Skip', style: 'cancel' },
+              { text: language === 'fil' ? 'Huwag nang ipaalala' : 'Never remind me again', style: 'destructive', onPress: () => AsyncStorage.setItem('COPILOT_NEVER_SHOW', 'true') }
+            ]
+          );
+        }, 1500);
+      }
+    };
+    checkCopilot();
+  }, [session, language]);
 
   const langAnim = React.useRef(new Animated.Value(0)).current;
 

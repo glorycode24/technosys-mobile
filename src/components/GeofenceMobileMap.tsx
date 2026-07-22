@@ -67,6 +67,7 @@ export default function GeofenceMobileMap({
           coordinate={{ latitude: branchLat, longitude: branchLng }}
           title={branchName}
           description={`Radius: ${radius}m`}
+          tracksViewChanges={false}
         >
           <View style={styles.branchMarker}>
             <Feather name="home" size={14} color="#fff" />
@@ -85,6 +86,7 @@ export default function GeofenceMobileMap({
         {/* User Location Marker */}
         {hasUserLocation && (
           <Marker
+            key={`user-${userLat}-${userLng}`}
             coordinate={{ latitude: userLat!, longitude: userLng! }}
             title="You are here"
             zIndex={2}
