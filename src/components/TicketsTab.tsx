@@ -47,9 +47,12 @@ interface TicketsTabProps {
   language: string;
   isOnline: boolean;
   isDarkMode?: boolean;
+  initialSubTab?: 'tickets' | 'leaves';
+  initialView?: 'list' | 'create' | 'detail';
+  initialCategory?: string;
 }
 
-export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = false }: TicketsTabProps) {
+export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = false, initialSubTab = 'tickets', initialView = 'list', initialCategory = 'Leave Request' }: TicketsTabProps) {
   if (isDarkMode) {
     COLORS.background = '#0f172a';
     COLORS.card = '#1e293b';
@@ -85,7 +88,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
     }
     return text;
   };
-  const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
+  const [view, setView] = useState<'list' | 'create' | 'detail'>(initialView);
   const [tickets, setTickets] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
@@ -93,14 +96,30 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
   
   // Create ticket form state
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Leave Request');
+  const [category, setCategory] = useState(initialCategory);
   const [priority, setPriority] = useState('medium');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [ticketAttachment, setTicketAttachment] = useState<any>(null);
 
   // Comment state
-  const [commentText, setCommentText] = useState('');
-  const [chatAttachment, setChatAttachment] = useState<any>(null); // { uri, name, type }
+  // Comment state scoped by ticket ID to prevent drafts bleeding
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [attachmentDrafts, setAttachmentDrafts] = useState<Record<string, any>>({});
+  
+  const commentText = selectedTicket ? (drafts[selectedTicket.id] || '') : '';
+  const setCommentText = (text: string) => {
+    if (selectedTicket) {
+      setDrafts(prev => ({...prev, [selectedTicket.id]: text}));
+    }
+  };
+
+  const chatAttachment = selectedTicket ? (attachmentDrafts[selectedTicket.id] || null) : null;
+  const setChatAttachment = (att: any) => {
+    if (selectedTicket) {
+      setAttachmentDrafts(prev => ({...prev, [selectedTicket.id]: att}));
+    }
+  };
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
 
@@ -137,7 +156,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
   const commentsScrollViewRef = useRef<ScrollView>(null);
 
   // Sub-navigation sub-tab
-  const [subTab, setSubTab] = useState<'tickets' | 'leaves'>('tickets');
+  const [subTab, setSubTab] = useState<'tickets' | 'leaves'>(initialSubTab);
 
   // Pagination states
   const [ticketsPage, setTicketsPage] = useState(1);
@@ -488,6 +507,49 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
     fetchInventoryItems(); // fetch parts lists concurrently
   };
 
+  const handleAttachTicketFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['*/*'],
+        copyToCacheDirectory: true
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setTicketAttachment({
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType || 'application/octet-stream'
+        });
+      }
+    } catch (err) {
+      console.warn("Ticket attachment picker error:", err);
+    }
+  };
+
+  const uploadAttachment = async (fileUri: string, fileName: string): Promise<string | null> => {
+    try {
+      const response = await fetch(fileUri);
+      const blob = await response.blob();
+      const fileExt = fileName.split('.').pop() || 'tmp';
+      const path = `${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('ticket_attachments')
+        .upload(path, blob, { upsert: false });
+        
+      if (error) throw error;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('ticket_attachments')
+        .getPublicUrl(data.path);
+        
+      return publicUrl;
+    } catch (e) {
+      console.warn("Upload failed", e);
+      return null;
+    }
+  };
+
   const handleCreateTicket = async () => {
     if (category === 'Leave Request') {
       if (!startDate || !endDate || !reason.trim()) {
@@ -531,7 +593,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         if (error) {
           const errMessage = error.message || '';
           const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
 
           if (isNetworkError) {
             // Add to offline sync queue
@@ -596,6 +658,12 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         details: payrollNotes.trim()
       });
 
+
+      let attachmentUrl = null;
+      if (ticketAttachment) {
+        attachmentUrl = await uploadAttachment(ticketAttachment.uri, ticketAttachment.name);
+      }
+
       const payload = {
         id: ticketId,
         employee_id: userId,
@@ -604,6 +672,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         priority: 'medium',
         description: payloadDesc,
         status: 'open',
+        attachment_url: attachmentUrl,
         created_at: new Date().toISOString()
       };
 
@@ -630,7 +699,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         if (error) {
           const errMessage = error.message || '';
           const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
           if (isNetworkError) {
             await handleOffline();
             return;
@@ -673,6 +742,12 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         details: equipmentNotes.trim()
       });
 
+
+      let attachmentUrl = null;
+      if (ticketAttachment) {
+        attachmentUrl = await uploadAttachment(ticketAttachment.uri, ticketAttachment.name);
+      }
+
       const payload = {
         id: ticketId,
         employee_id: userId,
@@ -681,6 +756,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         priority: 'high',
         description: payloadDesc,
         status: 'open',
+        attachment_url: attachmentUrl,
         created_at: new Date().toISOString()
       };
 
@@ -706,7 +782,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
         if (error) {
           const errMessage = error.message || '';
           const status = (error as any).status;
-          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+          const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
           if (isNetworkError) {
             await handleOffline();
             return;
@@ -775,7 +851,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (error) {
         const errMessage = error.message || '';
         const status = (error as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
         if (isNetworkError) {
           await handleOffline();
           return;
@@ -788,6 +864,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       setDescription('');
       setCategory('Leave Request');
       setPriority('medium');
+      setTicketAttachment(null);
       setView('list');
       fetchTickets();
     } catch (e: any) {
@@ -976,7 +1053,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (error) {
         const errMessage = error.message || '';
         const status = (error as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
         if (isNetworkError) {
           await handleOfflineComment();
           return;
@@ -1072,7 +1149,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (fetchErr) {
         const errMessage = fetchErr.message || '';
         const status = (fetchErr as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
         
         if (isNetworkError) {
           await handleOfflineFallback({ quantity: selectedPart.quantity, name: selectedPart.name, unit: selectedPart.unit });
@@ -1099,7 +1176,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (updateErr) {
         const errMessage = updateErr.message || '';
         const status = (updateErr as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
 
         if (isNetworkError) {
           await handleOfflineFallback({ quantity: item.quantity, name: item.name, unit: item.unit });
@@ -1123,7 +1200,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
       if (txErr) {
         const errMessage = txErr.message || '';
         const status = (txErr as any).status;
-        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+        const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
 
         if (isNetworkError) {
           await handleOfflineFallback({ quantity: item.quantity, name: item.name, unit: item.unit });
@@ -1185,7 +1262,7 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
               if (error) {
                 const errMessage = error.message || '';
                 const status = (error as any).status;
-                const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || status === 0 || status >= 500;
+                const isNetworkError = errMessage.includes('fetch') || errMessage.includes('Network') || errMessage.includes('timeout') || Number(status) === 0 || Number(status) >= 500;
                 if (isNetworkError) {
                   await handleOfflineClose();
                   return;
@@ -1537,40 +1614,37 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
 
           <View style={styles.formCard}>
             <Text style={styles.label}>{t('requestCategory')}</Text>
-            <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
-                  <Picker
-                    selectedValue={leaveType}
-                    onValueChange={(itemValue) => setLeaveType(itemValue)}
-                    style={{ width: '100%', height: 50 }}
-                  >
-                    <Picker.Item label={t('sick')} value="sick" />
-                    <Picker.Item label={t('vacation')} value="vacation" />
-                    <Picker.Item label={t('wedding')} value="wedding" />
-                    <Picker.Item label={t('paternal')} value="paternal" />
-                    <Picker.Item label={t('maternal')} value="maternal" />
-                    <Picker.Item label={t('emergency')} value="emergency" />
-                    <Picker.Item label={t('unpaid')} value="unpaid" />
-                  </Picker>
-                </View>
+            <CustomDropdown
+              label={t('requestCategory')}
+              value={category}
+              onSelect={setCategory}
+              options={[
+                { label: t('leaveRequest'), value: 'Leave Request' },
+                { label: t('payrollDispute'), value: 'Payroll Dispute' },
+                { label: t('benefitsInquiry'), value: 'Benefits Inquiry' },
+                { label: t('equipmentIssue'), value: 'Equipment Issue' },
+                { label: t('suggestion'), value: 'Suggestion' },
+                { label: t('other'), value: 'Other' },
+              ]}
+            />
 
             {category === 'Leave Request' && (
               <>
                 <Text style={styles.label}>{t('leaveClassification')}</Text>
-                <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
-                  <Picker
-                    selectedValue={leaveType}
-                    onValueChange={(itemValue) => setLeaveType(itemValue)}
-                    style={{ width: '100%', height: 50 }}
-                  >
-                    <Picker.Item label={t('sick')} value="sick" />
-                    <Picker.Item label={t('vacation')} value="vacation" />
-                    <Picker.Item label={t('wedding')} value="wedding" />
-                    <Picker.Item label={t('paternal')} value="paternal" />
-                    <Picker.Item label={t('maternal')} value="maternal" />
-                    <Picker.Item label={t('emergency')} value="emergency" />
-                    <Picker.Item label={t('unpaid')} value="unpaid" />
-                  </Picker>
-                </View>
+                <CustomDropdown
+                  label={t('leaveClassification')}
+                  value={leaveType}
+                  onSelect={(val: any) => setLeaveType(val)}
+                  options={[
+                    { label: t('sick'), value: 'sick' },
+                    { label: t('vacation'), value: 'vacation' },
+                    { label: t('wedding'), value: 'wedding' },
+                    { label: t('paternal'), value: 'paternal' },
+                    { label: t('maternal'), value: 'maternal' },
+                    { label: t('emergency'), value: 'emergency' },
+                    { label: t('unpaid'), value: 'unpaid' },
+                  ]}
+                />
 
                 <Text style={styles.label}>{t('quickPresets')}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
@@ -1662,6 +1736,18 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
                     }}
                   />
                 )}
+                
+                {startDate && endDate && (
+                  <View style={{ backgroundColor: COLORS.indigoDim, padding: 12, borderRadius: 10, marginBottom: 20, flexDirection: 'row', alignItems: 'center' }}>
+                    <Feather name="clock" size={16} color={COLORS.indigo} style={{ marginRight: 8 }} />
+                    <Text style={{ fontSize: 14, color: COLORS.indigo, fontWeight: '700' }}>
+                      {t('leaveDurationLabel', { 
+                        duration: calculateLeaveDuration(startDate, endDate), 
+                        days: calculateLeaveDuration(startDate, endDate) === 1 ? t('daySingular') : t('dayPlural') 
+                      })}
+                    </Text>
+                  </View>
+                )}
 
                 <Text style={styles.label}>{t('reasonLabel')}</Text>
                 <TextInput
@@ -1715,21 +1801,17 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
             {category === 'Equipment Issue' && (
               <>
                 <Text style={styles.label}>{t('equipmentType')}</Text>
-                <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
-                  <Picker
-                    selectedValue={leaveType}
-                    onValueChange={(itemValue) => setLeaveType(itemValue)}
-                    style={{ width: '100%', height: 50 }}
-                  >
-                    <Picker.Item label={t('sick')} value="sick" />
-                    <Picker.Item label={t('vacation')} value="vacation" />
-                    <Picker.Item label={t('wedding')} value="wedding" />
-                    <Picker.Item label={t('paternal')} value="paternal" />
-                    <Picker.Item label={t('maternal')} value="maternal" />
-                    <Picker.Item label={t('emergency')} value="emergency" />
-                    <Picker.Item label={t('unpaid')} value="unpaid" />
-                  </Picker>
-                </View>
+                <CustomDropdown
+                  label={t('equipmentType')}
+                  value={equipmentType}
+                  onSelect={(val: any) => setEquipmentType(val)}
+                  options={[
+                    { label: language === 'fil' ? 'Kagamitan (Tools)' : 'Tools', value: 'tool' },
+                    { label: language === 'fil' ? 'Sasakyan (Vehicle)' : 'Vehicle', value: 'vehicle' },
+                    { label: language === 'fil' ? 'Aparato (Device)' : 'Device', value: 'device' },
+                    { label: language === 'fil' ? 'Iba pa (Other)' : 'Other', value: 'other' }
+                  ]}
+                />
 
                 <Text style={styles.label}>{t('serialNumber')}</Text>
                 <TextInput
@@ -1800,6 +1882,23 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
                 />
               </>
             )}
+
+            <View style={{ marginBottom: 16 }}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.indigoDim, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.2)' }}
+                onPress={handleAttachTicketFile}
+              >
+                <Feather name="paperclip" size={18} color={COLORS.primary} style={{ marginRight: 8 }} />
+                <Text style={{ color: COLORS.primary, fontWeight: '600' }}>
+                  {ticketAttachment ? ticketAttachment.name : t('attachFile', { defaultValue: 'Attach File' })}
+                </Text>
+              </TouchableOpacity>
+              {ticketAttachment && (
+                <TouchableOpacity onPress={() => setTicketAttachment(null)} style={{ position: 'absolute', right: 12, top: 12 }}>
+                  <Feather name="x-circle" size={20} color={COLORS.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
 
             <TouchableOpacity 
               style={styles.submitButton}
@@ -2148,14 +2247,14 @@ const getStyles = (COLORS: any) => ({
   
   label: { fontSize: 14, fontWeight: '900', color: COLORS.textMain, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 } as TextStyle,
   categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 } as ViewStyle,
-  categoryOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
+  categoryOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.whiteCard } as ViewStyle,
   categoryOptionText: { fontSize: 14, color: COLORS.textMain } as TextStyle,
   
   priorityRow: { flexDirection: 'row', gap: 8, marginBottom: 20 } as ViewStyle,
-  priorityOption: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff', alignItems: 'center' } as ViewStyle,
+  priorityOption: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.whiteCard, alignItems: 'center' } as ViewStyle,
   priorityTextOption: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
+  input: { backgroundColor: COLORS.whiteCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
   textArea: { height: 120 } as TextStyle,
   
   submitButton: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 } as ViewStyle,
@@ -2204,6 +2303,62 @@ const MONTHS_FIL = [
 ];
 const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS_FIL = ['Lin', 'Lun', 'Mar', 'Miy', 'Huw', 'Biy', 'Sab'];
+
+interface CustomDropdownProps {
+  label: string;
+  value: string;
+  options: { label: string; value: string }[];
+  onSelect: (val: string) => void;
+  placeholder?: string;
+  style?: ViewStyle;
+}
+
+function CustomDropdown({ label, value, options, onSelect, placeholder, style }: CustomDropdownProps) {
+  const [modalVisible, setModalVisible] = useState(false);
+  const selectedOption = options.find(o => o.value === value);
+  const displayText = selectedOption ? selectedOption.label : placeholder || 'Select...';
+  const modalStyles = getModalStyles(COLORS);
+  const localStyles = getStyles(COLORS);
+  
+  return (
+    <>
+      <TouchableOpacity 
+        style={[localStyles.inputCard, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, style]} 
+        onPress={() => setModalVisible(true)}
+      >
+        <Text style={{ color: selectedOption ? COLORS.textMain : COLORS.textMuted, fontSize: 16 }}>{displayText}</Text>
+        <Feather name="chevron-down" size={20} color={COLORS.textMuted} />
+      </TouchableOpacity>
+      
+      <Modal visible={modalVisible} transparent={true} animationType="fade" onRequestClose={() => setModalVisible(false)}>
+        <TouchableOpacity style={modalStyles.backdrop} activeOpacity={1} onPress={() => setModalVisible(false)}>
+          <View style={[modalStyles.content, { maxHeight: '60%' }]}>
+            <View style={modalStyles.header}>
+              <Text style={modalStyles.headerTitle}>{label}</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={modalStyles.closeButton}>
+                <Feather name="x" size={24} color={COLORS.textMain} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {options.map((opt, idx) => (
+                <TouchableOpacity 
+                  key={idx} 
+                  style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                  onPress={() => { onSelect(opt.value); setModalVisible(false); }}
+                >
+                  <Text style={{ fontSize: 16, color: value === opt.value ? COLORS.primary : COLORS.textMain, fontWeight: value === opt.value ? 'bold' : 'normal' }}>
+                    {opt.label}
+                  </Text>
+                  {value === opt.value && <Feather name="check" size={20} color={COLORS.primary} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </>
+  );
+}
 
 interface CalendarPickerModalProps {
   visible: boolean;
@@ -2358,7 +2513,7 @@ const getModalStyles = (COLORS: any) => StyleSheet.create({
     justifyContent: 'flex-end',
   },
   content: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.whiteCard,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
@@ -2389,7 +2544,7 @@ const getModalStyles = (COLORS: any) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
-    backgroundColor: '#f8fafc',
+    backgroundColor: COLORS.card,
     borderRadius: 12,
     paddingVertical: 8,
     paddingHorizontal: 12,

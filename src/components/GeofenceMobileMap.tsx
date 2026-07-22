@@ -1,11 +1,12 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Animated, Easing, Platform, TouchableOpacity, Linking } from 'react-native';
+import React from 'react';
+import { StyleSheet, View, Text } from 'react-native';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import { getDistance } from 'geolib';
 import { Feather } from '@expo/vector-icons';
 
 interface GeofenceMobileMapProps {
-  userLat: number;
-  userLng: number;
+  userLat?: number;
+  userLng?: number;
   branchLat: number;
   branchLng: number;
   radius: number;
@@ -20,7 +21,7 @@ export default function GeofenceMobileMap({
   radius,
   branchName
 }: GeofenceMobileMapProps) {
-  // If coordinates are invalid, show a placeholder
+  // If branch coordinates are invalid, show a placeholder
   if (!branchLat || !branchLng) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }]}>
@@ -29,147 +30,85 @@ export default function GeofenceMobileMap({
     );
   }
 
-  // Calculate distance
-  const distance = getDistance(
-    { latitude: userLat, longitude: userLng },
-    { latitude: branchLat, longitude: branchLng }
-  );
-  const isInside = distance <= radius;
-
-  // Radar layout constants (centered in a 300x230 container)
-  const width = 300;
-  const height = 230;
-  const cx = width / 2;
-  const cy = height / 2;
-
-  // Scale: we want the Geofence Circle to have a constant visual radius on the radar
-  const geofenceVisualRadius = 65;
-
-  // Scale mapping: 1 meter = (geofenceVisualRadius / radius) pixels
-  const maxVisualDistance = 105;
-  const rawPixelDistance = distance * (geofenceVisualRadius / radius);
-  const pixelDistance = Math.min(rawPixelDistance, maxVisualDistance);
-
-  // Set the angle of the user relative to the branch (-45 degrees for top-right quadrant)
-  const angle = -Math.PI / 4; 
-  const ux = Math.cos(angle) * pixelDistance;
-  const uy = Math.sin(angle) * pixelDistance;
+  // Calculate distance only if user coordinates exist
+  const hasUserLocation = userLat !== undefined && userLng !== undefined;
+  const distance = hasUserLocation 
+    ? getDistance(
+        { latitude: userLat, longitude: userLng },
+        { latitude: branchLat, longitude: branchLng }
+      )
+    : Infinity;
+  const isInside = hasUserLocation && distance <= radius;
 
   // Format display text
   const displayDistance = distance >= 1000 
     ? `${(distance / 1000).toFixed(1)} km` 
     : `${Math.round(distance)} meters`;
 
-  // Sweeper animation
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 4000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, [rotateAnim]);
-
-  const spin = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg']
-  });
+  // Calculate Region to fit both branch and user, or just center on branch
+  const mapRadius = Math.max(radius, distance) * 1.5;
+  const delta = (mapRadius / 111000) * 2; // rough latitude delta to fit the bounds
 
   return (
     <View style={styles.container}>
-      {/* Radar Console Area */}
-      <View style={styles.radarConsole}>
-        
-        {/* Concentric rings */}
-        <View style={[styles.ring, { width: 210, height: 210, borderRadius: 105, left: cx - 105, top: cy - 105, borderColor: '#1e293b' }]} />
-        <View style={[styles.ring, { width: 170, height: 170, borderRadius: 85, left: cx - 85, top: cy - 85, borderColor: '#1e293b', borderStyle: 'dashed' }]} />
-        <View style={[styles.ring, { width: 80, height: 80, borderRadius: 40, left: cx - 40, top: cy - 40, borderColor: '#1e293b', borderStyle: 'dashed' }]} />
+      <MapView
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={{
+          latitude: branchLat,
+          longitude: branchLng,
+          latitudeDelta: delta,
+          longitudeDelta: delta,
+        }}
+        showsUserLocation={false} 
+      >
+        {/* Branch Marker */}
+        <Marker
+          coordinate={{ latitude: branchLat, longitude: branchLng }}
+          title={branchName}
+          description={`Radius: ${radius}m`}
+          tracksViewChanges={false}
+        >
+          <View style={styles.branchMarker}>
+            <Feather name="home" size={14} color="#fff" />
+          </View>
+        </Marker>
 
-        {/* Crosshairs */}
-        <View style={[styles.crosshair, { width: 210, height: 1, left: cx - 105, top: cy }]} />
-        <View style={[styles.crosshair, { width: 1, height: 210, left: cx, top: cy - 105 }]} />
-
-        {/* Sweeping Radar Line */}
-        <Animated.View 
-          style={[
-            styles.sweeper, 
-            { 
-              left: cx - 52.5, 
-              top: cy - 0.75,
-              transform: [
-                { rotate: spin },
-                { translateX: 52.5 }
-              ] 
-            }
-          ]} 
+        {/* Geofence Boundary */}
+        <Circle
+          center={{ latitude: branchLat, longitude: branchLng }}
+          radius={radius}
+          strokeWidth={2}
+          strokeColor={isInside ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'}
+          fillColor={isInside ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.05)'}
         />
 
-        {/* Geofence Boundary Circle */}
-        <View 
-          style={[
-            styles.geofenceCircle, 
-            { 
-              width: geofenceVisualRadius * 2, 
-              height: geofenceVisualRadius * 2, 
-              borderRadius: geofenceVisualRadius,
-              left: cx - geofenceVisualRadius,
-              top: cy - geofenceVisualRadius,
-              borderColor: isInside ? '#10b981' : '#ef4444',
-              backgroundColor: isInside ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.03)',
-              borderStyle: isInside ? 'solid' : 'dashed'
-            }
-          ]} 
-        />
-
-        {/* Proximity Connector Line */}
-        {pixelDistance > 0 && (
-          <View 
-            style={[
-              styles.connectorLine,
-              {
-                width: pixelDistance,
-                left: cx + ux / 2 - pixelDistance / 2,
-                top: cy + uy / 2 - 1,
-                borderColor: isInside ? '#10b981' : '#ef4444',
-                transform: [{ rotate: '-45deg' }]
-              }
-            ]}
-          />
+        {/* User Location Marker */}
+        {hasUserLocation && (
+          <Marker
+            key={`user-${userLat}-${userLng}`}
+            coordinate={{ latitude: userLat!, longitude: userLng! }}
+            title="You are here"
+            zIndex={2}
+          >
+            <View style={[styles.userMarkerGlow, { backgroundColor: isInside ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)' }]}>
+              <View style={[styles.userMarker, { backgroundColor: isInside ? '#10b981' : '#ef4444' }]} />
+            </View>
+          </Marker>
         )}
+      </MapView>
 
-        {/* Central Branch Target Pin */}
-        <View style={[styles.centerPin, { left: cx - 14, top: cy - 14, borderColor: isInside ? '#10b981' : '#64748b' }]}>
-          <Feather name="home" size={12} color="#94a3b8" />
-        </View>
-
-        {/* User Location Node */}
-        <View style={[styles.userNodeGlow, { left: cx + ux - 14, top: cy + uy - 14 }]} />
-        <View style={[styles.userNode, { left: cx + ux - 5, top: cy + uy - 5 }]} />
-
-        {/* Label Overlays */}
-        <Text style={[styles.radarResolution, { left: 10, top: 10 }]}>RADAR RESOLUTION: 50m</Text>
-        <Text style={[styles.boundaryStatus, { left: 10, top: 22, color: isInside ? '#10b981' : '#ef4444' }]}>
-          {isInside ? "🟢 INSIDE BOUNDARY" : "🔴 OUTSIDE BOUNDARY"}
-        </Text>
-        
-        {/* Center Target Info */}
-        <Text style={[styles.targetInfo, { left: 0, right: 0, top: cy - 82 }]}>
-          {branchName} ({radius}m)
-        </Text>
-
-        {/* Distance Indicator Box */}
-        <View style={[styles.distanceBox, { left: cx + ux - 35, top: cy + uy + 8, borderColor: isInside ? '#10b981' : '#ef4444' }]}>
-          <Text style={styles.distanceText}>{displayDistance}</Text>
-        </View>
-
-      </View>
       <View style={styles.footerLabel}>
-        <Text style={styles.footerText}>
-          🛰️ <Text style={{ fontWeight: 'bold' }}>TechnoSys Radar Map:</Text> Showing relative distance to {branchName} ({radius}m geofence).
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={styles.footerText}>
+            📍 <Text style={{ fontWeight: 'bold' }}>{branchName}</Text>
+          </Text>
+          <Text style={[styles.statusText, { color: isInside ? '#10b981' : '#ef4444' }]}>
+            {isInside ? '🟢 INSIDE' : '🔴 OUTSIDE'}
+          </Text>
+        </View>
+        <Text style={styles.footerSubText}>
+          Distance: {displayDistance} (Geofence: {radius}m)
         </Text>
       </View>
       <TouchableOpacity 
@@ -190,132 +129,71 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: '#e2e8f0', 
     marginVertical: 12,
-    backgroundColor: '#0b1329',
-    paddingBottom: 12
+    backgroundColor: '#f8fafc'
   },
-  radarConsole: {
+  map: {
     width: '100%',
-    height: 230,
-    position: 'relative'
+    height: 195, 
   },
-  ring: {
-    position: 'absolute',
-    borderWidth: 1
-  },
-  crosshair: {
-    position: 'absolute',
+  branchMarker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#1e293b',
-    opacity: 0.5
-  },
-  sweeper: {
-    position: 'absolute',
-    width: 105,
-    height: 1.5,
-    backgroundColor: '#10b981',
-    opacity: 0.4
-  },
-  geofenceCircle: {
-    position: 'absolute',
-    borderWidth: 2
-  },
-  connectorLine: {
-    position: 'absolute',
-    height: 2,
-    borderStyle: 'dashed',
-    borderWidth: 0.75,
-    opacity: 0.8
-  },
-  centerPin: {
-    position: 'absolute',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#1e293b',
-    borderWidth: 1.5,
+    borderWidth: 2,
+    borderColor: '#ffffff',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  userNodeGlow: {
-    position: 'absolute',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(59, 130, 246, 0.25)'
+  userMarkerGlow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  userNode: {
-    position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#3b82f6',
-    borderWidth: 1.5,
-    borderColor: '#ffffff'
-  },
-  radarResolution: {
-    position: 'absolute',
-    color: '#94a3b8',
-    fontSize: 8,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace'
-  },
-  boundaryStatus: {
-    position: 'absolute',
-    fontSize: 9,
-    fontWeight: 'bold'
-  },
-  targetInfo: {
-    position: 'absolute',
-    color: '#f8fafc',
-    fontSize: 9,
-    fontWeight: 'bold',
-    textAlign: 'center'
-  },
-  distanceBox: {
-    position: 'absolute',
-    width: 70,
+  userMarker: {
+    width: 14,
     height: 14,
-    borderRadius: 4,
-    backgroundColor: '#0f172a',
-    borderWidth: 0.5,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  distanceText: {
-    color: '#f8fafc',
-    fontSize: 8,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    fontWeight: 'bold'
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   footerLabel: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    backgroundColor: '#ffffff',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderTopWidth: 1,
-    borderTopColor: '#1e293b'
+    borderTopColor: '#e2e8f0'
   },
   footerText: {
-    color: '#cbd5e1',
+    color: '#334155',
+    fontSize: 13,
+  },
+  statusText: {
     fontSize: 11,
-    lineHeight: 16
-  },
-  mapButton: {
-    backgroundColor: '#3b82f6',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 12,
-    marginTop: 8,
-    paddingVertical: 10,
-    borderRadius: 8
-  },
-  mapButtonText: {
-    color: '#fff',
     fontWeight: 'bold',
-    fontSize: 13
+  },
+  footerSubText: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 20, 
   }
 });
