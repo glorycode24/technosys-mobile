@@ -4446,55 +4446,107 @@ export default function App() {
 
       {selectedAnnouncement && (
         <Modal 
-          animationType="slide" 
-          transparent={false} 
+          animationType="fade" 
+          transparent={true} 
           visible={!!selectedAnnouncement} 
           onRequestClose={() => setSelectedAnnouncement(null)}
         >
-          <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
+          <TouchableOpacity 
+            style={{ 
+              flex: 1, 
+              backgroundColor: 'rgba(15, 23, 42, 0.65)', 
+              justifyContent: 'center', 
               alignItems: 'center', 
-              paddingHorizontal: 20, 
-              paddingVertical: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: COLORS.border
-            }}>
-              <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={{ padding: 8, marginLeft: -8 }}>
-                <Feather name="x" size={24} color={COLORS.textMain} />
-              </TouchableOpacity>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textMain }}>
-                {language === 'fil' ? 'Detalye ng Anunsyo' : 'Announcement Details'}
-              </Text>
-              <View style={{ width: 40 }} />
-            </View>
-
-            <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 60 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  📢 {selectedAnnouncement.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
-                </Text>
-                <Text style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 12 }}>
-                  {new Date(selectedAnnouncement.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                </Text>
+              padding: 20 
+            }} 
+            activeOpacity={1} 
+            onPress={() => setSelectedAnnouncement(null)}
+          >
+            <TouchableOpacity 
+              activeOpacity={1} 
+              onPress={(e) => e.stopPropagation()} 
+              style={{ 
+                width: '100%', 
+                maxWidth: 420, 
+                maxHeight: '80%', 
+                backgroundColor: COLORS.card, 
+                borderRadius: 24, 
+                borderWidth: 1, 
+                borderColor: COLORS.border, 
+                shadowColor: '#000', 
+                shadowOffset: { width: 0, height: 10 }, 
+                shadowOpacity: 0.25, 
+                shadowRadius: 20, 
+                elevation: 12, 
+                overflow: 'hidden' 
+              }}
+            >
+              {/* Modal Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                paddingHorizontal: 20, 
+                paddingVertical: 16, 
+                borderBottomWidth: 1, 
+                borderBottomColor: COLORS.border,
+                backgroundColor: COLORS.card
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(99, 102, 241, 0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                    <Feather name="bell" size={16} color="#6366f1" />
+                  </View>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: COLORS.textMain }}>
+                    {language === 'fil' ? 'Anunsyo' : 'Announcement'}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setSelectedAnnouncement(null)} style={{ padding: 6, borderRadius: 12, backgroundColor: COLORS.border }}>
+                  <Feather name="x" size={18} color={COLORS.textMain} />
+                </TouchableOpacity>
               </View>
 
-              <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.textMain, marginBottom: 16, lineHeight: 28 }}>
-                {getBilingualText(selectedAnnouncement.title, language)}
-              </Text>
+              {/* Scrollable Body */}
+              <ScrollView contentContainerStyle={{ padding: 20 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <View style={{ backgroundColor: 'rgba(99, 102, 241, 0.1)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      📢 {selectedAnnouncement.target_branch_id ? (language === 'fil' ? 'Sangay' : 'Branch') : 'Global'}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: COLORS.textMuted, fontWeight: '500' }}>
+                    {new Date(selectedAnnouncement.created_at).toLocaleDateString(language === 'fil' ? 'fil-PH' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Text>
+                </View>
 
-              <View style={{ 
-                height: 1, 
-                backgroundColor: COLORS.border, 
-                marginBottom: 20 
-              }} />
+                <Text style={{ fontSize: 18, fontWeight: '800', color: COLORS.textMain, marginBottom: 14, lineHeight: 24 }}>
+                  {getBilingualText(selectedAnnouncement.title, language)}
+                </Text>
 
-              <Text style={{ fontSize: 14, color: COLORS.textMain, lineHeight: 24 }}>
-                {getBilingualText(selectedAnnouncement.content, language)}
-              </Text>
-            </ScrollView>
-          </SafeAreaView>
+                <View style={{ height: 1, backgroundColor: COLORS.border, marginBottom: 16 }} />
+
+                <Text style={{ fontSize: 14, color: COLORS.textMain, lineHeight: 22 }}>
+                  {getBilingualText(selectedAnnouncement.content, language)}
+                </Text>
+              </ScrollView>
+
+              {/* Footer */}
+              <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.card }}>
+                <TouchableOpacity 
+                  onPress={() => setSelectedAnnouncement(null)} 
+                  style={{ 
+                    backgroundColor: COLORS.primary, 
+                    paddingVertical: 12, 
+                    borderRadius: 14, 
+                    alignItems: 'center' 
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
+                    {language === 'fil' ? 'Isara' : 'Close'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </Modal>
       )}
     </View>
