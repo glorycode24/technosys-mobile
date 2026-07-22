@@ -1,30 +1,14 @@
-from PIL import Image
+﻿from PIL import Image
 
 def pad_icon():
-    try:
-        # Open the original square icon (e.g., 1024x1024)
-        img = Image.open('assets/images/icon.png').convert("RGBA")
-        
-        # Adaptive icons need the main content in the inner 66%. 
-        # For a 1024x1024 canvas, the safe zone is ~675x675.
-        target_size = int(1024 * 0.60) # use 60% to be safe and avoid tight borders
-        
-        # Resize the original icon
-        img.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
-        
-        # Create a new transparent 1024x1024 canvas
-        canvas = Image.new('RGBA', (1024, 1024), (255, 255, 255, 0))
-        
-        # Paste the resized icon into the center
-        offset = ((1024 - img.width) // 2, (1024 - img.height) // 2)
-        canvas.paste(img, offset, img)
-        
-        # Save as the android-icon-foreground.png
-        canvas.save('assets/images/android-icon-foreground.png')
-        print("Successfully created padded android-icon-foreground.png!")
-        
-    except Exception as e:
-        print(f"Error: {e}")
+    img = Image.open('assets/icon.png').convert("RGBA")
+    orig_size = img.size[0]
+    new_size = int(orig_size / 0.6)
+    background = Image.new('RGBA', (new_size, new_size), (0, 0, 0, 0))
+    offset = ((new_size - orig_size) // 2, (new_size - orig_size) // 2)
+    background.paste(img, offset, img)
+    background.save('assets/icon.png')
+    print("Icon padded successfully!")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pad_icon()
