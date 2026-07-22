@@ -1539,17 +1539,15 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
             <Text style={styles.label}>{t('requestCategory')}</Text>
             <View style={[styles.inputCard, { padding: 0, overflow: 'hidden' }]}>
                   <Picker
-                    selectedValue={leaveType}
-                    onValueChange={(itemValue) => setLeaveType(itemValue)}
-                    style={{ width: '100%', height: 50 }}
+                    selectedValue={category}
+                    onValueChange={(itemValue) => setCategory(itemValue)}
+                    style={{ width: '100%', height: 50, color: COLORS.textMain, backgroundColor: COLORS.card }}
+                    dropdownIconColor={COLORS.textMain}
                   >
-                    <Picker.Item label={t('sick')} value="sick" />
-                    <Picker.Item label={t('vacation')} value="vacation" />
-                    <Picker.Item label={t('wedding')} value="wedding" />
-                    <Picker.Item label={t('paternal')} value="paternal" />
-                    <Picker.Item label={t('maternal')} value="maternal" />
-                    <Picker.Item label={t('emergency')} value="emergency" />
-                    <Picker.Item label={t('unpaid')} value="unpaid" />
+                    <Picker.Item label={language === 'fil' ? 'Aplikasyon sa Leave' : 'Leave Request'} value="Leave Request" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={language === 'fil' ? 'Dispute sa Payroll' : 'Payroll Dispute'} value="Payroll Dispute" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={language === 'fil' ? 'Sirang Gamit / Equipment' : 'Equipment Issue'} value="Equipment Issue" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={language === 'fil' ? 'Iba Pa / General Support' : 'General Support'} value="General Support" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
                   </Picker>
                 </View>
 
@@ -1560,15 +1558,16 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
                   <Picker
                     selectedValue={leaveType}
                     onValueChange={(itemValue) => setLeaveType(itemValue)}
-                    style={{ width: '100%', height: 50 }}
+                    style={{ width: '100%', height: 50, color: COLORS.textMain, backgroundColor: COLORS.card }}
+                    dropdownIconColor={COLORS.textMain}
                   >
-                    <Picker.Item label={t('sick')} value="sick" />
-                    <Picker.Item label={t('vacation')} value="vacation" />
-                    <Picker.Item label={t('wedding')} value="wedding" />
-                    <Picker.Item label={t('paternal')} value="paternal" />
-                    <Picker.Item label={t('maternal')} value="maternal" />
-                    <Picker.Item label={t('emergency')} value="emergency" />
-                    <Picker.Item label={t('unpaid')} value="unpaid" />
+                    <Picker.Item label={t('sick')} value="sick" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('vacation')} value="vacation" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('wedding')} value="wedding" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('paternal')} value="paternal" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('maternal')} value="maternal" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('emergency')} value="emergency" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('unpaid')} value="unpaid" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
                   </Picker>
                 </View>
 
@@ -1719,15 +1718,16 @@ export function TicketsTab({ userId, fullName, language, isOnline, isDarkMode = 
                   <Picker
                     selectedValue={leaveType}
                     onValueChange={(itemValue) => setLeaveType(itemValue)}
-                    style={{ width: '100%', height: 50 }}
+                    style={{ width: '100%', height: 50, color: COLORS.textMain, backgroundColor: COLORS.card }}
+                    dropdownIconColor={COLORS.textMain}
                   >
-                    <Picker.Item label={t('sick')} value="sick" />
-                    <Picker.Item label={t('vacation')} value="vacation" />
-                    <Picker.Item label={t('wedding')} value="wedding" />
-                    <Picker.Item label={t('paternal')} value="paternal" />
-                    <Picker.Item label={t('maternal')} value="maternal" />
-                    <Picker.Item label={t('emergency')} value="emergency" />
-                    <Picker.Item label={t('unpaid')} value="unpaid" />
+                    <Picker.Item label={t('sick')} value="sick" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('vacation')} value="vacation" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('wedding')} value="wedding" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('paternal')} value="paternal" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('maternal')} value="maternal" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('emergency')} value="emergency" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
+                    <Picker.Item label={t('unpaid')} value="unpaid" color={COLORS.textMain} style={{ backgroundColor: COLORS.card }} />
                   </Picker>
                 </View>
 
@@ -2148,14 +2148,14 @@ const getStyles = (COLORS: any) => ({
   
   label: { fontSize: 14, fontWeight: '900', color: COLORS.textMain, textTransform: 'uppercase', marginBottom: 10, letterSpacing: 0.5 } as TextStyle,
   categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 } as ViewStyle,
-  categoryOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff' } as ViewStyle,
+  categoryOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.card } as ViewStyle,
   categoryOptionText: { fontSize: 14, color: COLORS.textMain } as TextStyle,
   
   priorityRow: { flexDirection: 'row', gap: 8, marginBottom: 20 } as ViewStyle,
-  priorityOption: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff', alignItems: 'center' } as ViewStyle,
+  priorityOption: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.card, alignItems: 'center' } as ViewStyle,
   priorityTextOption: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
+  input: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, fontSize: 16, color: COLORS.textMain, marginBottom: 20 } as TextStyle,
   textArea: { height: 120 } as TextStyle,
   
   submitButton: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 } as ViewStyle,
@@ -2191,7 +2191,7 @@ const getStyles = (COLORS: any) => ({
   segmentedText: { fontSize: 13, color: COLORS.textMuted, fontWeight: '600' } as TextStyle,
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, justifyContent: 'center', alignItems: 'center' } as ViewStyle,
   statusBadgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' } as TextStyle,
-  inputCard: { backgroundColor: COLORS.whiteCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, height: 50, justifyContent: 'center', marginBottom: 20 } as ViewStyle
+  inputCard: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 14, height: 50, justifyContent: 'center', marginBottom: 20 } as ViewStyle
 });
 
 const MONTHS_EN = [
