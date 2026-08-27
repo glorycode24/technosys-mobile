@@ -12,6 +12,7 @@ import { supabase } from '../../lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getStoredLanguage, setStoredLanguage, translate, SupportedLanguage, TRANSLATIONS } from '../../lib/i18n';
 
 const READ_NOTIFS_KEY = '@read_notification_ids';
 
@@ -54,86 +55,20 @@ const BRAND = {
   lightBg: '#F8FAFC',
 };
 
-const TRANSLATIONS: Record<string, Record<string, string>> = {
-  en: {
-    priority_dispatch: "PRIORITY DISPATCH",
-    active_ticket: "Active Ticket",
-    view_dispatch_details: "View Dispatch Details",
-    no_active_deployments: "You have 0 active deployments scheduled.",
-    menu: "Menu",
-    my_operations: "My Operations",
-    schedules: "Schedules",
-    payslips: "Payslips",
-    file_leave: "File Leave",
-    timesheets: "Timesheets",
-    announcements: "Announcements",
-    my_tools: "My Tools",
-    work_orders: "Work Orders",
-    clock_in: "Clock In",
-    tap_to_verify: "Tap to verify location presence",
-    preferences: "Preferences",
-    dark_mode: "Dark Mode",
-    language: "Language",
-    settings: "Settings",
-    equipment: "Equipment",
-    support: "Support",
-    updates: "Updates",
-  },
-  tl: {
-    priority_dispatch: "APURAHANG MISYON",
-    active_ticket: "Aktibong Ticket",
-    view_dispatch_details: "Tingnan ang Detalye",
-    no_active_deployments: "Wala kang nakatakdang misyon ngayon.",
-    menu: "Menu",
-    my_operations: "Aking Operasyon",
-    schedules: "Mga Iskedyul",
-    payslips: "Payslips",
-    file_leave: "Mag-File ng Leave",
-    timesheets: "Timesheets",
-    announcements: "Mga Anunsyo",
-    my_tools: "Aking Kagamitan",
-    work_orders: "Work Orders",
-    clock_in: "Pumasok (Clock In)",
-    tap_to_verify: "Pindutin para kumpirmahin ang lokasyon",
-    preferences: "Kagustuhan",
-    dark_mode: "Dark Mode",
-    language: "Wika",
-    settings: "Mga Setting",
-    equipment: "Kagamitan",
-    support: "Tulong",
-    updates: "Mga Update",
-  },
-  ja: {
-    priority_dispatch: "優先派遣",
-    active_ticket: "アクティブなチケット",
-    view_dispatch_details: "派遣の詳細を見る",
-    no_active_deployments: "現在スケジュールされている展開はありません。",
-    menu: "メニュー",
-    my_operations: "マイオペレーション",
-    schedules: "スケジュール",
-    my_tools: "マイツール",
-    work_orders: "作業指示書",
-    clock_in: "出勤する",
-    tap_to_verify: "タップして場所を確認",
-    preferences: "環境設定",
-    dark_mode: "ダークモード",
-    language: "言語",
-    settings: "設定",
-    equipment: "機材",
-    support: "サポート",
-    updates: "更新",
-  }
-};
 export default function HomeScreen() {
   const router = useRouter();
-  const [language, setLanguage] = useState<'en' | 'tl' | 'ja'>('en');
+  const [language, setLanguage] = useState<SupportedLanguage>('en');
   const [darkMode, setDarkMode] = useState(false);
   
-  const t = (key: string) => {
-    return TRANSLATIONS[language]?.[key] || TRANSLATIONS['en'][key] || key;
+  const t = (key: string) => translate(key, language);
+
+  const changeLanguage = async (newLang: SupportedLanguage) => {
+    setLanguage(newLang);
+    await setStoredLanguage(newLang);
   };
-  const activeFont = language === 'ja' ? 'System' : 'DMSans-Medium';
-  const activeFontBold = language === 'ja' ? 'System' : 'DMSans-Bold';
+
+  const activeFont = 'DMSans-Medium';
+  const activeFontBold = 'DMSans-Bold';
   
   const [menuVisible, setMenuVisible] = useState(false);
   const [clockInModal, setClockInModal] = useState(false);
@@ -508,6 +443,10 @@ export default function HomeScreen() {
 
   useEffect(() => {
     async function loadData() {
+      // Load stored language preference
+      const savedLang = await getStoredLanguage();
+      setLanguage(savedLang);
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
@@ -958,10 +897,18 @@ export default function HomeScreen() {
                 <TouchableOpacity onPress={() => setLangModalVisible(false)}><Feather name="x" size={24} color="#64748B" /></TouchableOpacity>
               </View>
               <View style={{ marginTop: 16 }}>
-                {[ { label: 'English', code: 'en' }, { label: 'Filipino (Tagalog)', code: 'fil' }, { label: 'Japanese', code: 'ja' } ].map((lang, idx) => (
-                  <TouchableOpacity key={idx} style={styles.profileMenuItem} onPress={() => { safeAlert('Success', `${lang.label} language selected.`); setLangModalVisible(false); }}>
-                    <Text style={styles.profileMenuText}>{lang.label}</Text>
-                    {lang.code === 'en' && <Feather name="check" size={20} color={BRAND.green} />}
+                {[ { label: 'English', code: 'en' as SupportedLanguage }, { label: 'Filipino (Tagalog)', code: 'tl' as SupportedLanguage } ].map((langItem, idx) => (
+                  <TouchableOpacity 
+                    key={idx} 
+                    style={styles.profileMenuItem} 
+                    onPress={async () => { 
+                      await changeLanguage(langItem.code); 
+                      safeAlert('Success', `${langItem.label} selected.`); 
+                      setLangModalVisible(false); 
+                    }}
+                  >
+                    <Text style={styles.profileMenuText}>{langItem.label}</Text>
+                    {language === langItem.code && <Feather name="check" size={20} color={BRAND.green} />}
                   </TouchableOpacity>
                 ))}
               </View>
@@ -983,28 +930,53 @@ export default function HomeScreen() {
               </View>
 
               <View style={{ paddingHorizontal: 24, paddingTop: 16 }}>
-                <Text style={[{ fontSize: 14, color: '#64748B', marginBottom: 12, textTransform: 'uppercase' }, { fontFamily: activeFontBold }]}>{t('language')}</Text>
+                <Text style={[{ fontSize: 14, color: '#64748B', marginBottom: 12, textTransform: 'uppercase' }, { fontFamily: activeFontBold }]}>{t('select_app_language')}</Text>
                 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 }}>
+                <View style={{ gap: 10, marginBottom: 24 }}>
                   <TouchableOpacity 
-                    style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: language === 'en' ? BRAND.blue : '#E2E8F0', backgroundColor: language === 'en' ? '#EFF6FF' : '#fff', marginRight: 8, alignItems: 'center' }}
-                    onPress={() => setLanguage('en')}
+                    style={{ 
+                      flexDirection: 'row', 
+                      alignItems: 'center', 
+                      justify: 'space-between', 
+                      padding: 14, 
+                      borderRadius: 14, 
+                      borderWidth: 1.5, 
+                      borderColor: language === 'en' ? BRAND.blue : '#E2E8F0', 
+                      backgroundColor: language === 'en' ? '#EFF6FF' : '#fff' 
+                    }}
+                    onPress={() => changeLanguage('en')}
                   >
-                    <Text style={{ fontFamily: 'DMSans-Bold', color: language === 'en' ? BRAND.blue : '#0F172A' }}>EN</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 20, marginRight: 10 }}>🇺🇸</Text>
+                      <View>
+                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 15, color: language === 'en' ? BRAND.blue : '#0F172A' }}>English</Text>
+                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B' }}>Default System Language</Text>
+                      </View>
+                    </View>
+                    {language === 'en' && <Feather name="check-circle" size={20} color={BRAND.blue} />}
                   </TouchableOpacity>
                   
                   <TouchableOpacity 
-                    style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: language === 'tl' ? BRAND.blue : '#E2E8F0', backgroundColor: language === 'tl' ? '#EFF6FF' : '#fff', marginRight: 8, alignItems: 'center' }}
-                    onPress={() => setLanguage('tl')}
+                    style={{ 
+                      flexDirection: 'row', 
+                      alignItems: 'center', 
+                      justify: 'space-between', 
+                      padding: 14, 
+                      borderRadius: 14, 
+                      borderWidth: 1.5, 
+                      borderColor: language === 'tl' ? BRAND.blue : '#E2E8F0', 
+                      backgroundColor: language === 'tl' ? '#EFF6FF' : '#fff' 
+                    }}
+                    onPress={() => changeLanguage('tl')}
                   >
-                    <Text style={{ fontFamily: 'DMSans-Bold', color: language === 'tl' ? BRAND.blue : '#0F172A' }}>TL</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: language === 'ja' ? BRAND.blue : '#E2E8F0', backgroundColor: language === 'ja' ? '#EFF6FF' : '#fff', alignItems: 'center' }}
-                    onPress={() => setLanguage('ja')}
-                  >
-                    <Text style={{ fontFamily: 'System', fontWeight: 'bold', color: language === 'ja' ? BRAND.blue : '#0F172A' }}>JA</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 20, marginRight: 10 }}>🇵🇭</Text>
+                      <View>
+                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 15, color: language === 'tl' ? BRAND.blue : '#0F172A' }}>Filipino (Tagalog)</Text>
+                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B' }}>Wika para sa Teknisyon</Text>
+                      </View>
+                    </View>
+                    {language === 'tl' && <Feather name="check-circle" size={20} color={BRAND.blue} />}
                   </TouchableOpacity>
                 </View>
 
