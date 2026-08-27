@@ -226,23 +226,51 @@ export default function HomeScreen() {
 
   const fetchAnnouncements = async () => {
     setAnnouncementsLoading(true);
-    // Announcements are global (or branch specific), so we fetch the most recent ones.
-    const { data } = await supabase
-      .from('announcements')
-      .select(`
-        id, title, content, created_at,
-        profiles!announcements_created_by_fkey ( full_name, role )
-      `)
-      .order('created_at', { ascending: false });
-    
-    // If the join fails due to fk name mismatches, fallback to basic select.
-    if (!data) {
+    let list: any[] = [];
+
+    try {
+      const { data } = await supabase
+        .from('announcements')
+        .select(`
+          id, title, content, priority, created_at, is_edited, updated_at,
+          author:created_by ( full_name, role ),
+          editor:last_edited_by ( full_name, role )
+        `)
+        .order('created_at', { ascending: false });
+      
+      list = data || [];
+    } catch (e) {
       const fallback = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
-      setAnnouncements(fallback.data || []);
-    } else {
-      setAnnouncements(data);
+      list = fallback.data || [];
     }
+
+    if (!list || list.length === 0) {
+      const fallback = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
+      list = fallback.data || [];
+    }
+
+    setAnnouncements(list);
     setAnnouncementsLoading(false);
+
+    // Sync into notifications state for bell icon badge & dropdown list
+    if (list && list.length > 0) {
+      const annNotifs = list.map((ann: any) => ({
+        id: ann.id,
+        type: 'announcement',
+        title: ann.is_edited ? `✏️ [Updated] ${ann.title}` : `📢 ${ann.title}`,
+        desc: ann.content,
+        time: new Date(ann.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        read: false,
+        author: ann.author?.full_name || 'System Admin',
+        role: ann.author?.role || 'Admin',
+        priority: ann.priority || 'normal'
+      }));
+
+      setNotifications(prev => {
+        const nonAnnNotifs = prev.filter(n => n.type !== 'announcement');
+        return [...annNotifs, ...nonAnnNotifs];
+      });
+    }
   };
 
   // Chunk 19: Work Orders Feature
@@ -463,8 +491,28 @@ export default function HomeScreen() {
         .single();
       
       if (scheduleData) setSchedule(scheduleData);
+
+      // Load announcements immediately on launch
+      fetchAnnouncements();
     }
     loadData();
+
+    // Setup Supabase Realtime Listener for instant live updates on announcements table
+    const announcementsChannel = supabase
+      .channel('public-realtime-announcements')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'announcements' },
+        (payload) => {
+          console.log('Realtime announcement change received in mobile app:', payload);
+          fetchAnnouncements();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(announcementsChannel);
+    };
   }, []);
 
   const openMenu = () => {
