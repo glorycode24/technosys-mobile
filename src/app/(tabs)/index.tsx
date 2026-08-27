@@ -11,6 +11,37 @@ import MapView, { Marker, Circle } from '../../components/MapWrapper';
 import { supabase } from '../../lib/supabase';
 import { useFocusEffect } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const READ_NOTIFS_KEY = '@read_notification_ids';
+
+async function getReadNotifIds(): Promise<string[]> {
+  try {
+    const json = await AsyncStorage.getItem(READ_NOTIFS_KEY);
+    return json ? JSON.parse(json) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function saveReadNotifId(id: string | number) {
+  try {
+    const existing = await getReadNotifIds();
+    const strId = String(id);
+    if (!existing.includes(strId)) {
+      const updated = [...existing, strId];
+      await AsyncStorage.setItem(READ_NOTIFS_KEY, JSON.stringify(updated));
+    }
+  } catch (e) {}
+}
+
+async function saveAllReadNotifIds(ids: (string | number)[]) {
+  try {
+    const existing = await getReadNotifIds();
+    const set = new Set([...existing, ...ids.map(String)]);
+    await AsyncStorage.setItem(READ_NOTIFS_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {}
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -254,13 +285,14 @@ export default function HomeScreen() {
 
     // Sync into notifications state for bell icon badge & dropdown list
     if (list && list.length > 0) {
+      const readIds = await getReadNotifIds();
       const annNotifs = list.map((ann: any) => ({
         id: ann.id,
         type: 'announcement',
         title: ann.is_edited ? `✏️ [Updated] ${ann.title}` : `📢 ${ann.title}`,
         desc: ann.content,
         time: new Date(ann.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        read: false,
+        read: readIds.includes(String(ann.id)),
         author: ann.author?.full_name || 'System Admin',
         role: ann.author?.role || 'Admin',
         priority: ann.priority || 'normal'
@@ -1031,6 +1063,8 @@ export default function HomeScreen() {
               
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 16 }}>
                 <TouchableOpacity onPress={() => {
+                  const allIds = notifications.map(n => n.id);
+                  saveAllReadNotifIds(allIds);
                   setNotifications(notifications.map(n => ({ ...n, read: true })));
                 }}>
                   <Text style={styles.notifMarkRead}>Mark all read</Text>
@@ -1055,6 +1089,7 @@ export default function HomeScreen() {
                     <TouchableOpacity 
                       style={[styles.notifItem, !notif.read && styles.notifItemUnread]}
                       onPress={() => {
+                        saveReadNotifId(notif.id);
                         setNotifications(notifications.map(n => n.id === notif.id ? { ...n, read: true } : n));
                         setSelectedNotif(notif);
                       }}
