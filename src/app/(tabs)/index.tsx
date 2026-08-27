@@ -610,8 +610,8 @@ export default function HomeScreen() {
               <Ionicons name="scan-outline" size={32} color={BRAND.blue} />
             </View>
             <View style={styles.clockInTextContainer}>
-              <Text style={styles.clockInTitle}>Clock In</Text>
-              <Text style={styles.clockInSub}>Tap to verify location presence</Text>
+              <Text style={styles.clockInTitle}>{t('clock_in')}</Text>
+              <Text style={styles.clockInSub}>{t('tap_to_verify')}</Text>
             </View>
             <Feather name="arrow-right" size={24} color={BRAND.blue} />
           </TouchableOpacity>
@@ -621,19 +621,19 @@ export default function HomeScreen() {
               <View style={[styles.bubbleCircle, { shadowColor: BRAND.yellow }]}>
                 <Feather name="tool" size={24} color={BRAND.yellow} />
               </View>
-              <Text style={styles.bubbleText}>Equipment</Text>
+              <Text style={styles.bubbleText}>{t('equipment')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.bubbleBtn} onPress={() => { fetchTickets(); setSupportModalVisible(true); }}>
               <View style={[styles.bubbleCircle, { shadowColor: BRAND.green }]}>
                 <Feather name="headphones" size={24} color={BRAND.green} />
               </View>
-              <Text style={styles.bubbleText}>Support</Text>
+              <Text style={styles.bubbleText}>{t('support')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.bubbleBtn} onPress={() => { fetchAnnouncements(); setUpdatesModalVisible(true); }}>
               <View style={[styles.bubbleCircle, { shadowColor: BRAND.red }]}>
                 <Feather name="radio" size={24} color={BRAND.red} />
               </View>
-              <Text style={styles.bubbleText}>Updates</Text>
+              <Text style={styles.bubbleText}>{t('updates')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -693,13 +693,13 @@ export default function HomeScreen() {
                     <MenuGridItem icon="tool" label={t('my_tools')} fontFamily={activeFontBold} color={BRAND.yellow} onPress={() => { fetchEquipment(); setEquipModalVisible(true); }} />
                     <MenuGridItem icon="clipboard" label={t('work_orders')} fontFamily={activeFontBold} color={BRAND.yellow} onPress={() => { fetchWorkOrders(); setWorkOrdersModalVisible(true); }} />
                   </View>
-                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>My HR & Pay</Text>
+                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>{t('hr_and_pay')}</Text>
                   <View style={styles.menuGrid}>
                     <MenuGridItem icon="dollar-sign" label={t('payslips')} fontFamily={activeFontBold} color={BRAND.green} onPress={() => { fetchPayslips(); setPayslipsModalVisible(true); }} />
                     <MenuGridItem icon="sun" label={t('file_leave')} fontFamily={activeFontBold} color={BRAND.red} onPress={() => { fetchLeaveRequests(); setLeaveModalVisible(true); }} />
                     <MenuGridItem icon="clock" label={t('timesheets')} fontFamily={activeFontBold} color={BRAND.blue} onPress={() => { fetchTimeLogs(); setTimesheetModalVisible(true); }} />
                   </View>
-                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>Company & Support</Text>
+                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>{t('company_and_support')}</Text>
                   <View style={styles.menuGrid}>
                     <MenuGridItem icon="bell" label={t('announcements')} fontFamily={activeFontBold} color={BRAND.blue} onPress={() => { fetchAnnouncements(); setUpdatesModalVisible(true); }} />
                     <MenuGridItem icon="help-circle" label={t('support')} fontFamily={activeFontBold} color={BRAND.red} onPress={() => { fetchTickets(); setSupportModalVisible(true); }} />
@@ -810,7 +810,7 @@ export default function HomeScreen() {
                   <View style={[styles.profileMenuIcon, { backgroundColor: '#F1F5F9' }]}>
                     <Feather name="globe" size={20} color="#64748B" />
                   </View>
-                  <Text style={styles.profileMenuText}>Preferences (Language)</Text>
+                  <Text style={styles.profileMenuText}>{t('preferences_language')}</Text>
                   <Feather name="chevron-right" size={20} color="#CBD5E1" />
                 </TouchableOpacity>
 
@@ -818,7 +818,7 @@ export default function HomeScreen() {
                   <View style={[styles.profileMenuIcon, { backgroundColor: '#F1F5F9' }]}>
                     <Feather name="moon" size={20} color="#64748B" />
                   </View>
-                  <Text style={styles.profileMenuText}>Dark Mode</Text>
+                  <Text style={styles.profileMenuText}>{t('dark_mode')}</Text>
                   <Feather name="chevron-right" size={20} color="#CBD5E1" />
                 </TouchableOpacity>
 
@@ -826,7 +826,7 @@ export default function HomeScreen() {
                   <View style={[styles.profileMenuIcon, { backgroundColor: '#FEE2E2' }]}>
                     <Feather name="log-out" size={20} color="#EF4444" />
                   </View>
-                  <Text style={[styles.profileMenuText, { color: '#EF4444' }]}>Log Out</Text>
+                  <Text style={[styles.profileMenuText, { color: '#EF4444' }]}>{t('log_out')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -930,53 +930,77 @@ export default function HomeScreen() {
               </View>
 
               <View style={{ paddingHorizontal: 24, paddingTop: 16 }}>
-                <Text style={[{ fontSize: 14, color: '#64748B', marginBottom: 12, textTransform: 'uppercase' }, { fontFamily: activeFontBold }]}>{t('select_app_language')}</Text>
+                <Text style={[{ fontSize: 13, color: '#64748B', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }, { fontFamily: activeFontBold }]}>
+                  {t('select_app_language')}
+                </Text>
                 
-                <View style={{ gap: 10, marginBottom: 24 }}>
+                {/* 2-Option ENG / FIL Segmented Pill Toggle */}
+                <View style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  backgroundColor: '#F1F5F9', 
+                  borderRadius: 14, 
+                  padding: 4, 
+                  marginBottom: 24,
+                  borderWidth: 1,
+                  borderColor: '#E2E8F0'
+                }}>
                   <TouchableOpacity 
                     style={{ 
-                      flexDirection: 'row', 
+                      flex: 1, 
+                      paddingVertical: 12, 
+                      borderRadius: 10, 
                       alignItems: 'center', 
-                      justify: 'space-between', 
-                      padding: 14, 
-                      borderRadius: 14, 
-                      borderWidth: 1.5, 
-                      borderColor: language === 'en' ? BRAND.blue : '#E2E8F0', 
-                      backgroundColor: language === 'en' ? '#EFF6FF' : '#fff' 
+                      justifyContent: 'center',
+                      flexDirection: 'row',
+                      gap: 8,
+                      backgroundColor: language === 'en' ? BRAND.blue : 'transparent',
+                      shadowColor: language === 'en' ? BRAND.blue : 'transparent',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: language === 'en' ? 2 : 0
                     }}
                     onPress={() => changeLanguage('en')}
+                    activeOpacity={0.8}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 20, marginRight: 10 }}>🇺🇸</Text>
-                      <View>
-                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 15, color: language === 'en' ? BRAND.blue : '#0F172A' }}>English</Text>
-                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B' }}>Default System Language</Text>
-                      </View>
-                    </View>
-                    {language === 'en' && <Feather name="check-circle" size={20} color={BRAND.blue} />}
+                    <Text style={{ fontSize: 16 }}>🇺🇸</Text>
+                    <Text style={{ 
+                      fontFamily: 'DMSans-Bold', 
+                      fontSize: 14, 
+                      color: language === 'en' ? '#FFFFFF' : '#64748B' 
+                    }}>
+                      ENG
+                    </Text>
                   </TouchableOpacity>
-                  
+
                   <TouchableOpacity 
                     style={{ 
-                      flexDirection: 'row', 
+                      flex: 1, 
+                      paddingVertical: 12, 
+                      borderRadius: 10, 
                       alignItems: 'center', 
-                      justify: 'space-between', 
-                      padding: 14, 
-                      borderRadius: 14, 
-                      borderWidth: 1.5, 
-                      borderColor: language === 'tl' ? BRAND.blue : '#E2E8F0', 
-                      backgroundColor: language === 'tl' ? '#EFF6FF' : '#fff' 
+                      justify: 'center',
+                      flexDirection: 'row',
+                      gap: 8,
+                      backgroundColor: language === 'tl' ? BRAND.blue : 'transparent',
+                      shadowColor: language === 'tl' ? BRAND.blue : 'transparent',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: language === 'tl' ? 2 : 0
                     }}
                     onPress={() => changeLanguage('tl')}
+                    activeOpacity={0.8}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 20, marginRight: 10 }}>🇵🇭</Text>
-                      <View>
-                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 15, color: language === 'tl' ? BRAND.blue : '#0F172A' }}>Filipino (Tagalog)</Text>
-                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B' }}>Wika para sa Teknisyon</Text>
-                      </View>
-                    </View>
-                    {language === 'tl' && <Feather name="check-circle" size={20} color={BRAND.blue} />}
+                    <Text style={{ fontSize: 16 }}>🇵🇭</Text>
+                    <Text style={{ 
+                      fontFamily: 'DMSans-Bold', 
+                      fontSize: 14, 
+                      color: language === 'tl' ? '#FFFFFF' : '#64748B' 
+                    }}>
+                      FIL
+                    </Text>
                   </TouchableOpacity>
                 </View>
 
