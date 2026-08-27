@@ -1099,6 +1099,29 @@ export default function HomeScreen() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.notifItemTitle}>{notif.title}</Text>
+                        
+                        {/* Priority Badge on Notification Item */}
+                        {notif.type === 'announcement' && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, marginBottom: 3 }}>
+                            <View style={{ 
+                              backgroundColor: notif.priority === 'urgent' ? '#FEF2F2' : notif.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
+                              paddingHorizontal: 7, 
+                              paddingVertical: 2, 
+                              borderRadius: 5,
+                              borderWidth: 1,
+                              borderColor: notif.priority === 'urgent' ? '#FCA5A5' : notif.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
+                            }}>
+                              <Text style={{ 
+                                fontFamily: 'DMSans-Bold', 
+                                fontSize: 9, 
+                                color: notif.priority === 'urgent' ? '#DC2626' : notif.priority === 'policy' ? '#2563EB' : '#059669' 
+                              }}>
+                                {notif.priority === 'urgent' ? '🔴 URGENT ALERT' : notif.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
                         <Text style={styles.notifItemDesc}>{notif.desc}</Text>
                         <Text style={styles.notifItemTime}>{notif.time}</Text>
                       </View>
@@ -1217,6 +1240,29 @@ export default function HomeScreen() {
                       <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginBottom: 4 }}>
                         {selectedNotif.title}
                       </Text>
+
+                      {/* Priority Badge on Notification Details Modal */}
+                      {selectedNotif.type === 'announcement' && (
+                        <View style={{ flexDirection: 'row', items: 'center', gap: 6, marginBottom: 6 }}>
+                          <View style={{ 
+                            backgroundColor: selectedNotif.priority === 'urgent' ? '#FEF2F2' : selectedNotif.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
+                            paddingHorizontal: 8, 
+                            paddingVertical: 3, 
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: selectedNotif.priority === 'urgent' ? '#FCA5A5' : selectedNotif.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
+                          }}>
+                            <Text style={{ 
+                              fontFamily: 'DMSans-Bold', 
+                              fontSize: 10, 
+                              color: selectedNotif.priority === 'urgent' ? '#DC2626' : selectedNotif.priority === 'policy' ? '#2563EB' : '#059669' 
+                            }}>
+                              {selectedNotif.priority === 'urgent' ? '🔴 URGENT ALERT' : selectedNotif.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+
                       <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#94A3B8' }}>
                         {selectedNotif.time}
                       </Text>
