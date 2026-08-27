@@ -1451,8 +1451,34 @@ export default function HomeScreen() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.updateTitle}>{item.title}</Text>
+
+                        {/* Priority & Edit Badge Bar */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, marginBottom: 4 }}>
+                          <View style={{ 
+                            backgroundColor: item.priority === 'urgent' ? '#FEF2F2' : item.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
+                            paddingHorizontal: 8, 
+                            paddingVertical: 2, 
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: item.priority === 'urgent' ? '#FCA5A5' : item.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
+                          }}>
+                            <Text style={{ 
+                              fontFamily: 'DMSans-Bold', 
+                              fontSize: 10, 
+                              color: item.priority === 'urgent' ? '#DC2626' : item.priority === 'policy' ? '#2563EB' : '#059669' 
+                            }}>
+                              {item.priority === 'urgent' ? '🔴 URGENT ALERT' : item.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
+                            </Text>
+                          </View>
+                          {item.is_edited && (
+                            <View style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#E9D5FF' }}>
+                              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: '#7E22CE' }}>✏️ EDITED</Text>
+                            </View>
+                          )}
+                        </View>
+
                         <Text style={styles.updateSub}>
-                          {item.profiles?.full_name || 'Admin'} • {new Date(item.created_at).toLocaleDateString()}
+                          {item.author?.full_name || item.profiles?.full_name || 'Admin'} • {new Date(item.created_at).toLocaleDateString()}
                         </Text>
                         <Text style={styles.updateContent} numberOfLines={2}>
                           {item.content}
@@ -1486,8 +1512,36 @@ export default function HomeScreen() {
                   <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 4 }}>
                     {selectedUpdate?.title}
                   </Text>
+
+                  {/* Priority & Edit Badge Bar */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <View style={{ 
+                      backgroundColor: selectedUpdate?.priority === 'urgent' ? '#FEF2F2' : selectedUpdate?.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
+                      paddingHorizontal: 8, 
+                      paddingVertical: 3, 
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: selectedUpdate?.priority === 'urgent' ? '#FCA5A5' : selectedUpdate?.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
+                    }}>
+                      <Text style={{ 
+                        fontFamily: 'DMSans-Bold', 
+                        fontSize: 10, 
+                        color: selectedUpdate?.priority === 'urgent' ? '#DC2626' : selectedUpdate?.priority === 'policy' ? '#2563EB' : '#059669' 
+                      }}>
+                        {selectedUpdate?.priority === 'urgent' ? '🔴 URGENT ALERT' : selectedUpdate?.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
+                      </Text>
+                    </View>
+                    {selectedUpdate?.is_edited && (
+                      <View style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#E9D5FF' }}>
+                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: '#7E22CE' }}>
+                          ✏️ Edited by {selectedUpdate?.editor?.full_name || 'Admin'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
                   <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#64748B' }}>
-                    {selectedUpdate?.profiles?.full_name || 'Admin'} • {selectedUpdate?.created_at ? new Date(selectedUpdate.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                    {selectedUpdate?.author?.full_name || selectedUpdate?.profiles?.full_name || 'Admin'} • {selectedUpdate?.created_at ? new Date(selectedUpdate.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
                   </Text>
                 </View>
               </View>
