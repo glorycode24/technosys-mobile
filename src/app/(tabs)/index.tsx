@@ -1,50 +1,49 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Dimensions, Animated, Easing, ActivityIndicator, ScrollView, Image, Alert, Platform, FlatList, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import RNModal from 'react-native-modal';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Animated, Easing, ActivityIndicator, ScrollView, Image, Alert, Platform, FlatList, TextInput, Linking } from 'react-native';
+import * as Updates from 'expo-updates';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDistance } from 'geolib';
-import MapView, { Marker, Circle } from '../../components/MapWrapper';
+import MapView, { Marker, Circle, Polyline } from '../../components/MapWrapper';
 import { supabase } from '../../lib/supabase';
+import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getStoredLanguage, setStoredLanguage, translate, SupportedLanguage, TRANSLATIONS } from '../../lib/i18n';
-
-const READ_NOTIFS_KEY = '@read_notification_ids';
-
-async function getReadNotifIds(): Promise<string[]> {
-  try {
-    const json = await AsyncStorage.getItem(READ_NOTIFS_KEY);
-    return json ? JSON.parse(json) : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-async function saveReadNotifId(id: string | number) {
-  try {
-    const existing = await getReadNotifIds();
-    const strId = String(id);
-    if (!existing.includes(strId)) {
-      const updated = [...existing, strId];
-      await AsyncStorage.setItem(READ_NOTIFS_KEY, JSON.stringify(updated));
-    }
-  } catch (e) {}
-}
-
-async function saveAllReadNotifIds(ids: (string | number)[]) {
-  try {
-    const existing = await getReadNotifIds();
-    const set = new Set([...existing, ...ids.map(String)]);
-    await AsyncStorage.setItem(READ_NOTIFS_KEY, JSON.stringify(Array.from(set)));
-  } catch (e) {}
-}
+import SupportChatUI from '../../components/SupportChatUI';
+import * as Notifications from 'expo-notifications';
+import { usePushNotifications } from '../../hooks/usePushNotifications';
+import { useAppTheme } from '../../context/ThemeContext';
+import { AppThemeColors } from '../../constants/theme';
+import * as Sharing from 'expo-sharing';
+import ViewShot from 'react-native-view-shot';
+import { sanitizeNotification, formatRelativeTime } from '../../utils/notification-sanitizer';
 
 const { width, height } = Dimensions.get('window');
+
+interface NotificationItem {
+  id: string;
+  type: 'dispatch' | 'hr' | 'tool' | 'admin' | 'help';
+  title: string;
+  desc: string;
+  time: string;
+  read: boolean;
+  ticketId?: string;
+  timestamp: number;
+  category?: string;
+  categoryColor?: string;
+  categoryBgLight?: string;
+  categoryBgDark?: string;
+  reviewer?: string;
+  statusTag?: string;
+  actionLabel?: string;
+  actionType?: 'chat' | 'dispatch' | 'announcement' | 'tool' | 'general';
+}
 
 // TECHONOSYS PRO BRAND COLORS
 const BRAND = {
@@ -55,23 +54,126 @@ const BRAND = {
   lightBg: '#F8FAFC',
 };
 
+const TRANSLATIONS: Record<string, Record<string, string>> = {
+  en: {
+    priority_dispatch: "PRIORITY DISPATCH",
+    active_ticket: "Active Ticket",
+    view_dispatch_details: "View Dispatch Details",
+    no_active_deployments: "You have 0 active deployments scheduled.",
+    menu: "Menu",
+    my_operations: "My Operations",
+    schedules: "Schedules",
+    payslips: "Payslips",
+    file_leave: "File Leave",
+    timesheets: "Timesheets",
+    announcements: "Announcements",
+    my_tools: "My Tools",
+    work_orders: "Work Orders",
+    clock_in: "Clock In",
+    tap_to_verify: "Tap to verify location presence",
+    preferences: "Preferences",
+    dark_mode: "Dark Mode",
+    appearance: "Appearance",
+    theme_light: "Light",
+    theme_dark: "Dark",
+    theme_system: "System",
+    language: "Language",
+    settings: "Settings",
+    equipment: "Equipment",
+    support: "Support",
+    updates: "Updates",
+  },
+  tl: {
+    priority_dispatch: "APURAHANG MISYON",
+    active_ticket: "Aktibong Ticket",
+    view_dispatch_details: "Tingnan ang Detalye",
+    no_active_deployments: "Wala kang nakatakdang misyon ngayon.",
+    menu: "Menu",
+    my_operations: "Aking Operasyon",
+    schedules: "Mga Iskedyul",
+    payslips: "Payslips",
+    file_leave: "Mag-File ng Leave",
+    timesheets: "Timesheets",
+    announcements: "Mga Anunsyo",
+    my_tools: "Aking Kagamitan",
+    work_orders: "Work Orders",
+    clock_in: "Pumasok (Clock In)",
+    tap_to_verify: "Pindutin para kumpirmahin ang lokasyon",
+    preferences: "Kagustuhan",
+    dark_mode: "Dark Mode",
+    appearance: "Hitsura",
+    theme_light: "Maliwanag",
+    theme_dark: "Madilim",
+    theme_system: "Sistema",
+    language: "Wika",
+    settings: "Mga Setting",
+    equipment: "Kagamitan",
+    support: "Tulong",
+    updates: "Mga Update",
+  },
+  ja: {
+    priority_dispatch: "優先派遣",
+    active_ticket: "アクティブなチケット",
+    view_dispatch_details: "派遣の詳細を見る",
+    no_active_deployments: "現在スケジュールされている展開はありません。",
+    menu: "メニュー",
+    my_operations: "マイオペレーション",
+    schedules: "スケジュール",
+    my_tools: "マイツール",
+    work_orders: "作業指示書",
+    clock_in: "出勤する",
+    tap_to_verify: "タップして場所を確認",
+    preferences: "環境設定",
+    dark_mode: "ダークモード",
+    appearance: "外観",
+    theme_light: "ライト",
+    theme_dark: "ダーク",
+    theme_system: "システム",
+    language: "言語",
+    settings: "設定",
+    equipment: "機材",
+    support: "サポート",
+    updates: "更新",
+  }
+};
 export default function HomeScreen() {
   const router = useRouter();
-  const [language, setLanguage] = useState<SupportedLanguage>('en');
-  const [darkMode, setDarkMode] = useState(false);
+  const pushNotificationState = usePushNotifications();
+  const { themeMode, isDark, language, colors, setThemeMode, setLanguage } = useAppTheme();
+  const styles = useMemo(() => getStyles(colors, isDark), [colors, isDark]);
   
-  const t = (key: string) => translate(key, language);
-
-  const changeLanguage = async (newLang: SupportedLanguage) => {
-    setLanguage(newLang);
-    await setStoredLanguage(newLang);
+  const t = (key: string) => {
+    return TRANSLATIONS[language]?.[key] || TRANSLATIONS['en']?.[key] || key;
   };
-
-  const activeFont = 'DMSans-Medium';
-  const activeFontBold = 'DMSans-Bold';
+  const activeFont = language === 'ja' ? 'System' : 'DMSans-Medium';
+  const activeFontBold = language === 'ja' ? 'System' : 'DMSans-Bold';
   
   const [menuVisible, setMenuVisible] = useState(false);
-  const [clockInModal, setClockInModal] = useState(false);
+  
+    const [clockInModal, setClockInModal] = useState(false);
+    
+    // Aura pulsing animation
+    const auraAnim = useRef(new Animated.Value(1)).current;
+    
+    useEffect(() => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(auraAnim, {
+            toValue: 1.15,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: Platform.OS !== 'web',
+          }),
+          Animated.timing(auraAnim, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: Platform.OS !== 'web',
+          })
+        ])
+      ).start();
+    }, []);
+
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   
@@ -86,7 +188,6 @@ export default function HomeScreen() {
   // Chunk 13.2 States
   const [dtrModalVisible, setDtrModalVisible] = useState(false);
   const [formsModalVisible, setFormsModalVisible] = useState(false);
-  const [langModalVisible, setLangModalVisible] = useState(false);
   const [dtrLogs, setDtrLogs] = useState<any[]>([]);
   const [dtrLoading, setDtrLoading] = useState(false);
 
@@ -95,15 +196,179 @@ export default function HomeScreen() {
   const notifAnim = useRef(new Animated.Value(width)).current;
   const [dispatchVisible, setDispatchVisible] = useState(false);
 
-  const [notifications, setNotifications] = useState([
-    { id: 1, type: 'dispatch', title: 'New Direct Dispatch', desc: 'Assigned to Makati HQ for Maintenance.', time: '10m ago', read: false },
-    { id: 2, type: 'hr', title: 'Photo Override Approved', desc: 'Your clock-in at 8:05 AM was verified by HR.', time: '1h ago', read: false },
-    { id: 3, type: 'tool', title: 'Tool Checkout', desc: 'Heavy Drill #442 assigned to you.', time: '2h ago', read: true },
-    { id: 4, type: 'admin', title: 'Payslip Available', desc: 'Your payslip for Aug 15 is now ready for viewing.', time: '1d ago', read: true },
-    { id: 5, type: 'help', title: 'Ticket Updated', desc: 'IT Support replied to Ticket #1042.', time: '2d ago', read: true },
-  ]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [selectedNotif, setSelectedNotif] = useState<any>(null);
+  const [selectedChatTicketId, setSelectedChatTicketId] = useState<string | null>(null);
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  const formatNotifTime = (dateStr: string) => {
+    try {
+      const diffMs = Date.now() - new Date(dateStr).getTime();
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 1) return 'Just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 7) return `${days}d ago`;
+      return new Date(dateStr).toLocaleDateString();
+    } catch (e) {
+      return 'Recently';
+    }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const rawReadIds = await AsyncStorage.getItem(`READ_NOTIFS_${user.id}`);
+      const readSet = new Set<string>(rawReadIds ? JSON.parse(rawReadIds) : []);
+
+      const items: NotificationItem[] = [];
+
+      // 1. Fetch Technician Tickets
+      const { data: userTickets } = await supabase
+        .from('tickets')
+        .select('id, title, category, status, created_at, updated_at')
+        .eq('employee_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(10);
+
+      if (userTickets && userTickets.length > 0) {
+        const ticketIds = userTickets.map(t => t.id);
+        const ticketMap = new Map(userTickets.map(t => [t.id, t]));
+
+        // Fetch recent Admin comments or system decision comments
+        const { data: comments } = await supabase
+          .from('ticket_comments')
+          .select('id, ticket_id, content, created_at, sender_role, is_internal')
+          .in('ticket_id', ticketIds)
+          .in('sender_role', ['admin', 'system'])
+          .eq('is_internal', false)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (comments) {
+          comments.forEach(c => {
+            const t = ticketMap.get(c.ticket_id);
+            const isApproved = c.content.includes('[DECISION: APPROVED');
+            const isRefused = c.content.includes('[DECISION: REFUSED');
+            
+            const rawType = isApproved ? 'hr' : isRefused ? 'help' : 'admin';
+            const rawTitle = isApproved 
+              ? `Ticket Approved (${t?.category || 'HR'})`
+              : isRefused 
+              ? `Ticket Refused (${t?.category || 'HR'})`
+              : `HR Message: ${t?.title || t?.category || 'Support'}`;
+
+            const parsed = sanitizeNotification(rawTitle, c.content, rawType, t?.category);
+
+            items.push({
+              id: `tc_${c.id}`,
+              type: rawType,
+              title: parsed.title,
+              desc: parsed.summary,
+              time: formatRelativeTime(c.created_at),
+              read: readSet.has(`tc_${c.id}`),
+              ticketId: c.ticket_id,
+              timestamp: new Date(c.created_at).getTime(),
+              category: parsed.category,
+              categoryColor: parsed.categoryColor,
+              categoryBgLight: parsed.categoryBgLight,
+              categoryBgDark: parsed.categoryBgDark,
+              reviewer: parsed.reviewer,
+              statusTag: parsed.statusTag,
+              actionLabel: parsed.actionLabel,
+              actionType: parsed.actionType,
+            });
+          });
+        }
+      }
+
+      // 2. Fetch Recent Company Announcements
+      const { data: announcementsData } = await supabase
+        .from('announcements')
+        .select('id, title, content, created_at')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (announcementsData) {
+        announcementsData.forEach(a => {
+          const parsed = sanitizeNotification(a.title, a.content || 'Company announcement posted.', 'admin', 'Announcement');
+          items.push({
+            id: `ann_${a.id}`,
+            type: 'admin',
+            title: parsed.title,
+            desc: parsed.summary,
+            time: formatRelativeTime(a.created_at),
+            read: readSet.has(`ann_${a.id}`),
+            timestamp: new Date(a.created_at).getTime(),
+            category: parsed.category,
+            categoryColor: parsed.categoryColor,
+            categoryBgLight: parsed.categoryBgLight,
+            categoryBgDark: parsed.categoryBgDark,
+            actionLabel: 'Read Announcement',
+            actionType: 'announcement',
+          });
+        });
+      }
+
+      // Sort newest first
+      items.sort((a, b) => b.timestamp - a.timestamp);
+
+      if (items.length === 0) {
+        items.push({
+          id: 'welcome_init',
+          type: 'hr',
+          title: 'Welcome to TechnoCycle',
+          desc: 'Operational alerts, dispatches, and HR tickets appear here in real time.',
+          time: 'Active',
+          read: true,
+          timestamp: Date.now(),
+          category: 'Operations',
+          categoryColor: '#3B82F6',
+          categoryBgLight: '#EFF6FF',
+          categoryBgDark: 'rgba(59, 130, 246, 0.2)',
+          statusTag: 'Live',
+          actionLabel: 'Explore System',
+          actionType: 'general',
+        });
+      }
+
+      setNotifications(items);
+    } catch (err) {
+      console.warn('Error fetching notifications:', err);
+    }
+  };
+
+  const markNotificationRead = async (notifId: string) => {
+    setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const raw = await AsyncStorage.getItem(`READ_NOTIFS_${user.id}`);
+        const set = new Set<string>(raw ? JSON.parse(raw) : []);
+        set.add(notifId);
+        await AsyncStorage.setItem(`READ_NOTIFS_${user.id}`, JSON.stringify(Array.from(set)));
+      }
+    } catch (e) {
+      console.warn("Could not persist read notification", e);
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const allIds = notifications.map(n => n.id);
+        await AsyncStorage.setItem(`READ_NOTIFS_${user.id}`, JSON.stringify(allIds));
+      }
+    } catch (e) {
+      console.warn("Could not persist all read notifications", e);
+    }
+  };
 
   // Chunk 15: Equipment Menu
   const [equipModalVisible, setEquipModalVisible] = useState(false);
@@ -112,19 +377,40 @@ export default function HomeScreen() {
 
   const fetchEquipment = async () => {
     setToolsLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data } = await supabase
-        .from('tool_assignments')
-        .select(
-          'id, quantity, borrowed_at, returned_at, status, notes, tool_catalog ( id, name, image_url )'
-        )
-        .eq('technician_id', user.id)
-        .order('borrowed_at', { ascending: false });
-      
-      setTools(data || []);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from('tool_handovers')
+          .select('id, quantity, status, handed_over_at, returned_at, notes, condition_on_return, tool_catalog ( id, name, description, image_url, category, serial_number )')
+          .eq('technician_id', user.id)
+          .order('handed_over_at', { ascending: false });
+        
+        if (error) throw error;
+        setTools(data || []);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch equipment:', e);
+    } finally {
+      setToolsLoading(false);
     }
-    setToolsLoading(false);
+  };
+
+  const handleReportToolIssue = (toolItem: any) => {
+    setEquipModalVisible(false);
+    const toolName = toolItem.tool_catalog?.name || 'Equipment';
+    const serial = toolItem.tool_catalog?.serial_number ? ` (SN: ${toolItem.tool_catalog.serial_number})` : '';
+    const queryText = `Reporting an issue/damage for ${toolName}${serial}: `;
+    setAiInitialQuery(queryText);
+    setAiInitialTicketData({
+      category: 'Equipment / Tools',
+      title: `Issue with ${toolName}`,
+      description: queryText,
+      reason: queryText,
+    });
+    setTimeout(() => {
+      setSupportModalVisible(true);
+    }, 350);
   };
 
   // Chunk 16: Support & Ticketing
@@ -152,6 +438,22 @@ export default function HomeScreen() {
       setTickets(data || []);
     }
     setTicketsLoading(false);
+  };
+
+  
+  const downloadPayslip = async () => {
+    if (!payslipViewRef.current) return;
+    try {
+      const uri = await payslipViewRef.current.capture();
+      const Sharing = require('expo-sharing');
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri);
+      } else {
+        safeAlert('Error', 'Sharing is not available on this device');
+      }
+    } catch (err) {
+      safeAlert('Error', 'Failed to save image');
+    }
   };
 
   const submitTicket = async () => {
@@ -187,13 +489,13 @@ export default function HomeScreen() {
   const [updatesModalVisible, setUpdatesModalVisible] = useState(false);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+    const [unreadAnnouncement, setUnreadAnnouncement] = useState<any>(null);
   const [expandedUpdates, setExpandedUpdates] = useState<{[key: string]: boolean}>({});
   const [selectedUpdate, setSelectedUpdate] = useState<any>(null);
 
   const fetchAnnouncements = async () => {
     setAnnouncementsLoading(true);
     let list: any[] = [];
-
     try {
       const { data } = await supabase
         .from('announcements')
@@ -203,41 +505,17 @@ export default function HomeScreen() {
           editor:last_edited_by ( full_name, role )
         `)
         .order('created_at', { ascending: false });
-      
       list = data || [];
     } catch (e) {
       const fallback = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
       list = fallback.data || [];
     }
-
     if (!list || list.length === 0) {
       const fallback = await supabase.from('announcements').select('*').order('created_at', { ascending: false });
       list = fallback.data || [];
     }
-
     setAnnouncements(list);
     setAnnouncementsLoading(false);
-
-    // Sync into notifications state for bell icon badge & dropdown list
-    if (list && list.length > 0) {
-      const readIds = await getReadNotifIds();
-      const annNotifs = list.map((ann: any) => ({
-        id: ann.id,
-        type: 'announcement',
-        title: ann.is_edited ? `✏️ [Updated] ${ann.title}` : `📢 ${ann.title}`,
-        desc: ann.content,
-        time: new Date(ann.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        read: readIds.includes(String(ann.id)),
-        author: ann.author?.full_name || 'System Admin',
-        role: ann.author?.role || 'Admin',
-        priority: ann.priority || 'normal'
-      }));
-
-      setNotifications(prev => {
-        const nonAnnNotifs = prev.filter(n => n.type !== 'announcement');
-        return [...annNotifs, ...nonAnnNotifs];
-      });
-    }
   };
 
   // Chunk 19: Work Orders Feature
@@ -250,6 +528,9 @@ export default function HomeScreen() {
   const [payslips, setPayslips] = useState<any[]>([]);
   const [payslipsLoading, setPayslipsLoading] = useState(false);
   const [selectedPayslip, setSelectedPayslip] = useState<any>(null);
+  const payslipViewRef = useRef<any>(null);
+  const [aiInitialQuery, setAiInitialQuery] = useState('');
+  const [aiInitialTicketData, setAiInitialTicketData] = useState<any | null>(null);
 
   // File Leave Feature
   const [leaveModalVisible, setLeaveModalVisible] = useState(false);
@@ -260,11 +541,42 @@ export default function HomeScreen() {
   const [newLeaveStartDate, setNewLeaveStartDate] = useState('');
   const [newLeaveEndDate, setNewLeaveEndDate] = useState('');
   const [newLeaveReason, setNewLeaveReason] = useState('');
+    const [leaveFile, setLeaveFile] = useState<any>(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
-  // Timesheets Feature
+  // Timesheets & Live Attendance Feature
   const [timesheetModalVisible, setTimesheetModalVisible] = useState(false);
+  const [hasClockedInToday, setHasClockedInToday] = useState(false);
+  const [activeTimeLog, setActiveTimeLog] = useState<any | null>(null);
+  const [todayCompletedLog, setTodayCompletedLog] = useState<any | null>(null);
+  const [clockingOut, setClockingOut] = useState(false);
+  const [elapsedShiftTime, setElapsedShiftTime] = useState<string>('');
+  const [targetGeofence, setTargetGeofence] = useState<{
+    name: string;
+    lat: number;
+    lon: number;
+    radius: number;
+  } | null>(null);
+
+  // Live Shift Timer Effect
+  useEffect(() => {
+    if (!activeTimeLog?.app_time_in) {
+      setElapsedShiftTime('');
+      return;
+    }
+    
+    const updateElapsed = () => {
+      const diffMs = Math.max(0, Date.now() - new Date(activeTimeLog.app_time_in).getTime());
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      setElapsedShiftTime(`${hours}h ${mins}m`);
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 30000);
+    return () => clearInterval(interval);
+  }, [activeTimeLog]);
   const [timeLogs, setTimeLogs] = useState<any[]>([]);
   const [selectedTimeLog, setSelectedTimeLog] = useState<any>(null);
   const [timesheetLoading, setTimesheetLoading] = useState(false);
@@ -274,6 +586,14 @@ export default function HomeScreen() {
   const [schedulesList, setSchedulesList] = useState<any[]>([]);
   const [selectedSchedule, setSelectedSchedule] = useState<any>(null);
   const [schedulesLoading, setSchedulesLoading] = useState(false);
+  const [activeCrew, setActiveCrew] = useState<{
+    id: string;
+    name: string;
+    role: string;
+    phone?: string;
+    type: 'lead' | 'helper' | 'casual';
+  }[]>([]);
+  const [loadingCrew, setLoadingCrew] = useState(false);
 
   // Preferences Feature
   const [preferencesModalVisible, setPreferencesModalVisible] = useState(false);
@@ -311,7 +631,20 @@ export default function HomeScreen() {
   };
 
   const submitLeaveRequest = async () => {
-    if (!newLeaveStartDate || !newLeaveEndDate || !newLeaveReason) {
+      if (!newLeaveStartDate || !newLeaveEndDate || !newLeaveReason.trim()) {
+        safeAlert('Error', 'Please fill in all required fields (Start Date, End Date, Reason).');
+        return;
+      }
+      if (newLeaveType === 'sick' && !leaveFile) {
+        safeAlert('Error', 'Medical Certificate is required for Sick Leave.');
+        return;
+      }
+      if (leaveFile && leaveFile.size > 5 * 1024 * 1024) {
+        safeAlert('Error', 'Medical Certificate must be less than 5MB.');
+        return;
+      }
+
+      if (!newLeaveStartDate || !newLeaveEndDate || !newLeaveReason) {
       safeAlert('Error', 'Please fill in all fields (Start Date, End Date, Reason).');
       return;
     }
@@ -337,6 +670,7 @@ export default function HomeScreen() {
         setNewLeaveEndDate('');
         setNewLeaveReason('');
         setNewLeaveType('vacation');
+          setLeaveFile(null);
         fetchLeaveRequests();
       }
     }
@@ -357,14 +691,84 @@ export default function HomeScreen() {
     setTimesheetLoading(false);
   };
 
+  const handleDisputeTimeLog = (log?: any) => {
+    if (log) {
+      // Specific time log selected
+      const logDateRaw = log.created_at || log.app_time_in;
+      const formattedDate = logDateRaw 
+        ? new Date(logDateRaw).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        : 'Selected Shift';
+      const logDateIso = logDateRaw ? new Date(logDateRaw).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      
+      const timeInStr = log.app_time_in 
+        ? new Date(log.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Not Logged';
+      const timeOutStr = log.app_time_out 
+        ? new Date(log.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Ongoing / Missing';
+      const hoursStr = log.total_hours ? `${log.total_hours} hrs` : 'Incomplete';
+      const shortId = log.id ? log.id.slice(0, 8) : '';
+
+      const queryText = `Dispute Time Log [#${shortId}]: On ${formattedDate}, my recorded shift was Time In: ${timeInStr}, Time Out: ${timeOutStr} (${hoursStr}). Reason for dispute: `;
+
+      setAiInitialQuery(queryText);
+      setAiInitialTicketData({
+        category: 'DTR Issue',
+        logId: log.id,
+        logDate: logDateIso,
+        recordedIn: timeInStr,
+        recordedOut: timeOutStr,
+        expectedIn: timeInStr !== 'Not Logged' ? timeInStr : '08:00 AM',
+        expectedOut: '05:00 PM',
+        totalHours: log.total_hours || 0,
+        reason: queryText,
+      });
+
+      setSelectedTimeLog(null);
+      setTimesheetModalVisible(false);
+      setTimeout(() => {
+        setSupportModalVisible(true);
+      }, 350);
+    } else {
+      // Called from list view when no specific log is selected
+      if (timeLogs && timeLogs.length > 0) {
+        safeAlert(
+          "Select a Shift to Dispute",
+          "Please tap on the specific shift entry from the list below that you would like to dispute so we can attach the exact time log and GPS details to your request."
+        );
+      } else {
+        // No time logs exist, allow general DTR inquiry
+        setAiInitialQuery("I would like to file a general inquiry regarding my DTR and attendance logs: ");
+        setAiInitialTicketData({
+          category: 'DTR Issue',
+          logDate: new Date().toISOString().split('T')[0],
+          expectedIn: '08:00 AM',
+          expectedOut: '05:00 PM',
+        });
+        setTimesheetModalVisible(false);
+        setTimeout(() => {
+          setSupportModalVisible(true);
+        }, 350);
+      }
+    }
+  };
+
   const fetchSchedulesList = async () => {
     setSchedulesLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data } = await supabase
         .from('schedules')
-        .select('*')
+        .select(`
+          *,
+          senior_partner:profiles!senior_partner_id(id, full_name, contact_number),
+          schedule_casual_helpers(
+            id,
+            casual_helpers(id, full_name, contact_number, daily_rate)
+          )
+        `)
         .eq('technician_id', user.id)
+        .neq('status', 'cancelled')
         .order('start_time', { ascending: false });
       
       if (data) setSchedulesList(data);
@@ -424,7 +828,7 @@ export default function HomeScreen() {
       if (Platform.OS === 'web') {
         window.location.href = '/';
       } else {
-        router.replace('/');
+        try { await Updates.reloadAsync(); } catch (e) { router.replace('/'); }
       }
     } catch (err) {
       console.error(err);
@@ -443,10 +847,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     async function loadData() {
-      // Load stored language preference
-      const savedLang = await getStoredLanguage();
-      setLanguage(savedLang);
-
+        (async () => { try { const { status } = await Location.requestForegroundPermissionsAsync(); if (status === 'granted') { const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }); setUserLoc({ lat: loc.coords.latitude, lon: loc.coords.longitude }); } } catch (e) {} })();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
@@ -455,50 +856,401 @@ export default function HomeScreen() {
 
       const { data: scheduleData } = await supabase
         .from('schedules')
-        .select('*')
+        .select(`
+          *,
+          senior_partner:profiles!senior_partner_id(id, full_name, contact_number),
+          schedule_casual_helpers(
+            id,
+            casual_helpers(id, full_name, contact_number, daily_rate)
+          )
+        `)
         .eq('technician_id', user.id)
+        .neq('status', 'cancelled')
         .order('start_time', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
       
-      if (scheduleData) setSchedule(scheduleData);
+      setSchedule(scheduleData || null);
 
-      // Load announcements immediately on launch
+      // Check today's attendance logs
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const { data: todaysLogs } = await supabase
+        .from('time_logs')
+        .select('*')
+        .eq('technician_id', user.id)
+        .gte('created_at', startOfDay.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (todaysLogs && todaysLogs.length > 0) {
+        setHasClockedInToday(true);
+        const ongoing = todaysLogs.find(l => !l.app_time_out);
+        if (ongoing) {
+          setActiveTimeLog(ongoing);
+          setTodayCompletedLog(null);
+        } else {
+          setActiveTimeLog(null);
+          setTodayCompletedLog(todaysLogs[0]);
+        }
+      } else {
+        setHasClockedInToday(false);
+        setActiveTimeLog(null);
+        setTodayCompletedLog(null);
+      }
+
+      fetchNotifications();
       fetchAnnouncements();
     }
     loadData();
 
-    // Setup Supabase Realtime Listener for instant live updates on announcements table
-    const announcementsChannel = supabase
-      .channel('public-realtime-announcements')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'announcements' },
-        (payload) => {
-          console.log('Realtime announcement change received in mobile app:', payload);
-          fetchAnnouncements();
+    // In-App Notification Center Realtime Listener
+    const notifChannel = supabase.channel('mobile-notifications-hub')
+      .on('broadcast', { event: 'new_comment' }, () => {
+        fetchNotifications();
+      })
+      .on('broadcast', { event: 'ticket_update' }, () => {
+        fetchNotifications();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ticket_comments' }, (payload: any) => {
+        if (payload.new?.sender_role === 'admin' || payload.new?.sender_role === 'system') {
+          fetchNotifications();
+          try {
+            Notifications.scheduleNotificationAsync({
+              content: {
+                title: 'TechnoCycle HR Update',
+                body: (payload.new.content || '').replace(/\[DECISION:.*?\]\s*/i, '').slice(0, 100),
+                data: { ticketId: payload.new.ticket_id },
+              },
+              trigger: null,
+            });
+          } catch (e) {}
         }
-      )
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tickets' }, () => {
+        fetchNotifications();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => {
+        fetchNotifications();
+        fetchAnnouncements();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'schedules' }, () => {
+        loadData();
+        fetchSchedulesList();
+      })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(announcementsChannel);
+      supabase.removeChannel(notifChannel);
     };
   }, []);
 
-  const openMenu = () => {
-    setMenuVisible(true);
-    Animated.timing(menuAnim, { toValue: 1, duration: 300, easing: Easing.out(Easing.poly(4)), useNativeDriver: true }).start();
-  };
+  // Duty-Bound Live Fleet Tracking: Periodic GPS Heartbeat
+  // Active strictly when technician is clocked in with an open shift (app_time_out is null)
+  useEffect(() => {
+    if (!activeTimeLog || activeTimeLog.app_time_out || !profile?.id) {
+      return;
+    }
+
+    const techId = profile.id;
+    let isMounted = true;
+
+    const sendHeartbeat = async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!isMounted) return;
+
+        const nowIso = new Date().toISOString();
+        const lat = loc.coords.latitude;
+        const lon = loc.coords.longitude;
+
+        // 1. Dual-stream upsert into technician_locations with active working status
+        await supabase
+          .from('technician_locations')
+          .upsert({
+            technician_id: techId,
+            latitude: lat,
+            longitude: lon,
+            status: 'working',
+            updated_at: nowIso,
+          });
+
+        // 2. Realtime broadcast to admin fleet tracking radar
+        const trackingChannel = supabase.channel('fleet-tracking');
+        await trackingChannel.send({
+          type: 'broadcast',
+          event: 'location_update',
+          payload: {
+            technician_id: techId,
+            full_name: profile.full_name || 'Technician',
+            latitude: lat,
+            longitude: lon,
+            status: 'working',
+            action: 'heartbeat',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        });
+      } catch (err) {
+        // Non-fatal: background GPS blip or timeout
+        console.warn('[DutyHeartbeat] Location ping skipped:', err);
+      }
+    };
+
+    // Immediate initial sync on active shift, followed by 60s periodic ping
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 60000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeTimeLog?.id, activeTimeLog?.app_time_out, profile?.id, profile?.full_name]);
+
+  // Crew Members Resolver for Active Dispatch / Selected Schedule
+  useEffect(() => {
+    const targetSched = selectedSchedule || (dispatchVisible ? schedule : null);
+    if (!targetSched) {
+      setActiveCrew([]);
+      return;
+    }
+
+    let isMounted = true;
+    setLoadingCrew(true);
+
+    (async () => {
+      try {
+        const members: {
+          id: string;
+          name: string;
+          role: string;
+          phone?: string;
+          type: 'lead' | 'helper' | 'casual';
+        }[] = [];
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (targetSched.senior_partner_id) {
+          // CURRENT USER IS ASSIGNED AS A HELPER
+          // 1. Lead Technician from foreign key
+          if (targetSched.senior_partner) {
+            members.push({
+              id: targetSched.senior_partner_id,
+              name: targetSched.senior_partner.full_name || 'Lead Technician',
+              role: 'Lead Technician',
+              phone: targetSched.senior_partner.contact_number,
+              type: 'lead',
+            });
+          }
+
+          // 2. Accompanying Company Helpers sharing this dispatch
+          const { data: coHelpers } = await supabase
+            .from('schedules')
+            .select('technician_id, profiles!technician_id(id, full_name, contact_number, role)')
+            .eq('senior_partner_id', targetSched.senior_partner_id)
+            .eq('start_time', targetSched.start_time)
+            .neq('status', 'cancelled');
+
+          if (coHelpers) {
+            coHelpers.forEach((h: any) => {
+              if (h.profiles) {
+                const isMe = user && h.technician_id === user.id;
+                members.push({
+                  id: h.technician_id,
+                  name: isMe ? `${h.profiles.full_name} (You)` : h.profiles.full_name,
+                  role: 'Company Helper',
+                  phone: h.profiles.contact_number,
+                  type: 'helper',
+                });
+              }
+            });
+          }
+
+          // 3. Casual helpers attached to the lead technician's schedule
+          const { data: leadSched } = await supabase
+            .from('schedules')
+            .select('id, schedule_casual_helpers(id, casual_helpers(id, full_name, contact_number, daily_rate))')
+            .eq('technician_id', targetSched.senior_partner_id)
+            .eq('start_time', targetSched.start_time)
+            .maybeSingle();
+
+          if (leadSched?.schedule_casual_helpers) {
+            leadSched.schedule_casual_helpers.forEach((item: any) => {
+              if (item.casual_helpers) {
+                members.push({
+                  id: item.casual_helpers.id,
+                  name: item.casual_helpers.full_name,
+                  role: 'Casual Helper',
+                  phone: item.casual_helpers.contact_number,
+                  type: 'casual',
+                });
+              }
+            });
+          }
+        } else {
+          // CURRENT USER IS LEAD TECHNICIAN
+          // 1. Current user as Lead
+          if (profile) {
+            members.push({
+              id: profile.id,
+              name: `${profile.full_name} (You - Lead)`,
+              role: 'Lead Technician',
+              phone: profile.contact_number,
+              type: 'lead',
+            });
+          }
+
+          // 2. Assigned regular company helpers
+          if (user) {
+            const { data: helpers } = await supabase
+              .from('schedules')
+              .select('technician_id, profiles!technician_id(id, full_name, contact_number, role)')
+              .eq('senior_partner_id', user.id)
+              .eq('start_time', targetSched.start_time)
+              .neq('status', 'cancelled');
+
+            if (helpers) {
+              helpers.forEach((h: any) => {
+                if (h.profiles) {
+                  members.push({
+                    id: h.technician_id,
+                    name: h.profiles.full_name,
+                    role: 'Company Helper',
+                    phone: h.profiles.contact_number,
+                    type: 'helper',
+                  });
+                }
+              });
+            }
+          }
+
+          // 3. Casual helpers on this schedule
+          if (targetSched.schedule_casual_helpers && targetSched.schedule_casual_helpers.length > 0) {
+            targetSched.schedule_casual_helpers.forEach((item: any) => {
+              if (item.casual_helpers) {
+                members.push({
+                  id: item.casual_helpers.id,
+                  name: item.casual_helpers.full_name,
+                  role: 'Casual Helper',
+                  phone: item.casual_helpers.contact_number,
+                  type: 'casual',
+                });
+              }
+            });
+          } else if (targetSched.id) {
+            const { data: chList } = await supabase
+              .from('schedule_casual_helpers')
+              .select('id, casual_helpers(id, full_name, contact_number, daily_rate)')
+              .eq('schedule_id', targetSched.id);
+            if (chList) {
+              chList.forEach((item: any) => {
+                if (item.casual_helpers) {
+                  members.push({
+                    id: item.casual_helpers.id,
+                    name: item.casual_helpers.full_name,
+                    role: 'Casual Helper',
+                    phone: item.casual_helpers.contact_number,
+                    type: 'casual',
+                  });
+                }
+              });
+            }
+          }
+        }
+
+        if (isMounted) {
+          const seen = new Set<string>();
+          const deduped = members.filter(m => {
+            const key = `${m.id}_${m.type}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          setActiveCrew(deduped);
+        }
+      } catch (err) {
+        console.warn('Error loading active crew:', err);
+      } finally {
+        if (isMounted) setLoadingCrew(false);
+      }
+    })();
+
+    return () => { isMounted = false; };
+  }, [selectedSchedule, dispatchVisible, schedule, profile]);
+
+  const openMenu = () => { setMenuVisible(true); };
 
   const closeMenu = () => {
     Animated.timing(menuAnim, { toValue: 0, duration: 250, easing: Easing.in(Easing.poly(4)), useNativeDriver: true }).start(() => setMenuVisible(false));
   };
 
+  const resolveTargetGeofence = async (): Promise<{ name: string; lat: number; lon: number; radius: number }> => {
+    // 1. If active dispatch schedule exists with valid coordinates, use it as primary target
+    if (schedule?.geofence_lat && schedule?.geofence_lon) {
+      return {
+        name: schedule.client_name || 'Assigned Dispatch Site',
+        lat: Number(schedule.geofence_lat),
+        lon: Number(schedule.geofence_lon),
+        radius: Number(schedule.geofence_radius) || 100,
+      };
+    }
+
+    // 2. Cascade to active company branches from office_locations
+    try {
+      const { data: offices } = await supabase
+        .from('office_locations')
+        .select('id, name, latitude, longitude, radius_meters')
+        .eq('is_active', true);
+
+      if (offices && offices.length > 0) {
+        if (userLoc) {
+          let nearest = offices[0];
+          let minDistance = Infinity;
+
+          for (const office of offices) {
+            const dist = getDistance(
+              { latitude: userLoc.lat, longitude: userLoc.lon },
+              { latitude: Number(office.latitude), longitude: Number(office.longitude) }
+            );
+            if (dist < minDistance) {
+              minDistance = dist;
+              nearest = office;
+            }
+          }
+
+          return {
+            name: nearest.name,
+            lat: Number(nearest.latitude),
+            lon: Number(nearest.longitude),
+            radius: Number(nearest.radius_meters) || 100,
+          };
+        } else {
+          return {
+            name: offices[0].name,
+            lat: Number(offices[0].latitude),
+            lon: Number(offices[0].longitude),
+            radius: Number(offices[0].radius_meters) || 100,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Error resolving office locations:', e);
+    }
+
+    // 3. Fallback default to TechnoCycle Main Office
+    return {
+      name: 'TechnoCycle Main Office',
+      lat: 14.5995,
+      lon: 120.9842,
+      radius: 100,
+    };
+  };
+
   const handleClockIn = async () => {
-    if (!schedule) {
-       Alert.alert("No Schedule", "You don't have an active dispatch scheduled today.");
-       return;
+    if (activeTimeLog) {
+      safeAlert("Active Shift", "You already have an active shift in progress. Please clock out before starting a new session.");
+      return;
     }
 
     setClockInModal(true);
@@ -507,35 +1259,96 @@ export default function HomeScreen() {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
+        safeAlert("Permission Required", "High-accuracy location access is required to verify clock-in.");
         setLocationStatus('fallback');
         return;
       }
 
-      let location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setUserLoc({ lat: location.coords.latitude, lon: location.coords.longitude });
+      let location = null;
+      try {
+        location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      } catch (err) {
+        location = await Location.getLastKnownPositionAsync();
+      }
+
+      if (!location) {
+        safeAlert("GPS Unavailable", "Could not acquire GPS position. Please ensure device location is enabled.");
+        setLocationStatus('fallback');
+        return;
+      }
+
+      const currentLoc = { lat: location.coords.latitude, lon: location.coords.longitude };
+      setUserLoc(currentLoc);
       
+      const target = await resolveTargetGeofence();
+      setTargetGeofence(target);
+
       const distance = getDistance(
-        { latitude: location.coords.latitude, longitude: location.coords.longitude },
-        { latitude: schedule.geofence_lat, longitude: schedule.geofence_lon }
+        { latitude: currentLoc.lat, longitude: currentLoc.lon },
+        { latitude: target.lat, longitude: target.lon }
       );
 
-      if (distance <= schedule.geofence_radius) {
-        // Success inside geofence
-        await supabase.from('time_logs').insert({
-          technician_id: profile?.id,
-          app_time_in: new Date().toISOString(),
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          status: 'verified',
-          geofence_status: 'inside'
-        });
+      const now = new Date().toISOString();
+      const techId = profile?.id;
+
+      if (distance <= target.radius) {
+        // --- 1. INSERT TIME LOG ---
+        const { data: insertedLog, error: logError } = await supabase
+          .from('time_logs')
+          .insert({
+            technician_id: techId,
+            app_time_in: now,
+            latitude: currentLoc.lat,
+            longitude: currentLoc.lon,
+            status: 'verified',
+            geofence_status: 'inside',
+            is_manual_entry: false,
+          })
+          .select()
+          .single();
+
+        if (logError) throw logError;
+
+        // --- 2. DUAL-STREAM: UPSERT TECHNICIAN LOCATIONS ---
+        if (techId) {
+          await supabase
+            .from('technician_locations')
+            .upsert({
+              technician_id: techId,
+              latitude: currentLoc.lat,
+              longitude: currentLoc.lon,
+              status: 'working',
+              updated_at: now,
+            });
+
+          // --- 3. REALTIME BROADCAST TO ADMIN ---
+          const trackingChannel = supabase.channel('fleet-tracking');
+          await trackingChannel.send({
+            type: 'broadcast',
+            event: 'location_update',
+            payload: {
+              technician_id: techId,
+              full_name: profile?.full_name || 'Technician',
+              latitude: currentLoc.lat,
+              longitude: currentLoc.lon,
+              status: 'working',
+              action: 'clock_in',
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          });
+        }
+
         setLocationStatus('success');
-        setTimeout(() => setClockInModal(false), 2000);
+        setHasClockedInToday(true);
+        setActiveTimeLog(insertedLog);
+        setTodayCompletedLog(null);
+        setTimeout(() => setClockInModal(false), 1800);
       } else {
-        // Fallback due to distance
+        // Outside target radius -> fallback to map & photo override
         setLocationStatus('fallback');
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.error("Clock in error:", e);
       setLocationStatus('fallback');
     }
   };
@@ -543,13 +1356,14 @@ export default function HomeScreen() {
   const handleVisualOverride = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Camera access is required for visual override.');
+      safeAlert('Permission Denied', 'Camera access is required for visual override.');
       return;
     }
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.5,
+      cameraType: ImagePicker.CameraType.front,
     });
 
     if (!result.canceled && result.assets[0].uri) {
@@ -564,105 +1378,325 @@ export default function HomeScreen() {
         await supabase.storage.from('dtr-selfies').upload(fileName, blob);
         const { data: publicUrlData } = supabase.storage.from('dtr-selfies').getPublicUrl(fileName);
 
-        await supabase.from('time_logs').insert({
-          technician_id: profile?.id,
-          app_time_in: new Date().toISOString(),
-          latitude: userLoc?.lat || 0,
-          longitude: userLoc?.lon || 0,
-          status: 'pending_review',
-          geofence_status: 'outside',
-          photo_url: publicUrlData.publicUrl
-        });
+        const now = new Date().toISOString();
+        const techId = profile?.id;
+        const currentLoc = userLoc || { lat: 0, lon: 0 };
 
-        Alert.alert('Override Submitted', 'Your photo has been sent to HR for review.');
+        // 1. Insert time log with pending_review status
+        const { data: insertedLog, error: logError } = await supabase
+          .from('time_logs')
+          .insert({
+            technician_id: techId,
+            app_time_in: now,
+            latitude: currentLoc.lat,
+            longitude: currentLoc.lon,
+            status: 'pending_review',
+            geofence_status: 'outside',
+            photo_url: publicUrlData.publicUrl || fileName,
+            photo_status: 'pending',
+            is_manual_entry: false,
+          })
+          .select()
+          .single();
+
+        if (logError) throw logError;
+
+        // 2. Dual stream: upsert technician locations
+        if (techId) {
+          await supabase
+            .from('technician_locations')
+            .upsert({
+              technician_id: techId,
+              latitude: currentLoc.lat,
+              longitude: currentLoc.lon,
+              status: 'working',
+              updated_at: now,
+            });
+
+          // 3. Realtime broadcast to admin
+          const trackingChannel = supabase.channel('fleet-tracking');
+          await trackingChannel.send({
+            type: 'broadcast',
+            event: 'location_update',
+            payload: {
+              technician_id: techId,
+              full_name: profile?.full_name || 'Technician',
+              latitude: currentLoc.lat,
+              longitude: currentLoc.lon,
+              status: 'working',
+              action: 'clock_in_override',
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          });
+        }
+
+        safeAlert('Override Submitted', 'Your attendance and selfie have been logged and submitted to HR for review.');
         setClockInModal(false);
-      } catch (err) {
-        console.error(err);
-        Alert.alert('Upload Failed', 'There was an issue uploading your photo.');
+        setHasClockedInToday(true);
+        setActiveTimeLog(insertedLog);
+        setTodayCompletedLog(null);
+      } catch (err: any) {
+        console.error("Photo override error:", err);
+        safeAlert('Upload Failed', 'There was an issue uploading your photo. Please try again.');
       }
       setUploadingSelfie(false);
     }
   };
 
+  const handleClockOut = () => {
+    if (!activeTimeLog) return;
+
+    const shiftStart = new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    Alert.alert(
+      "Confirm Clock Out",
+      `Are you sure you want to end your shift?\n(Started at ${shiftStart}${elapsedShiftTime ? ` • Duration: ${elapsedShiftTime}` : ''})`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Clock Out Now", 
+          style: "destructive",
+          onPress: async () => {
+            setClockingOut(true);
+            try {
+              let exitLoc = userLoc;
+              try {
+                const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                exitLoc = { lat: loc.coords.latitude, lon: loc.coords.longitude };
+              } catch (e) {}
+
+              const now = new Date();
+              const nowIso = now.toISOString();
+              const startMs = new Date(activeTimeLog.app_time_in).getTime();
+              const diffMs = Math.max(0, now.getTime() - startMs);
+              const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
+              const techId = profile?.id;
+
+              // 1. Update time_logs with app_time_out and total_hours
+              const { error: logErr } = await supabase
+                .from('time_logs')
+                .update({
+                  app_time_out: nowIso,
+                  total_hours: totalHours,
+                })
+                .eq('id', activeTimeLog.id);
+
+              if (logErr) throw logErr;
+
+              // 2. Update technician_locations to offline
+              if (techId) {
+                await supabase
+                  .from('technician_locations')
+                  .upsert({
+                    technician_id: techId,
+                    latitude: exitLoc?.lat || 0,
+                    longitude: exitLoc?.lon || 0,
+                    status: 'offline',
+                    updated_at: nowIso
+                  });
+
+                // 3. Broadcast clock_out to admin
+                const trackingChannel = supabase.channel('fleet-tracking');
+                await trackingChannel.send({
+                  type: 'broadcast',
+                  event: 'location_update',
+                  payload: {
+                    technician_id: techId,
+                    full_name: profile?.full_name || 'Technician',
+                    latitude: exitLoc?.lat || 0,
+                    longitude: exitLoc?.lon || 0,
+                    status: 'offline',
+                    action: 'clock_out',
+                    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  }
+                });
+              }
+
+              safeAlert(
+                "Shift Ended",
+                `You have successfully clocked out. Total logged time: ${totalHours} hours. Attendance synced with HQ.`
+              );
+
+              setTodayCompletedLog({
+                ...activeTimeLog,
+                app_time_out: nowIso,
+                total_hours: totalHours
+              });
+              setActiveTimeLog(null);
+            } catch (err: any) {
+              console.error("Clock out error:", err);
+              safeAlert("Clock Out Failed", err.message || "Failed to log clock out. Please check your connection.");
+            } finally {
+              setClockingOut(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
-    <View style={styles.masterContainer}>
-      <LinearGradient colors={['#FFFFFF', '#F8FAFC', '#E2E8F0']} locations={[0, 0.5, 1]} style={StyleSheet.absoluteFill} />
+    <View style={[styles.masterContainer, { backgroundColor: colors.bg }]}>
+      <LinearGradient colors={isDark ? ['#0B0F17', '#111827', '#0B0F17'] : ['#FFFFFF', '#F8FAFC', '#E2E8F0']} locations={[0, 0.5, 1]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
         {/* HEADER */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.headerBtnOutline} onPress={() => setProfileModalVisible(true)}>
-            <Feather name="user" size={24} color="#0F172A" />
+          <TouchableOpacity style={[styles.headerBtnOutline, { backgroundColor: isDark ? colors.subCard : 'transparent' }]} onPress={() => setProfileModalVisible(true)}>
+            <Feather name="user" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Image source={require('../../../assets/logo.png')} style={{ width: 45, height: 45, resizeMode: 'contain' }} />
-            <Text style={styles.headerTitle}>{profile ? profile.full_name : 'TechnoSys'}</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>{profile ? profile.full_name : 'TechnoCycle'}</Text>
           </View>
-          <TouchableOpacity style={styles.headerBtnOutline} onPress={() => setNotifVisible(true)}>
-            <Feather name="bell" size={24} color="#0F172A" />
+          <TouchableOpacity style={[styles.headerBtnOutline, { backgroundColor: isDark ? colors.subCard : 'transparent' }]} onPress={() => setNotifVisible(true)}>
+            <Feather name="bell" size={24} color={colors.text} />
             {unreadCount > 0 && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 
         {/* MAIN CONTENT */}
         <View style={styles.mainContent}>
-          <TouchableOpacity style={styles.clockInCard} activeOpacity={0.8} onPress={handleClockIn}>
-            <View style={styles.clockInIconContainer}>
-              <Ionicons name="scan-outline" size={32} color={BRAND.blue} />
+          {activeTimeLog ? (
+            <View style={[styles.activeShiftCard, { backgroundColor: isDark ? colors.card : '#FFFFFF', borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : '#BBF7D0' }]}>
+              {/* Header: Live Badge + Clock-in Time */}
+              <View style={styles.activeShiftHeader}>
+                <View style={styles.activePulseBadge}>
+                  <Animated.View style={[styles.activePulseDot, { transform: [{ scale: auraAnim }] }]} />
+                  <Text style={styles.activePulseText}>SHIFT ACTIVE</Text>
+                </View>
+                <Text style={styles.activeShiftTime}>
+                  Started at {new Date(activeTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+
+              {/* Body: Elapsed Hours & Status */}
+              <View style={styles.activeShiftBody}>
+                <View>
+                  <Text style={styles.activeShiftTitle}>Technician on Duty</Text>
+                  <Text style={styles.activeShiftElapsed}>
+                    Elapsed: {elapsedShiftTime || 'Calculating...'}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textSubtle }}>
+                    {activeTimeLog.geofence_status === 'inside' ? 'Verified on-site' : 'Photo override'}
+                  </Text>
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: activeTimeLog.status === 'verified' ? '#10B981' : '#F59E0B' }}>
+                    {activeTimeLog.status ? activeTimeLog.status.toUpperCase() : 'ACTIVE'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Action: Clock Out Button */}
+              <TouchableOpacity 
+                style={styles.clockOutBtn} 
+                activeOpacity={0.8}
+                disabled={clockingOut}
+                onPress={handleClockOut}
+              >
+                {clockingOut ? (
+                  <ActivityIndicator size="small" color="#EF4444" />
+                ) : (
+                  <>
+                    <Feather name="log-out" size={16} color="#EF4444" />
+                    <Text style={styles.clockOutBtnText}>Clock Out (End Shift)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
-            <View style={styles.clockInTextContainer}>
-              <Text style={styles.clockInTitle}>{t('clock_in')}</Text>
-              <Text style={styles.clockInSub}>{t('tap_to_verify')}</Text>
+          ) : todayCompletedLog ? (
+            <View style={[styles.completedShiftCard, { backgroundColor: isDark ? colors.card : '#FFFFFF', borderColor: isDark ? colors.cardBorder : '#E2E8F0' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#DCFCE7', justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="check" size={18} color="#10B981" />
+                  </View>
+                  <View>
+                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 15, color: colors.text }}>Shift Completed Today</Text>
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted }}>
+                      {new Date(todayCompletedLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {todayCompletedLog.app_time_out ? new Date(todayCompletedLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Logged'} ({todayCompletedLog.total_hours || '0'} hrs)
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity 
+                  style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: isDark ? colors.subCard : '#F1F5F9' }}
+                  onPress={handleClockIn}
+                >
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.brandBlue }}>+ New Shift</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 12, color: colors.textSubtle }}>
+                Attendance recorded and synchronized with Admin & Payroll.
+              </Text>
             </View>
-            <Feather name="arrow-right" size={24} color={BRAND.blue} />
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              style={[styles.clockInCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : BRAND.blue, borderColor: isDark ? colors.cardBorder : 'transparent', borderWidth: isDark ? 1 : 0 }]} 
+              activeOpacity={0.8} 
+              onPress={handleClockIn}
+            >
+              <View style={[styles.clockInIconContainer, { backgroundColor: isDark ? colors.subCard : '#EFF6FF' }]}>
+                <Ionicons name="scan-outline" size={32} color={colors.brandBlue} />
+              </View>
+              <View style={styles.clockInTextContainer}>
+                <Text style={[styles.clockInTitle, { color: colors.text }]}>{t('clock_in')}</Text>
+                <Text style={[styles.clockInSub, { color: colors.textMuted }]}>{t('tap_to_verify')}</Text>
+              </View>
+              <Feather name="arrow-right" size={24} color={colors.brandBlue} />
+            </TouchableOpacity>
+          )}
 
           <View style={styles.bubbleRow}>
             <TouchableOpacity style={styles.bubbleBtn} onPress={() => { fetchEquipment(); setEquipModalVisible(true); }}>
-              <View style={[styles.bubbleCircle, { shadowColor: BRAND.yellow }]}>
+              <View style={[styles.bubbleCircle, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : BRAND.yellow }]}>
                 <Feather name="tool" size={24} color={BRAND.yellow} />
               </View>
-              <Text style={styles.bubbleText}>{t('equipment')}</Text>
+              <Text style={[styles.bubbleText, { color: colors.text }]}>Equipment</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.bubbleBtn} onPress={() => { fetchTickets(); setSupportModalVisible(true); }}>
-              <View style={[styles.bubbleCircle, { shadowColor: BRAND.green }]}>
+              <View style={[styles.bubbleCircle, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : BRAND.green }]}>
                 <Feather name="headphones" size={24} color={BRAND.green} />
               </View>
-              <Text style={styles.bubbleText}>{t('support')}</Text>
+              <Text style={[styles.bubbleText, { color: colors.text }]}>Support</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.bubbleBtn} onPress={() => { fetchAnnouncements(); setUpdatesModalVisible(true); }}>
-              <View style={[styles.bubbleCircle, { shadowColor: BRAND.red }]}>
+              <View style={[styles.bubbleCircle, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : BRAND.red }]}>
                 <Feather name="radio" size={24} color={BRAND.red} />
               </View>
-              <Text style={styles.bubbleText}>{t('updates')}</Text>
+              <Text style={[styles.bubbleText, { color: colors.text }]}>Updates</Text>
             </TouchableOpacity>
           </View>
 
           {schedule ? (
-            <TouchableOpacity style={styles.dispatchWidget} activeOpacity={0.8} onPress={() => setDispatchVisible(true)}>
-              <View style={styles.dispatchHeader}>
-                <View style={styles.dispatchIconContainer}>
-                  <Feather name="navigation" size={16} color="#3B82F6" />
+            <TouchableOpacity 
+              style={[styles.dispatchWidget, { backgroundColor: colors.card, borderColor: isDark ? colors.cardBorder : '#DBEAFE' }]} 
+              activeOpacity={0.8} 
+              onPress={() => setDispatchVisible(true)}
+            >
+              <View style={[styles.dispatchHeader, { backgroundColor: isDark ? colors.subCard : '#EFF6FF', borderBottomColor: isDark ? colors.cardBorder : '#DBEAFE' }]}>
+                <View style={[styles.dispatchIconContainer, { backgroundColor: isDark ? '#1E293B' : '#DBEAFE' }]}>
+                  <Feather name="navigation" size={16} color={colors.brandBlue} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.dispatchWidgetTitle, { fontFamily: activeFontBold }]}>{t('priority_dispatch')}</Text>
-                  <Text style={[styles.dispatchWidgetSub, { fontFamily: activeFont }]}>{t('active_ticket')}</Text>
+                  <Text style={[styles.dispatchWidgetTitle, { fontFamily: activeFontBold, color: colors.brandBlue }]}>{t('priority_dispatch')}</Text>
+                  <Text style={[styles.dispatchWidgetSub, { fontFamily: activeFont, color: colors.textMuted }]}>{t('active_ticket')}</Text>
                 </View>
-                <Feather name="chevron-right" size={20} color="#3B82F6" />
+                <Feather name="chevron-right" size={20} color={colors.brandBlue} />
               </View>
               <View style={styles.dispatchBody}>
-                <Text style={styles.dispatchDestination} numberOfLines={2}>
+                <Text style={[styles.dispatchDestination, { color: colors.text }]} numberOfLines={2}>
                   {schedule.location}
                 </Text>
-                <Text style={styles.dispatchClient}>{schedule.client_name}</Text>
+                <Text style={[styles.dispatchClient, { color: colors.textMuted }]}>{schedule.client_name}</Text>
               </View>
-              <View style={styles.dispatchAction}>
+              <View style={[styles.dispatchAction, { backgroundColor: colors.brandBlue }]}>
                 <Text style={[styles.dispatchActionText, { fontFamily: activeFontBold }]}>{t('view_dispatch_details')}</Text>
               </View>
             </TouchableOpacity>
           ) : (
-            <View style={styles.infoCard}>
-              <Text style={[styles.infoTitle, { fontFamily: activeFontBold }]}>{t('priority_dispatch')}</Text>
-              <Text style={[styles.infoSub, { fontFamily: activeFont }]}>{t('no_active_deployments')}</Text>
+            <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0, shadowColor: isDark ? '#000' : '#C0C2C9' }]}>
+              <Text style={[styles.infoTitle, { fontFamily: activeFontBold, color: colors.text }]}>{t('priority_dispatch')}</Text>
+              <Text style={[styles.infoSub, { fontFamily: activeFont, color: colors.textMuted }]}>{t('no_active_deployments')}</Text>
             </View>
           )}
         </View>
@@ -675,9 +1709,9 @@ export default function HomeScreen() {
         </View>
 
         {/* MENU OVERLAY */}
-        <Modal visible={menuVisible} transparent={true} animationType="none">
-          <Animated.View style={[styles.menuOverlay, { opacity: menuAnim }]}>
-            <Animated.View style={[styles.menuContent, { transform: [{ translateY: menuAnim.interpolate({ inputRange: [0, 1], outputRange: [100, 0] }) }] }]}>
+        <RNModal isVisible={menuVisible}   onBackdropPress={() => setMenuVisible(false)} onBackButtonPress={() => setMenuVisible(false)} onSwipeComplete={() => setMenuVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
+          <View style={[styles.menuOverlay, { opacity: 1 }]}>
+            <View style={styles.menuContent}>
               <SafeAreaView style={{flex: 1}}>
                 <View style={styles.menuHeaderRow}>
                   <View style={{width: 32}}/>
@@ -693,33 +1727,37 @@ export default function HomeScreen() {
                     <MenuGridItem icon="tool" label={t('my_tools')} fontFamily={activeFontBold} color={BRAND.yellow} onPress={() => { fetchEquipment(); setEquipModalVisible(true); }} />
                     <MenuGridItem icon="clipboard" label={t('work_orders')} fontFamily={activeFontBold} color={BRAND.yellow} onPress={() => { fetchWorkOrders(); setWorkOrdersModalVisible(true); }} />
                   </View>
-                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>{t('hr_and_pay')}</Text>
+                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>My HR & Pay</Text>
                   <View style={styles.menuGrid}>
                     <MenuGridItem icon="dollar-sign" label={t('payslips')} fontFamily={activeFontBold} color={BRAND.green} onPress={() => { fetchPayslips(); setPayslipsModalVisible(true); }} />
-                    <MenuGridItem icon="sun" label={t('file_leave')} fontFamily={activeFontBold} color={BRAND.red} onPress={() => { fetchLeaveRequests(); setLeaveModalVisible(true); }} />
+                    <MenuGridItem icon="sun" label={t('file_leave')} fontFamily={activeFontBold} color={BRAND.red} onPress={() => { setMenuVisible(false); setAiInitialQuery('I would like to file a leave of absence.'); setTimeout(() => setSupportModalVisible(true), 500); }} />
                     <MenuGridItem icon="clock" label={t('timesheets')} fontFamily={activeFontBold} color={BRAND.blue} onPress={() => { fetchTimeLogs(); setTimesheetModalVisible(true); }} />
                   </View>
-                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>{t('company_and_support')}</Text>
+                  <Text style={[styles.categoryTitle, { fontFamily: activeFontBold }]}>Company & Support</Text>
                   <View style={styles.menuGrid}>
                     <MenuGridItem icon="bell" label={t('announcements')} fontFamily={activeFontBold} color={BRAND.blue} onPress={() => { fetchAnnouncements(); setUpdatesModalVisible(true); }} />
                     <MenuGridItem icon="help-circle" label={t('support')} fontFamily={activeFontBold} color={BRAND.red} onPress={() => { fetchTickets(); setSupportModalVisible(true); }} />
                     <MenuGridItem icon="settings" label={t('preferences')} fontFamily={activeFontBold} color={BRAND.blue} onPress={() => { setMenuVisible(false); setPreferencesModalVisible(true); }} />
-                    <MenuGridItem icon="user" label={t('settings')} fontFamily={activeFontBold} color={BRAND.blue} onPress={() => { setMenuVisible(false); setProfileModalVisible(true); }} />
                   </View>
-                  <View style={{height: 120}} />
+                  <View style={{height: 180}} />
                 </ScrollView>
                 <View style={styles.bottomCloseContainer}>
                    <TouchableOpacity style={styles.flowerCloseBtn} onPress={closeMenu} activeOpacity={0.8}>
-                      <View style={styles.flowerRing1}><View style={styles.flowerRing2}><Text style={styles.flowerText}>Tap to{"\n"}close</Text></View></View>
+                      <View style={{ width: 80, height: 80, justifyContent: 'center', alignItems: 'center' }}>
+                          <Animated.View style={[styles.flowerRing1, { position: 'absolute', transform: [{ scale: auraAnim }] }]} />
+                          <View style={[styles.flowerRing2, { position: 'absolute' }]}>
+                             <Text style={styles.flowerText}>Tap to{"\n"}close</Text>
+                          </View>
+                       </View>
                    </TouchableOpacity>
                 </View>
               </SafeAreaView>
-            </Animated.View>
-          </Animated.View>
-        </Modal>
+              </View>
+            </View>
+        </RNModal>
 
         {/* VERIFICATION MODAL */}
-        <Modal visible={clockInModal} transparent={true} animationType="fade">
+        <RNModal isVisible={clockInModal}   onBackdropPress={() => setClockInModal(false)} onBackButtonPress={() => setClockInModal(false)} onSwipeComplete={() => setClockInModal(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.verificationOverlay}>
             <View style={styles.verificationCard}>
               {locationStatus === 'verifying' ? (
@@ -740,12 +1778,43 @@ export default function HomeScreen() {
                       <Feather name="x" size={24} color="#64748B" />
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.fallbackSub}>You are outside the target green zone.</Text>
+                  <Text style={styles.fallbackSub}>
+                    You are outside {targetGeofence?.name ? `"${targetGeofence.name}"` : 'the target green zone'}.
+                  </Text>
                   <View style={styles.mapContainer}>
-                    {userLoc && schedule && (
-                      <MapView style={styles.map} initialRegion={{ latitude: userLoc.lat, longitude: userLoc.lon, latitudeDelta: 0.005, longitudeDelta: 0.005 }}>
-                        <Circle center={{latitude: schedule.geofence_lat, longitude: schedule.geofence_lon}} radius={schedule.geofence_radius} strokeColor="rgba(16, 185, 129, 0.5)" fillColor="rgba(16, 185, 129, 0.2)" />
-                        <Marker coordinate={{latitude: userLoc.lat, longitude: userLoc.lon}} />
+                    {userLoc && (targetGeofence || schedule) && (
+                      <MapView
+                        provider={'google'}
+                        style={styles.map}
+                        initialRegion={{
+                          latitude: userLoc.lat,
+                          longitude: userLoc.lon,
+                          latitudeDelta: 0.01,
+                          longitudeDelta: 0.01,
+                        }}
+                      >
+                        <Circle
+                          center={{
+                            latitude: targetGeofence?.lat ?? schedule?.geofence_lat,
+                            longitude: targetGeofence?.lon ?? schedule?.geofence_lon,
+                          }}
+                          radius={targetGeofence?.radius ?? schedule?.geofence_radius ?? 100}
+                          strokeColor="rgba(16, 185, 129, 0.6)"
+                          fillColor="rgba(16, 185, 129, 0.2)"
+                        />
+                        <Marker
+                          coordinate={{
+                            latitude: targetGeofence?.lat ?? schedule?.geofence_lat,
+                            longitude: targetGeofence?.lon ?? schedule?.geofence_lon,
+                          }}
+                          title={targetGeofence?.name || schedule?.client_name || 'Target Zone'}
+                          pinColor="#10B981"
+                        />
+                        <Marker
+                          coordinate={{ latitude: userLoc.lat, longitude: userLoc.lon }}
+                          title="Your Location"
+                          pinColor="#EF4444"
+                        />
                       </MapView>
                     )}
                   </View>
@@ -760,282 +1829,299 @@ export default function HomeScreen() {
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* PROFILE MODAL (Bottom Sheet) */}
-        <Modal visible={profileModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={profileModalVisible}   onBackdropPress={() => setProfileModalVisible(false)} onBackButtonPress={() => setProfileModalVisible(false)} onSwipeComplete={() => setProfileModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
-            <View style={styles.profileSheet}>
+            <View style={[styles.profileSheet, { backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
               {/* Handle */}
-              <View style={styles.sheetHandle} />
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               
               {/* Header: Name, Role, Status */}
               <View style={styles.profileHeader}>
-                <View style={styles.profileAvatar}>
-                  <Feather name="user" size={32} color={BRAND.blue} />
+                <View style={[styles.profileAvatar, { backgroundColor: isDark ? colors.subCard : '#EFF6FF' }]}>
+                  <Feather name="user" size={32} color={colors.brandBlue} />
                 </View>
                 <View style={styles.profileInfo}>
-                  <Text style={styles.profileName}>{profile ? profile.full_name : 'TechnoSys'}</Text>
-                  <Text style={styles.profileRole}>{profile ? profile.role.toUpperCase() : 'TECHNICIAN'}</Text>
+                  <Text style={[styles.profileName, { color: colors.text }]}>{profile ? profile.full_name : 'TechnoCycle'}</Text>
+                  <Text style={[styles.profileRole, { color: colors.textMuted }]}>{profile ? profile.role.toUpperCase() : 'TECHNICIAN'}</Text>
                 </View>
-                <View style={styles.statusBadge}>
+                <View style={[styles.statusBadge, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5' }]}>
                   <View style={styles.statusDot} />
                   <Text style={styles.statusText}>Online</Text>
                 </View>
               </View>
 
               <TouchableOpacity style={styles.closeProfileBtn} onPress={() => setProfileModalVisible(false)}>
-                <Feather name="x" size={24} color="#64748B" />
+                <Feather name="x" size={24} color={colors.textMuted} />
               </TouchableOpacity>
 
               {/* Menu Items */}
               <View style={styles.profileMenu}>
-                <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setProfileModalVisible(false); fetchTimeLogs(); setTimesheetModalVisible(true); }}>
-                  <View style={[styles.profileMenuIcon, { backgroundColor: '#E0F2FE' }]}>
+                <TouchableOpacity style={[styles.profileMenuItem, { borderBottomColor: isDark ? colors.border : '#F1F5F9' }]} onPress={() => { setProfileModalVisible(false); fetchTimeLogs(); setTimesheetModalVisible(true); }}>
+                  <View style={[styles.profileMenuIcon, { backgroundColor: isDark ? colors.subCard : '#E0F2FE' }]}>
                     <Feather name="clock" size={20} color="#0EA5E9" />
                   </View>
-                  <Text style={styles.profileMenuText}>My DTR</Text>
-                  <Feather name="chevron-right" size={20} color="#CBD5E1" />
+                  <Text style={[styles.profileMenuText, { color: colors.text }]}>My DTR</Text>
+                  <Feather name="chevron-right" size={20} color={colors.textSubtle} />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setFormsModalVisible(true); }}>
-                  <View style={[styles.profileMenuIcon, { backgroundColor: '#FEF3C7' }]}>
+                <TouchableOpacity style={[styles.profileMenuItem, { borderBottomColor: isDark ? colors.border : '#F1F5F9' }]} onPress={() => { setFormsModalVisible(true); }}>
+                  <View style={[styles.profileMenuIcon, { backgroundColor: isDark ? colors.subCard : '#FEF3C7' }]}>
                     <Feather name="file-text" size={20} color="#F59E0B" />
                   </View>
-                  <Text style={styles.profileMenuText}>Company Forms and handbooks</Text>
-                  <Feather name="chevron-right" size={20} color="#CBD5E1" />
+                  <Text style={[styles.profileMenuText, { color: colors.text }]}>Company Forms and handbooks</Text>
+                  <Feather name="chevron-right" size={20} color={colors.textSubtle} />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setLangModalVisible(true); }}>
-                  <View style={[styles.profileMenuIcon, { backgroundColor: '#F1F5F9' }]}>
-                    <Feather name="globe" size={20} color="#64748B" />
+                <TouchableOpacity 
+                  style={[styles.profileMenuItem, { borderBottomColor: isDark ? colors.border : '#F1F5F9' }]} 
+                  onPress={() => { 
+                    setProfileModalVisible(false); 
+                    setTimeout(() => setPreferencesModalVisible(true), 250); 
+                  }}
+                >
+                  <View style={[styles.profileMenuIcon, { backgroundColor: isDark ? colors.subCard : '#F1F5F9' }]}>
+                    <Feather name="sliders" size={20} color={colors.brandBlue} />
                   </View>
-                  <Text style={styles.profileMenuText}>{t('preferences_language')}</Text>
-                  <Feather name="chevron-right" size={20} color="#CBD5E1" />
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.profileMenuItem} onPress={() => safeAlert('Coming Soon', 'Dark Mode will be available in v2.0!')}>
-                  <View style={[styles.profileMenuIcon, { backgroundColor: '#F1F5F9' }]}>
-                    <Feather name="moon" size={20} color="#64748B" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.profileMenuText, { color: colors.text }]}>{t('preferences')}</Text>
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted, marginTop: 1 }}>
+                      {language.toUpperCase()} • {themeMode === 'system' ? 'System' : isDark ? 'Dark' : 'Light'}
+                    </Text>
                   </View>
-                  <Text style={styles.profileMenuText}>{t('dark_mode')}</Text>
-                  <Feather name="chevron-right" size={20} color="#CBD5E1" />
+                  <Feather name="chevron-right" size={20} color={colors.textSubtle} />
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.profileMenuItem, { borderBottomWidth: 0, marginTop: 16 }]} onPress={() => setLogoutModalVisible(true)}>
-                  <View style={[styles.profileMenuIcon, { backgroundColor: '#FEE2E2' }]}>
+                  <View style={[styles.profileMenuIcon, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2' }]}>
                     <Feather name="log-out" size={20} color="#EF4444" />
                   </View>
-                  <Text style={[styles.profileMenuText, { color: '#EF4444' }]}>{t('log_out')}</Text>
+                  <Text style={[styles.profileMenuText, { color: '#EF4444' }]}>Log Out</Text>
                 </TouchableOpacity>
               </View>
 
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* DTR MODAL */}
-        <Modal visible={dtrModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={dtrModalVisible}   onBackdropPress={() => setDtrModalVisible(false)} onBackButtonPress={() => setDtrModalVisible(false)} onSwipeComplete={() => setDtrModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '80%' }]}>
-              <View style={styles.sheetHandle} />
+            <View style={[styles.profileSheet, { height: '80%', backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>My DTR</Text>
-                <TouchableOpacity onPress={() => setDtrModalVisible(false)}><Feather name="x" size={24} color="#64748B" /></TouchableOpacity>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>My DTR</Text>
+                <TouchableOpacity onPress={() => setDtrModalVisible(false)}><Feather name="x" size={24} color={colors.textMuted} /></TouchableOpacity>
               </View>
               {dtrLoading ? (
-                <ActivityIndicator size="large" color={BRAND.blue} style={{ marginTop: 40 }} />
+                <ActivityIndicator size="large" color={colors.brandBlue} style={{ marginTop: 40 }} />
               ) : (
                 <ScrollView style={{ marginTop: 16 }} showsVerticalScrollIndicator={false}>
                   {dtrLogs.map((log, idx) => (
-                    <View key={idx} style={styles.dtrRow}>
+                    <View key={idx} style={[styles.dtrRow, { borderBottomColor: isDark ? colors.border : '#F1F5F9' }]}>
                       <View>
-                        <Text style={styles.dtrDate}>{new Date(log.app_time_in).toLocaleDateString()}</Text>
-                        <Text style={styles.dtrTime}>{new Date(log.app_time_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
+                        <Text style={[styles.dtrDate, { color: colors.text }]}>{new Date(log.app_time_in).toLocaleDateString()}</Text>
+                        <Text style={[styles.dtrTime, { color: colors.textMuted }]}>{new Date(log.app_time_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
                       </View>
-                      <View style={[styles.statusBadge, { backgroundColor: log.status === 'verified' ? '#ECFDF5' : '#FEF3C7' }]}>
+                      <View style={[styles.statusBadge, { backgroundColor: log.status === 'verified' ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5') : (isDark ? 'rgba(251, 191, 36, 0.2)' : '#FEF3C7') }]}>
                         <Text style={[styles.statusText, { color: log.status === 'verified' ? BRAND.green : BRAND.yellow }]}>{log.status.toUpperCase()}</Text>
                       </View>
                     </View>
                   ))}
-                  {dtrLogs.length === 0 && <Text style={{ textAlign: 'center', color: '#64748B', marginTop: 40 }}>No logs found.</Text>}
+                  {dtrLogs.length === 0 && <Text style={{ textAlign: 'center', color: colors.textMuted, marginTop: 40 }}>No logs found.</Text>}
                 </ScrollView>
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* FORMS MODAL */}
-        <Modal visible={formsModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={formsModalVisible}   onBackdropPress={() => setFormsModalVisible(false)} onBackButtonPress={() => setFormsModalVisible(false)} onSwipeComplete={() => setFormsModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '60%' }]}>
-              <View style={styles.sheetHandle} />
+            <View style={[styles.profileSheet, { height: '60%', backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>Company Forms</Text>
-                <TouchableOpacity onPress={() => setFormsModalVisible(false)}><Feather name="x" size={24} color="#64748B" /></TouchableOpacity>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Company Forms</Text>
+                <TouchableOpacity onPress={() => setFormsModalVisible(false)}><Feather name="x" size={24} color={colors.textMuted} /></TouchableOpacity>
               </View>
               <ScrollView style={{ marginTop: 16 }} showsVerticalScrollIndicator={false}>
                 {['Employee Code of Conduct', 'Leave Policy', 'Equipment Handling Manual'].map((form, idx) => (
-                  <TouchableOpacity key={idx} style={styles.profileMenuItem} onPress={() => safeAlert('Coming Soon', 'This document is not yet available.')}>
-                    <View style={[styles.profileMenuIcon, { backgroundColor: '#F1F5F9' }]}><Feather name="file" size={20} color="#64748B" /></View>
-                    <Text style={styles.profileMenuText}>{form}</Text>
-                    <Feather name="download" size={20} color={BRAND.blue} />
+                  <TouchableOpacity key={idx} style={[styles.profileMenuItem, { borderBottomColor: isDark ? colors.border : '#F1F5F9' }]} onPress={() => safeAlert('Coming Soon', 'This document is not yet available.')}>
+                    <View style={[styles.profileMenuIcon, { backgroundColor: isDark ? colors.subCard : '#F1F5F9' }]}><Feather name="file" size={20} color={colors.brandBlue} /></View>
+                    <Text style={[styles.profileMenuText, { color: colors.text }]}>{form}</Text>
+                    <Feather name="download" size={20} color={colors.brandBlue} />
                   </TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
-        {/* LANGUAGE MODAL */}
-        <Modal visible={langModalVisible} transparent={true} animationType="slide">
+        {/* UNIFIED CANONICAL PREFERENCES MODAL */}
+        <RNModal 
+          isVisible={preferencesModalVisible}   
+          onBackdropPress={() => setPreferencesModalVisible(false)} 
+          onBackButtonPress={() => setPreferencesModalVisible(false)} 
+          onSwipeComplete={() => setPreferencesModalVisible(false)} 
+          swipeDirection={['down']} 
+          propagateSwipe={true} 
+          swipeThreshold={50} 
+          style={{ margin: 0, justifyContent: 'flex-end' }}
+        >
           <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '50%' }]}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>Preferences (Language)</Text>
-                <TouchableOpacity onPress={() => setLangModalVisible(false)}><Feather name="x" size={24} color="#64748B" /></TouchableOpacity>
-              </View>
-              <View style={{ marginTop: 16 }}>
-                {[ { label: 'English', code: 'en' as SupportedLanguage }, { label: 'Filipino (Tagalog)', code: 'tl' as SupportedLanguage } ].map((langItem, idx) => (
-                  <TouchableOpacity 
-                    key={idx} 
-                    style={styles.profileMenuItem} 
-                    onPress={async () => { 
-                      await changeLanguage(langItem.code); 
-                      safeAlert('Success', `${langItem.label} selected.`); 
-                      setLangModalVisible(false); 
-                    }}
-                  >
-                    <Text style={styles.profileMenuText}>{langItem.label}</Text>
-                    {language === langItem.code && <Feather name="check" size={20} color={BRAND.green} />}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* PREFERENCES MODAL */}
-        <Modal visible={preferencesModalVisible} transparent={true} animationType="slide">
-          <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: 400 }]}>
-              <View style={styles.sheetHandle} />
+            <View style={[styles.profileSheet, { backgroundColor: colors.card, borderTopColor: colors.cardBorder, paddingBottom: 40 }]}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               
               <View style={styles.modalHeaderRow}>
-                <Text style={[styles.modalTitle, { fontFamily: activeFontBold }]}>{t('preferences')}</Text>
-                <TouchableOpacity onPress={() => setPreferencesModalVisible(false)}>
-                  <Feather name="x" size={24} color="#64748B" />
+                <View>
+                  <Text style={[styles.modalTitle, { fontFamily: activeFontBold, color: colors.text }]}>{t('preferences')}</Text>
+                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: colors.textMuted, marginTop: 2 }}>
+                    Customize interface & language
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setPreferencesModalVisible(false)} style={{ padding: 4 }}>
+                  <Feather name="x" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
-              <View style={{ paddingHorizontal: 24, paddingTop: 16 }}>
-                <Text style={[{ fontSize: 13, color: '#64748B', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }, { fontFamily: activeFontBold }]}>
-                  {t('select_app_language')}
+              <View style={{ marginTop: 20 }}>
+                {/* LANGUAGE SECTION */}
+                <Text style={[{ fontSize: 12, color: colors.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, { fontFamily: activeFontBold }]}>
+                  {t('language')}
                 </Text>
                 
-                {/* 2-Option ENG / FIL Segmented Pill Toggle */}
-                <View style={{ 
-                  flexDirection: 'row', 
-                  alignItems: 'center', 
-                  backgroundColor: '#F1F5F9', 
-                  borderRadius: 14, 
-                  padding: 4, 
-                  marginBottom: 24,
-                  borderWidth: 1,
-                  borderColor: '#E2E8F0'
-                }}>
-                  <TouchableOpacity 
-                    style={{ 
-                      flex: 1, 
-                      paddingVertical: 12, 
-                      borderRadius: 10, 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
-                      flexDirection: 'row',
-                      gap: 8,
-                      backgroundColor: language === 'en' ? BRAND.blue : 'transparent',
-                      shadowColor: language === 'en' ? BRAND.blue : 'transparent',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.2,
-                      shadowRadius: 4,
-                      elevation: language === 'en' ? 2 : 0
-                    }}
-                    onPress={() => changeLanguage('en')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ fontSize: 16 }}>🇺🇸</Text>
-                    <Text style={{ 
-                      fontFamily: 'DMSans-Bold', 
-                      fontSize: 14, 
-                      color: language === 'en' ? '#FFFFFF' : '#64748B' 
-                    }}>
-                      ENG
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity 
-                    style={{ 
-                      flex: 1, 
-                      paddingVertical: 12, 
-                      borderRadius: 10, 
-                      alignItems: 'center', 
-                      justify: 'center',
-                      flexDirection: 'row',
-                      gap: 8,
-                      backgroundColor: language === 'tl' ? BRAND.blue : 'transparent',
-                      shadowColor: language === 'tl' ? BRAND.blue : 'transparent',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.2,
-                      shadowRadius: 4,
-                      elevation: language === 'tl' ? 2 : 0
-                    }}
-                    onPress={() => changeLanguage('tl')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{ fontSize: 16 }}>🇵🇭</Text>
-                    <Text style={{ 
-                      fontFamily: 'DMSans-Bold', 
-                      fontSize: 14, 
-                      color: language === 'tl' ? '#FFFFFF' : '#64748B' 
-                    }}>
-                      FIL
-                    </Text>
-                  </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
+                  {[
+                    { code: 'en' as const, label: 'English', tag: '🇺🇸 ENG', font: 'DMSans-Bold' },
+                    { code: 'tl' as const, label: 'Filipino', tag: '🇵🇭 FIL', font: 'DMSans-Bold' },
+                  ].map((item) => {
+                    const isSelected = language === item.code;
+                    return (
+                      <TouchableOpacity 
+                        key={item.code}
+                        style={{ 
+                          flex: 1, 
+                          paddingVertical: 14, 
+                          borderRadius: 14, 
+                          borderWidth: 1.5, 
+                          borderColor: isSelected ? colors.brandBlue : colors.cardBorder, 
+                          backgroundColor: isSelected ? (isDark ? 'rgba(59, 130, 246, 0.18)' : '#EFF6FF') : colors.subCard, 
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          shadowColor: isSelected ? colors.brandBlue : 'transparent',
+                          shadowOpacity: isSelected ? 0.2 : 0,
+                          shadowRadius: 6,
+                          elevation: isSelected ? 3 : 0
+                        }}
+                        onPress={() => setLanguage(item.code)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ fontFamily: item.font, fontSize: 14, color: isSelected ? colors.brandBlue : colors.text }}>
+                          {item.tag}
+                        </Text>
+                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: isSelected ? colors.brandBlue : colors.textMuted, marginTop: 2 }}>
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
-                <Text style={[{ fontSize: 14, color: '#64748B', marginBottom: 12, textTransform: 'uppercase' }, { fontFamily: activeFontBold }]}>{t('dark_mode')}</Text>
-                <TouchableOpacity 
-                  style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#F8FAFC', borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0' }}
-                  onPress={() => safeAlert('Coming Soon', 'Dark mode theme is under development.')}
-                >
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
-                    <Feather name={darkMode ? "moon" : "sun"} size={20} color="#475569" />
+                {/* APPEARANCE SECTION */}
+                <Text style={[{ fontSize: 12, color: colors.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, { fontFamily: activeFontBold }]}>
+                  {t('appearance')}
+                </Text>
+
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
+                  {[
+                    { mode: 'light' as const, label: t('theme_light'), icon: 'sun' },
+                    { mode: 'dark' as const, label: t('theme_dark'), icon: 'moon' },
+                    { mode: 'system' as const, label: t('theme_system'), icon: 'smartphone' },
+                  ].map((item) => {
+                    const isSelected = themeMode === item.mode;
+                    return (
+                      <TouchableOpacity
+                        key={item.mode}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 14,
+                          borderRadius: 14,
+                          borderWidth: 1.5,
+                          borderColor: isSelected ? colors.brandBlue : colors.cardBorder,
+                          backgroundColor: isSelected ? (isDark ? 'rgba(59, 130, 246, 0.18)' : '#EFF6FF') : colors.subCard,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          shadowColor: isSelected ? colors.brandBlue : 'transparent',
+                          shadowOpacity: isSelected ? 0.2 : 0,
+                          shadowRadius: 6,
+                          elevation: isSelected ? 3 : 0
+                        }}
+                        onPress={() => setThemeMode(item.mode)}
+                        activeOpacity={0.7}
+                      >
+                        <Feather 
+                          name={item.icon as any} 
+                          size={20} 
+                          color={isSelected ? colors.brandBlue : colors.textMuted} 
+                        />
+                        <Text style={{ 
+                          fontFamily: activeFontBold, 
+                          fontSize: 13, 
+                          color: isSelected ? colors.brandBlue : colors.text, 
+                          marginTop: 6 
+                        }}>
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* APP TELEMETRY & BUILD INFO */}
+                <View style={{ 
+                  backgroundColor: colors.subCard, 
+                  borderRadius: 14, 
+                  padding: 14, 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: isDark ? '#1E293B' : '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+                      <Feather name="shield" size={16} color={colors.brandBlue} />
+                    </View>
+                    <View>
+                      <Text style={{ fontFamily: activeFontBold, fontSize: 13, color: colors.text }}>TechnoCycle Mobile</Text>
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textMuted }}>v0.5.0 • Channel: preview</Text>
+                    </View>
                   </View>
-                  <Text style={[{ fontSize: 16, color: '#0F172A', flex: 1 }, { fontFamily: activeFontBold }]}>{darkMode ? "On" : "Off"}</Text>
-                  <View style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: '#CBD5E1', justifyContent: 'center', paddingHorizontal: 2 }}>
-                    <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' }} />
+                  <View style={{ backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 }}>
+                    <Text style={{ fontFamily: activeFontBold, fontSize: 11, color: BRAND.green }}>ONLINE</Text>
                   </View>
-                </TouchableOpacity>
+                </View>
                 
               </View>
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* LOGOUT CONFIRMATION MODAL */}
-        <Modal visible={logoutModalVisible} transparent={true} animationType="fade">
+        <RNModal isVisible={logoutModalVisible}   onBackdropPress={() => setLogoutModalVisible(false)} onBackButtonPress={() => setLogoutModalVisible(false)} onSwipeComplete={() => setLogoutModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.verificationOverlay}>
-            <View style={[styles.verificationCard, { padding: 32, alignItems: 'center' }]}>
-              <View style={[styles.gridIconCircle, { backgroundColor: '#FEE2E2', width: 64, height: 64, borderRadius: 32, marginBottom: 16 }]}>
+            <View style={[styles.verificationCard, { padding: 32, alignItems: 'center', backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
+              <View style={[styles.gridIconCircle, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2', width: 64, height: 64, borderRadius: 32, marginBottom: 16 }]}>
                 <Feather name="log-out" size={32} color="#EF4444" />
               </View>
-              <Text style={[styles.modalTitle, { textAlign: 'center', marginBottom: 8 }]}>Log Out</Text>
-              <Text style={[styles.fallbackSub, { textAlign: 'center' }]}>Are you sure you want to log out of your account?</Text>
+              <Text style={[styles.modalTitle, { textAlign: 'center', marginBottom: 8, color: colors.text }]}>Log Out</Text>
+              <Text style={[styles.fallbackSub, { textAlign: 'center', color: colors.textMuted }]}>Are you sure you want to log out of your account?</Text>
               
               <View style={{ flexDirection: 'row', gap: 16, marginTop: 16, width: '100%' }}>
-                <TouchableOpacity style={{ flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#F1F5F9', alignItems: 'center' }} onPress={() => setLogoutModalVisible(false)}>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 16, color: '#64748B' }}>Cancel</Text>
+                <TouchableOpacity style={{ flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.subCard, alignItems: 'center' }} onPress={() => setLogoutModalVisible(false)}>
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.text }}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={{ flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#EF4444', alignItems: 'center' }} onPress={handleLogout}>
                   <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 16, color: '#FFFFFF' }}>Log Out</Text>
@@ -1043,27 +2129,22 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
-        </Modal>
+        </RNModal>
         {/* NOTIFICATION DRAWER */}
-        {/* NOTIFICATION DRAWER */}
-        <Modal visible={notifVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={notifVisible}   onBackdropPress={() => setNotifVisible(false)} onBackButtonPress={() => setNotifVisible(false)} onSwipeComplete={() => setNotifVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '80%' }]}>
-              <View style={styles.sheetHandle} />
+            <View style={[styles.profileSheet, { height: '80%', backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>Notifications</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Notifications</Text>
                 <TouchableOpacity onPress={() => setNotifVisible(false)}>
-                  <Feather name="x" size={24} color="#64748B" />
+                  <Feather name="x" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 16 }}>
-                <TouchableOpacity onPress={() => {
-                  const allIds = notifications.map(n => n.id);
-                  saveAllReadNotifIds(allIds);
-                  setNotifications(notifications.map(n => ({ ...n, read: true })));
-                }}>
-                  <Text style={styles.notifMarkRead}>Mark all read</Text>
+                <TouchableOpacity onPress={markAllNotificationsRead}>
+                  <Text style={[styles.notifMarkRead, { color: colors.brandBlue }]}>Mark all read</Text>
                 </TouchableOpacity>
               </View>
 
@@ -1071,63 +2152,120 @@ export default function HomeScreen() {
                 data={notifications}
                 keyExtractor={(item) => item.id.toString()}
                 showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
+                ListEmptyComponent={() => (
+                  <View style={{ padding: 40, alignItems: 'center' }}>
+                    <Feather name="bell-off" size={44} color={isDark ? '#334155' : '#CBD5E1'} style={{ marginBottom: 12 }} />
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 15, color: colors.textSubtle, textAlign: 'center' }}>
+                      No notifications at the moment.
+                    </Text>
+                  </View>
+                )}
                 renderItem={({ item: notif }) => {
                   let icon = 'bell';
                   let color = '#64748B';
-                  let bgColor = '#F1F5F9';
-                  if (notif.type === 'dispatch') { icon = 'navigation'; color = '#EF4444'; bgColor = '#FEE2E2'; }
-                  if (notif.type === 'hr') { icon = 'check-circle'; color = '#10B981'; bgColor = '#D1FAE5'; }
-                  if (notif.type === 'tool') { icon = 'tool'; color = '#F59E0B'; bgColor = '#FEF3C7'; }
-                  if (notif.type === 'admin') { icon = 'file-text'; color = '#3B82F6'; bgColor = '#DBEAFE'; }
-                  if (notif.type === 'help') { icon = 'life-buoy'; color = '#8B5CF6'; bgColor = '#EDE9FE'; }
+                  let bgColor = isDark ? colors.subCard : '#F1F5F9';
+                  if (notif.type === 'dispatch') { icon = 'navigation'; color = '#3B82F6'; bgColor = isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE'; }
+                  if (notif.type === 'hr') { icon = 'check-circle'; color = '#10B981'; bgColor = isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5'; }
+                  if (notif.type === 'tool') { icon = 'tool'; color = '#F59E0B'; bgColor = isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7'; }
+                  if (notif.type === 'admin') { icon = 'file-text'; color = colors.brandBlue; bgColor = isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE'; }
+                  if (notif.type === 'help') { icon = 'alert-circle'; color = '#EF4444'; bgColor = isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2'; }
+
+                  const pillBg = isDark ? (notif.categoryBgDark || 'rgba(59, 130, 246, 0.2)') : (notif.categoryBgLight || '#EFF6FF');
+                  const pillColor = notif.categoryColor || colors.brandBlue;
 
                   return (
                     <TouchableOpacity 
-                      style={[styles.notifItem, !notif.read && styles.notifItemUnread]}
+                      activeOpacity={0.7}
+                      style={[
+                        styles.notifModernCard,
+                        !notif.read && styles.notifModernCardUnread,
+                        !notif.read && { borderLeftColor: pillColor }
+                      ]}
                       onPress={() => {
-                        saveReadNotifId(notif.id);
-                        setNotifications(notifications.map(n => n.id === notif.id ? { ...n, read: true } : n));
-                        setSelectedNotif(notif);
+                        markNotificationRead(notif.id);
+                        if (notif.ticketId || notif.actionType === 'chat') {
+                          if (notif.ticketId) setSelectedChatTicketId(notif.ticketId);
+                          setNotifVisible(false);
+                          setSupportModalVisible(true);
+                        } else if (notif.actionType === 'dispatch') {
+                          setNotifVisible(false);
+                          setDispatchVisible(true);
+                        } else if (notif.actionType === 'tool') {
+                          setNotifVisible(false);
+                          setEquipModalVisible(true);
+                        } else {
+                          setSelectedNotif(notif);
+                        }
                       }}
                     >
-                      <View style={[styles.notifIconCircle, { backgroundColor: bgColor }]}>
-                        <Feather name={icon as any} size={20} color={color} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.notifItemTitle}>{notif.title}</Text>
-                        
-                        {/* Priority Badge on Notification Item */}
-                        {notif.type === 'announcement' && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, marginBottom: 3 }}>
-                            <View style={{ 
-                              backgroundColor: notif.priority === 'urgent' ? '#FEF2F2' : notif.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
-                              paddingHorizontal: 7, 
-                              paddingVertical: 2, 
-                              borderRadius: 5,
-                              borderWidth: 1,
-                              borderColor: notif.priority === 'urgent' ? '#FCA5A5' : notif.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
-                            }}>
-                              <Text style={{ 
-                                fontFamily: 'DMSans-Bold', 
-                                fontSize: 9, 
-                                color: notif.priority === 'urgent' ? '#DC2626' : notif.priority === 'policy' ? '#2563EB' : '#059669' 
-                              }}>
-                                {notif.priority === 'urgent' ? '🔴 URGENT ALERT' : notif.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
+                      {/* Top Header Row: Category Pill + Status Tag + Timestamp */}
+                      <View style={styles.notifHeaderRow}>
+                        <View style={styles.notifBadgeRow}>
+                          <View style={[styles.notifPill, { backgroundColor: pillBg, borderColor: pillColor + '40' }]}>
+                            <Text style={[styles.notifPillText, { color: pillColor }]}>
+                              {(notif.category || 'NOTICE').toUpperCase()}
+                            </Text>
+                          </View>
+                          {!!notif.statusTag && (
+                            <View style={[styles.notifStatusPill, { 
+                              backgroundColor: notif.statusTag === 'Approved' ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5') :
+                                              notif.statusTag === 'Refused' ? (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2') :
+                                              (isDark ? colors.subCard : '#F1F5F9')
+                            }]}>
+                              <Text style={[styles.notifStatusText, { 
+                                color: notif.statusTag === 'Approved' ? '#10B981' :
+                                       notif.statusTag === 'Refused' ? '#EF4444' :
+                                       colors.textSubtle
+                              }]}>
+                                {notif.statusTag}
                               </Text>
                             </View>
-                          </View>
-                        )}
-
-                        <Text style={styles.notifItemDesc}>{notif.desc}</Text>
-                        <Text style={styles.notifItemTime}>{notif.time}</Text>
+                          )}
+                        </View>
+                        <View style={styles.notifTimeRow}>
+                          <Text style={styles.notifTimeText}>{notif.time}</Text>
+                          {!notif.read && <View style={[styles.notifDot, { backgroundColor: pillColor }]} />}
+                        </View>
                       </View>
-                      {!notif.read && <View style={styles.notifUnreadDot} />}
+
+                      {/* Card Content */}
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 6 }}>
+                        <View style={[styles.notifIconCircle, { backgroundColor: bgColor, width: 36, height: 36, borderRadius: 18, marginRight: 12, marginTop: 2 }]}>
+                          <Feather name={icon as any} size={18} color={color} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.notifItemTitle, { color: colors.text, fontSize: 14 }]} numberOfLines={1}>
+                            {notif.title}
+                          </Text>
+                          <Text style={[styles.notifItemDesc, { color: colors.textMuted, fontSize: 13, marginBottom: 0 }]} numberOfLines={2}>
+                            {notif.desc}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Action / Reviewer Row */}
+                      <View style={styles.notifActionRow}>
+                        {notif.reviewer ? (
+                          <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textSubtle }}>
+                            Reviewed by {notif.reviewer}
+                          </Text>
+                        ) : (
+                          <View />
+                        )}
+                        <View style={styles.notifActionChip}>
+                          <Text style={[styles.notifActionChipText, { color: pillColor }]}>
+                            {notif.actionLabel || 'Details'}
+                          </Text>
+                          <Feather name="arrow-right" size={11} color={pillColor} />
+                        </View>
+                      </View>
                     </TouchableOpacity>
                   );
                 }}
                 ListFooterComponent={() => (
                   <View style={{ padding: 24, alignItems: 'center' }}>
-                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#94A3B8', textAlign: 'center' }}>
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textSubtle, textAlign: 'center' }}>
                       Showing latest notifications. Older alerts are automatically archived in their respective modules.
                     </Text>
                   </View>
@@ -1135,156 +2273,336 @@ export default function HomeScreen() {
               />
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* PRIORITY DISPATCH MODAL */}
-        <Modal visible={dispatchVisible} transparent={true} animationType="slide">
-          <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
+        <RNModal isVisible={dispatchVisible}   onBackdropPress={() => setDispatchVisible(false)} onBackButtonPress={() => setDispatchVisible(false)} onSwipeComplete={() => setDispatchVisible(false)} swipeDirection={undefined} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
+          <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: 60, paddingHorizontal: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
               <TouchableOpacity onPress={() => setDispatchVisible(false)} style={{ padding: 8, marginLeft: -8 }}>
-                <Feather name="arrow-left" size={24} color="#0F172A" />
+                <Feather name="arrow-left" size={24} color={colors.text} />
               </TouchableOpacity>
-              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginLeft: 8 }}>Dispatch Details</Text>
+              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginLeft: 8 }}>Dispatch Details</Text>
             </View>
             
-            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#E2E8F0' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[styles.notifIconCircle, { backgroundColor: '#DBEAFE', marginRight: 16 }]}>
-                  <Feather name="navigation" size={24} color="#3B82F6" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: '#3B82F6', letterSpacing: 1, marginBottom: 4 }}>
-                    ACTIVE TICKET
-                  </Text>
-                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#94A3B8' }}>
-                    Assigned 10m ago
-                  </Text>
-                </View>
-              </View>
-              
-              <View style={styles.payslipDivider} />
-              
-              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 8, marginTop: 8 }}>
-                {schedule?.client_name || 'N/A'}
-              </Text>
-              
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16 }}>
-                <Feather name="map-pin" size={16} color="#64748B" style={{ marginTop: 2, marginRight: 8 }} />
-                <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: '#475569', lineHeight: 22, flex: 1 }}>
-                  {schedule?.location || 'N/A'}
-                </Text>
-              </View>
-
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 24 }}>
-                <Feather name="info" size={16} color="#64748B" style={{ marginTop: 2, marginRight: 8 }} />
-                <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: '#475569', lineHeight: 22, flex: 1 }}>
-                  {schedule?.remarks || 'Perform standard maintenance checks on network rack cooling systems.'}
-                </Text>
-              </View>
-
-              <View style={styles.payslipDivider} />
-
-              <View style={{ flexDirection: 'row', marginTop: 16 }}>
-                <TouchableOpacity style={[styles.submitBtn, { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', marginRight: 12 }]} onPress={() => setDispatchVisible(false)}>
-                  <Text style={[styles.submitBtnText, { color: '#64748B' }]}>Decline</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.submitBtn, { flex: 2, backgroundColor: '#3B82F6' }]} onPress={() => {
-                  safeAlert('Navigating', 'Opening GPS mapping system...');
-                  setDispatchVisible(false);
-                }}>
-                  <Text style={styles.submitBtnText}>Acknowledge & Go</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* NOTIFICATION DETAILS MODAL (SEPARATED FOR ANIMATION) */}
-        <Modal visible={!!selectedNotif} transparent={true} animationType="slide">
-          <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>
-            {selectedNotif && (
-              <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
-                  <TouchableOpacity onPress={() => setSelectedNotif(null)} style={{ padding: 8, marginLeft: -8 }}>
-                    <Feather name="arrow-left" size={24} color="#0F172A" />
-                  </TouchableOpacity>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginLeft: 8 }}>Notification Details</Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+              <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: colors.cardBorder }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                  <View style={[styles.notifIconCircle, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE', marginRight: 16 }]}>
+                    <Feather name="navigation" size={24} color={colors.brandBlue} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.brandBlue, letterSpacing: 1, marginBottom: 4 }}>
+                      ACTIVE TICKET
+                    </Text>
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: colors.textSubtle }}>
+                      Assigned Field Dispatch
+                    </Text>
+                  </View>
                 </View>
                 
-                <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#E2E8F0' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                    <View style={[styles.notifIconCircle, { 
-                      backgroundColor: selectedNotif.type === 'dispatch' ? '#FEE2E2' : 
-                                     selectedNotif.type === 'hr' ? '#D1FAE5' : 
-                                     selectedNotif.type === 'tool' ? '#FEF3C7' : 
-                                     selectedNotif.type === 'admin' ? '#DBEAFE' : '#EDE9FE',
-                      marginRight: 16
-                    }]}>
-                      <Feather name={
-                        selectedNotif.type === 'dispatch' ? 'navigation' :
-                        selectedNotif.type === 'hr' ? 'check-circle' :
-                        selectedNotif.type === 'tool' ? 'tool' :
-                        selectedNotif.type === 'admin' ? 'file-text' : 'life-buoy'
-                      } size={24} color={
-                        selectedNotif.type === 'dispatch' ? '#EF4444' :
-                        selectedNotif.type === 'hr' ? '#10B981' :
-                        selectedNotif.type === 'tool' ? '#F59E0B' :
-                        selectedNotif.type === 'admin' ? '#3B82F6' : '#8B5CF6'
-                      } />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginBottom: 4 }}>
-                        {selectedNotif.title}
+                <View style={styles.payslipDivider} />
+                
+                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text, marginBottom: 8, marginTop: 8 }}>
+                  {schedule?.client_name || 'N/A'}
+                </Text>
+                
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16 }}>
+                  <Feather name="map-pin" size={16} color={colors.textMuted} style={{ marginTop: 2, marginRight: 8 }} />
+                  <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: colors.textMuted, lineHeight: 22, flex: 1 }}>
+                    {schedule?.location || 'N/A'}
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20 }}>
+                  <Feather name="info" size={16} color={colors.textMuted} style={{ marginTop: 2, marginRight: 8 }} />
+                  <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: colors.textMuted, lineHeight: 22, flex: 1 }}>
+                    {schedule?.remarks || 'Perform standard maintenance checks on site.'}
+                  </Text>
+                </View>
+
+                {/* ASSIGNED FIELD CREW SECTION */}
+                <View style={{ paddingTop: 16, borderTopWidth: 1, borderTopColor: isDark ? colors.border : '#F1F5F9', marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Feather name="users" size={16} color={colors.brandBlue} style={{ marginRight: 6 }} />
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.text }}>
+                        Assigned Field Crew
                       </Text>
-
-                      {/* Priority Badge on Notification Details Modal */}
-                      {selectedNotif.type === 'announcement' && (
-                        <View style={{ flexDirection: 'row', items: 'center', gap: 6, marginBottom: 6 }}>
-                          <View style={{ 
-                            backgroundColor: selectedNotif.priority === 'urgent' ? '#FEF2F2' : selectedNotif.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
-                            paddingHorizontal: 8, 
-                            paddingVertical: 3, 
-                            borderRadius: 6,
-                            borderWidth: 1,
-                            borderColor: selectedNotif.priority === 'urgent' ? '#FCA5A5' : selectedNotif.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
-                          }}>
-                            <Text style={{ 
-                              fontFamily: 'DMSans-Bold', 
-                              fontSize: 10, 
-                              color: selectedNotif.priority === 'urgent' ? '#DC2626' : selectedNotif.priority === 'policy' ? '#2563EB' : '#059669' 
-                            }}>
-                              {selectedNotif.priority === 'urgent' ? '🔴 URGENT ALERT' : selectedNotif.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
-                            </Text>
-                          </View>
-                        </View>
-                      )}
-
-                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#94A3B8' }}>
-                        {selectedNotif.time}
+                    </View>
+                    <View style={{ backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.brandBlue }}>
+                        {activeCrew.length} {activeCrew.length === 1 ? 'Worker' : 'Workers'}
                       </Text>
                     </View>
                   </View>
-                  
-                  <View style={styles.payslipDivider} />
-                  
-                  <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: '#475569', lineHeight: 24, marginTop: 8 }}>
-                    {selectedNotif.desc}
+
+                  {loadingCrew ? (
+                    <ActivityIndicator size="small" color={colors.brandBlue} style={{ marginVertical: 12 }} />
+                  ) : activeCrew.length === 0 ? (
+                    <View style={{ padding: 12, borderRadius: 12, backgroundColor: isDark ? colors.subCard : '#F8FAFC', borderWidth: 1, borderColor: colors.cardBorder }}>
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted, textAlign: 'center' }}>
+                        Solo dispatch • No additional crew assigned
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 8 }}>
+                      {activeCrew.map((member) => (
+                        <View
+                          key={member.id + member.type}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 12,
+                            borderRadius: 12,
+                            backgroundColor: isDark ? colors.subCard : '#F8FAFC',
+                            borderWidth: 1,
+                            borderColor: colors.cardBorder,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                            <View
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                backgroundColor:
+                                  member.type === 'lead'
+                                    ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7')
+                                    : member.type === 'helper'
+                                    ? (isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF')
+                                    : (isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5'),
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: 10,
+                              }}
+                            >
+                              <Feather
+                                name={member.type === 'lead' ? 'award' : member.type === 'helper' ? 'user-check' : 'briefcase'}
+                                size={16}
+                                color={member.type === 'lead' ? BRAND.yellow : member.type === 'helper' ? BRAND.blue : BRAND.green}
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 13, color: colors.text }} numberOfLines={1}>
+                                  {member.name}
+                                </Text>
+                                <View
+                                  style={{
+                                    backgroundColor:
+                                      member.type === 'lead'
+                                        ? BRAND.yellow
+                                        : member.type === 'helper'
+                                        ? BRAND.blue
+                                        : BRAND.green,
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 1.5,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 9, color: '#fff' }}>
+                                    {member.type === 'lead' ? 'LEAD' : member.type === 'helper' ? 'HELPER' : 'CASUAL'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                                {member.phone || 'No phone registered'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {member.phone ? (
+                            <TouchableOpacity
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                borderWidth: 1,
+                                borderColor: BRAND.green + '40',
+                                marginLeft: 8,
+                              }}
+                              onPress={() => Linking.openURL(`tel:${member.phone?.replace(/[^0-9+]/g, '')}`)}
+                              activeOpacity={0.7}
+                            >
+                              <Feather name="phone" size={16} color={BRAND.green} />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {schedule && userLoc && (
+                  <View style={{ height: 180, borderRadius: 12, overflow: 'hidden', marginBottom: 16, marginTop: 8, borderWidth: 1, borderColor: colors.cardBorder }}>
+                    <MapView provider={'google'} style={{ flex: 1 }} initialRegion={{ latitude: userLoc.lat, longitude: userLoc.lon, latitudeDelta: Math.abs((schedule.geofence_lat || userLoc.lat) - userLoc.lat) * 2.5 || 0.05, longitudeDelta: Math.abs((schedule.geofence_lon || userLoc.lon) - userLoc.lon) * 2.5 || 0.05 }}>
+                      <Marker coordinate={{latitude: userLoc.lat, longitude: userLoc.lon}} pinColor='blue' />
+                      {schedule.geofence_lat && schedule.geofence_lon && (
+                        <>
+                          <Marker coordinate={{latitude: schedule.geofence_lat, longitude: schedule.geofence_lon}} pinColor='red' />
+                          <Polyline coordinates={[{latitude: userLoc.lat, longitude: userLoc.lon}, {latitude: schedule.geofence_lat, longitude: schedule.geofence_lon}]} strokeColor={colors.brandBlue} strokeWidth={4} lineDashPattern={[10, 10]} />
+                        </>
+                      )}
+                    </MapView>
+                  </View>
+                )}
+
+                <TouchableOpacity 
+                  style={[styles.submitBtn, { backgroundColor: colors.brandBlue, marginTop: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }]} 
+                  onPress={() => {
+                    if (schedule?.location) {
+                      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(schedule.location)}`);
+                    } else {
+                      Linking.openURL('https://www.google.com/maps');
+                    }
+                    setDispatchVisible(false);
+                  }}
+                >
+                  <Feather name="navigation" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.submitBtnText}>Acknowledge & Go</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </RNModal>
+
+        {/* NOTIFICATION DETAILS MODAL (SEPARATED FOR ANIMATION) */}
+        <RNModal 
+          isVisible={!!selectedNotif} 
+          onBackdropPress={() => setSelectedNotif(null)} 
+          onBackButtonPress={() => setSelectedNotif(null)} 
+          onSwipeComplete={() => setSelectedNotif(null)} 
+          swipeDirection={undefined} 
+          propagateSwipe={true} 
+          swipeThreshold={50} 
+          style={{ margin: 0, justifyContent: 'flex-end' }}
+        >
+          <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: 60, paddingHorizontal: 20 }}>
+            {selectedNotif && (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+                  <TouchableOpacity onPress={() => setSelectedNotif(null)} style={{ padding: 8, marginLeft: -8 }}>
+                    <Feather name="arrow-left" size={24} color={colors.text} />
+                  </TouchableOpacity>
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginLeft: 8 }}>Notification Details</Text>
+                </View>
+                
+                <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: colors.cardBorder }}>
+                  {/* Category & Status Badges */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={[styles.notifPill, { 
+                        backgroundColor: isDark ? (selectedNotif.categoryBgDark || 'rgba(59, 130, 246, 0.2)') : (selectedNotif.categoryBgLight || '#EFF6FF'),
+                        borderColor: (selectedNotif.categoryColor || colors.brandBlue) + '40'
+                      }]}>
+                        <Text style={[styles.notifPillText, { color: selectedNotif.categoryColor || colors.brandBlue }]}>
+                          {(selectedNotif.category || 'NOTICE').toUpperCase()}
+                        </Text>
+                      </View>
+                      {!!selectedNotif.statusTag && (
+                        <View style={[styles.notifStatusPill, { 
+                          backgroundColor: selectedNotif.statusTag === 'Approved' ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5') :
+                                          selectedNotif.statusTag === 'Refused' ? (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2') :
+                                          (isDark ? colors.subCard : '#F1F5F9')
+                        }]}>
+                          <Text style={[styles.notifStatusText, { 
+                            color: selectedNotif.statusTag === 'Approved' ? '#10B981' :
+                                   selectedNotif.statusTag === 'Refused' ? '#EF4444' :
+                                   colors.textSubtle
+                          }]}>
+                            {selectedNotif.statusTag}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textSubtle }}>
+                      {selectedNotif.time}
+                    </Text>
+                  </View>
+
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginBottom: 8 }}>
+                    {selectedNotif.title}
                   </Text>
+
+                  {selectedNotif.reviewer && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 6 }}>
+                      <Feather name="user-check" size={14} color={colors.textSubtle} />
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textSubtle }}>
+                        Reviewed by: <Text style={{ color: colors.text, fontFamily: 'DMSans-Bold' }}>{selectedNotif.reviewer}</Text>
+                      </Text>
+                    </View>
+                  )}
+                  
+                  <View style={[styles.payslipDivider, { backgroundColor: isDark ? colors.border : '#E2E8F0', marginVertical: 12 }]} />
+                  
+                  <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 260 }}>
+                    <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: colors.textMuted, lineHeight: 24 }}>
+                      {selectedNotif.desc}
+                    </Text>
+                  </ScrollView>
+
+                  {/* Direct Deep-Linking Action Button */}
+                  {selectedNotif.ticketId ? (
+                    <TouchableOpacity 
+                      style={[styles.submitBtn, { backgroundColor: colors.brandBlue, marginTop: 20 }]} 
+                      onPress={() => {
+                        const tId = selectedNotif.ticketId;
+                        setSelectedNotif(null);
+                        setSelectedChatTicketId(tId);
+                        setNotifVisible(false);
+                        setSupportModalVisible(true);
+                      }}
+                    >
+                      <Feather name="message-square" size={16} color="#fff" style={{ marginRight: 8 }} />
+                      <Text style={styles.submitBtnText}>Open in HR Chat</Text>
+                    </TouchableOpacity>
+                  ) : selectedNotif.actionType === 'dispatch' ? (
+                    <TouchableOpacity 
+                      style={[styles.submitBtn, { backgroundColor: colors.brandBlue, marginTop: 20 }]} 
+                      onPress={() => {
+                        setSelectedNotif(null);
+                        setNotifVisible(false);
+                        setDispatchVisible(true);
+                      }}
+                    >
+                      <Feather name="navigation" size={16} color="#fff" style={{ marginRight: 8 }} />
+                      <Text style={styles.submitBtnText}>View Dispatch</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </>
             )}
           </View>
-        </Modal>
+        </RNModal>
 
         {/* EQUIPMENT MODAL */}
-        <Modal visible={equipModalVisible} transparent={true} animationType="slide">
+        <RNModal 
+          isVisible={equipModalVisible}   
+          onBackdropPress={() => setEquipModalVisible(false)} 
+          onBackButtonPress={() => setEquipModalVisible(false)} 
+          onSwipeComplete={() => setEquipModalVisible(false)} 
+          swipeDirection={['down']} 
+          propagateSwipe={true} 
+          swipeThreshold={50} 
+          style={{ margin: 0, justifyContent: 'flex-end' }}
+        >
           <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '80%' }]}>
-              <View style={styles.sheetHandle} />
+            <View style={[styles.profileSheet, { height: '82%', backgroundColor: colors.bg }]}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>My Equipment</Text>
-                <TouchableOpacity onPress={() => setEquipModalVisible(false)}>
-                  <Feather name="x" size={24} color="#64748B" />
+                <View>
+                  <Text style={[styles.modalTitle, { color: colors.text }]}>My Equipment</Text>
+                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                    Assigned company tools & equipment custody
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setEquipModalVisible(false)} style={{ padding: 4 }}>
+                  <Feather name="x" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               
@@ -1297,175 +2615,156 @@ export default function HomeScreen() {
                   data={tools}
                   keyExtractor={(item) => item.id}
                   showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}
+                  contentContainerStyle={{ paddingBottom: 32, paddingTop: 12 }}
                   ListEmptyComponent={() => (
-                    <View style={{ padding: 32, alignItems: 'center' }}>
-                      <Feather name="tool" size={48} color="#CBD5E1" style={{ marginBottom: 16 }} />
-                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: '#64748B', textAlign: 'center' }}>
-                        You currently have no equipment checked out.
+                    <View style={{ padding: 40, alignItems: 'center' }}>
+                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: isDark ? '#1E293B' : '#F1F5F9', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                        <Feather name="tool" size={28} color={colors.textMuted} />
+                      </View>
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 15, color: colors.text, textAlign: 'center', marginBottom: 6 }}>
+                        No Equipment Assigned
+                      </Text>
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 18 }}>
+                        You currently have no tools or machinery checked out under your custody.
                       </Text>
                     </View>
                   )}
-                  renderItem={({ item }) => (
-                    <View style={styles.equipItem}>
-                      <View style={styles.equipImagePlaceholder}>
-                        {item.tool_catalog?.image_url ? (
-                          <Image source={{ uri: item.tool_catalog.image_url }} style={styles.equipImg} />
-                        ) : (
-                          <Feather name="tool" size={24} color="#94A3B8" />
-                        )}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.equipTitle}>{item.tool_catalog?.name || 'Unknown Tool'}</Text>
-                        <Text style={styles.equipSub}>Qty: {item.quantity}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                          <View style={[styles.equipStatusBadge, item.status === 'borrowed' ? styles.statusActive : styles.statusOverdue]}>
-                            <Text style={[styles.equipStatusText, item.status === 'borrowed' ? styles.textActive : styles.textOverdue]}>
-                              {item.status.toUpperCase()}
+                  renderItem={({ item }) => {
+                    const isCheckedOut = item.status === 'checked_out';
+                    const daysOut = item.handed_over_at
+                      ? Math.floor(Math.abs(Date.now() - new Date(item.handed_over_at).getTime()) / (1000 * 60 * 60 * 24))
+                      : 0;
+
+                    return (
+                      <View style={[
+                        styles.equipItem, 
+                        { 
+                          backgroundColor: colors.card, 
+                          borderColor: isCheckedOut ? (isDark ? '#334155' : '#E2E8F0') : (isDark ? '#1E293B' : '#F1F5F9'),
+                          opacity: isCheckedOut ? 1 : 0.8,
+                          marginBottom: 12,
+                          borderRadius: 16,
+                          padding: 14,
+                        }
+                      ]}>
+                        <View style={[styles.equipImagePlaceholder, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC' }]}>
+                          {item.tool_catalog?.image_url ? (
+                            <Image source={{ uri: item.tool_catalog.image_url }} style={styles.equipImg} />
+                          ) : (
+                            <Feather name="tool" size={24} color="#94A3B8" />
+                          )}
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <Text style={[styles.equipTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+                              {item.tool_catalog?.name || 'Equipment'}
                             </Text>
+                            <View style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                              borderRadius: 6,
+                              backgroundColor: isCheckedOut ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5') : (isDark ? '#334155' : '#F1F5F9'),
+                              borderWidth: 1,
+                              borderColor: isCheckedOut ? '#10B981' : '#CBD5E1',
+                            }}>
+                              <Text style={{
+                                fontSize: 10,
+                                fontFamily: 'DMSans-Bold',
+                                color: isCheckedOut ? '#10B981' : '#64748B',
+                              }}>
+                                {isCheckedOut ? 'IN CUSTODY' : item.status.toUpperCase()}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                            {item.tool_catalog?.category && (
+                              <Text style={{ fontSize: 11, fontFamily: 'DMSans-Medium', color: colors.textMuted }}>
+                                {item.tool_catalog.category}
+                              </Text>
+                            )}
+                            {item.tool_catalog?.serial_number && (
+                              <Text style={{ fontSize: 10, fontFamily: 'DMSans-Medium', color: isDark ? '#94A3B8' : '#64748B', backgroundColor: isDark ? '#1E293B' : '#F1F5F9', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                                SN: {item.tool_catalog.serial_number}
+                              </Text>
+                            )}
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                            <Text style={{ fontSize: 11, fontFamily: 'DMSans-Medium', color: colors.textMuted }}>
+                              Qty: {item.quantity || 1} • {isCheckedOut ? `${daysOut}d in custody` : `Returned ${item.returned_at ? new Date(item.returned_at).toLocaleDateString() : ''}`}
+                            </Text>
+
+                            {isCheckedOut && (
+                              <TouchableOpacity 
+                                onPress={() => handleReportToolIssue(item)}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                  borderRadius: 8,
+                                  backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2',
+                                  borderWidth: 1,
+                                  borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : '#FEE2E2',
+                                }}
+                              >
+                                <Feather name="alert-circle" size={11} color="#EF4444" />
+                                <Text style={{ fontSize: 10, fontFamily: 'DMSans-Bold', color: '#EF4444' }}>
+                                  Report Issue
+                                </Text>
+                              </TouchableOpacity>
+                            )}
                           </View>
                         </View>
                       </View>
-                    </View>
-                  )}
+                    );
+                  }}
                 />
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* SUPPORT MODAL */}
-        <Modal visible={supportModalVisible} transparent={true} animationType="slide">
-          <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '90%' }]}>
-              <View style={styles.sheetHandle} />
-              
-              <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>{createTicketMode ? 'New Ticket' : 'Help & Support'}</Text>
-                <TouchableOpacity onPress={() => {
-                  if (createTicketMode) {
-                    setCreateTicketMode(false);
-                  } else {
-                    setSupportModalVisible(false);
-                  }
-                }}>
-                  <Feather name={createTicketMode ? "arrow-left" : "x"} size={24} color="#64748B" />
-                </TouchableOpacity>
-              </View>
-
-              {createTicketMode ? (
-                /* CREATE TICKET MODE */
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 16 }}>
-                  <Text style={styles.inputLabel}>Title</Text>
-                  <TextInput 
-                    style={styles.inputField}
-                    placeholder="Briefly describe the issue..."
-                    placeholderTextColor="#94A3B8"
-                    value={ticketForm.title}
-                    onChangeText={(text) => setTicketForm({...ticketForm, title: text})}
-                  />
-                  
-                  <Text style={styles.inputLabel}>Category</Text>
-                  <View style={styles.categoryPills}>
-                    {TICKET_CATEGORIES.map(cat => (
-                      <TouchableOpacity 
-                        key={cat}
-                        style={[styles.categoryPill, ticketForm.category === cat && styles.categoryPillActive]}
-                        onPress={() => setTicketForm({...ticketForm, category: cat})}
-                      >
-                        <Text style={[styles.categoryPillText, ticketForm.category === cat && styles.categoryPillTextActive]}>{cat}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <Text style={styles.inputLabel}>Description</Text>
-                  <TextInput 
-                    style={[styles.inputField, { height: 120, textAlignVertical: 'top' }]}
-                    placeholder="Provide detailed information..."
-                    placeholderTextColor="#94A3B8"
-                    multiline
-                    value={ticketForm.description}
-                    onChangeText={(text) => setTicketForm({...ticketForm, description: text})}
-                  />
-
-                  <TouchableOpacity 
-                    style={[styles.submitBtn, isSubmittingTicket && { opacity: 0.7 }]}
-                    onPress={submitTicket}
-                    disabled={isSubmittingTicket}
-                  >
-                    {isSubmittingTicket ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.submitBtnText}>Submit Ticket</Text>
-                    )}
-                  </TouchableOpacity>
-                </ScrollView>
-              ) : (
-                /* LIST TICKETS MODE */
-                <>
-                  <TouchableOpacity style={styles.newTicketBtn} onPress={() => setCreateTicketMode(true)}>
-                    <Feather name="plus" size={20} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={styles.newTicketBtnText}>Create New Ticket</Text>
-                  </TouchableOpacity>
-
-                  {ticketsLoading ? (
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                      <ActivityIndicator size="large" color={BRAND.blue} />
-                    </View>
-                  ) : (
-                    <FlatList
-                      data={tickets}
-                      keyExtractor={(item) => item.id}
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}
-                      ListEmptyComponent={() => (
-                        <View style={{ padding: 32, alignItems: 'center' }}>
-                          <Feather name="check-circle" size={48} color="#CBD5E1" style={{ marginBottom: 16 }} />
-                          <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: '#64748B', textAlign: 'center' }}>
-                            You have no open support tickets!
-                          </Text>
-                        </View>
-                      )}
-                      renderItem={({ item }) => (
-                        <TouchableOpacity style={styles.ticketItem} onPress={() => setSelectedTicket(item)} activeOpacity={0.7}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.ticketTitle}>{item.title}</Text>
-                            <Text style={styles.ticketSub}>{item.category} • {new Date(item.created_at).toLocaleDateString()}</Text>
-                          </View>
-                          <View style={[styles.ticketBadge, item.status === 'open' ? styles.badgeOpen : styles.badgeResolved]}>
-                            <Text style={[styles.ticketBadgeText, item.status === 'open' ? styles.badgeTextOpen : styles.badgeTextResolved]}>
-                              {item.status.toUpperCase()}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      )}
-                    />
-                  )}
-                </>
-              )}
-            </View>
-          </View>
-        </Modal>
+        <RNModal 
+          isVisible={supportModalVisible}   
+          onBackdropPress={() => { setSupportModalVisible(false); setSelectedChatTicketId(null); setAiInitialQuery(''); setAiInitialTicketData(null); }} 
+          onBackButtonPress={() => { setSupportModalVisible(false); setSelectedChatTicketId(null); setAiInitialQuery(''); setAiInitialTicketData(null); }} 
+          onSwipeComplete={() => { setSupportModalVisible(false); setSelectedChatTicketId(null); setAiInitialQuery(''); setAiInitialTicketData(null); }} 
+          swipeDirection={undefined} 
+          propagateSwipe={true} 
+          swipeThreshold={50} 
+          style={{ margin: 0, justifyContent: 'flex-end' }}
+        >
+          <SupportChatUI 
+            onClose={() => { setSupportModalVisible(false); setSelectedChatTicketId(null); setAiInitialQuery(''); setAiInitialTicketData(null); }} 
+            initialQuery={aiInitialQuery} 
+            ticketId={selectedChatTicketId || undefined} 
+            initialTicketData={aiInitialTicketData}
+          />
+        </RNModal>
 
         {/* SUPPORT TICKET DETAILS MODAL (SEPARATED FOR ANIMATION) */}
-        <Modal visible={!!selectedTicket} transparent={true} animationType="slide">
-          <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>
+        <RNModal isVisible={!!selectedTicket}   onBackdropPress={() => setSelectedTicket(null)} onBackButtonPress={() => setSelectedTicket(null)} onSwipeComplete={() => setSelectedTicket(null)} swipeDirection={undefined} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
+          <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: 60, paddingHorizontal: 24 }}>
             {/* --- DETAILED VIEW: TICKET --- */}
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
               <TouchableOpacity onPress={() => setSelectedTicket(null)} style={{ padding: 8, marginLeft: -8 }}>
-                <Feather name="arrow-left" size={24} color="#0F172A" />
+                <Feather name="arrow-left" size={24} color={colors.text} />
               </TouchableOpacity>
-              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginLeft: 8 }}>Ticket Details</Text>
+              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginLeft: 8 }}>Ticket Details</Text>
             </View>
             
-            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#E2E8F0', flex: 1, marginBottom: 40 }}>
+            <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 24, borderWidth: 1, borderColor: colors.cardBorder, flex: 1, marginBottom: 40 }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 4 }}>
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text, marginBottom: 4 }}>
                     {selectedTicket?.title}
                   </Text>
-                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#64748B' }}>
-                    {selectedTicket?.category} • {selectedTicket?.created_at ? new Date(selectedTicket.created_at).toLocaleString() : ''}
+                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: colors.textSubtle }}>
+                    {selectedTicket?.category} • {selectedTicket?.created_at ? formatRelativeTime(selectedTicket.created_at) : ''}
                   </Text>
                 </View>
                 <View style={[styles.ticketBadge, selectedTicket?.status === 'open' ? styles.badgeOpen : styles.badgeResolved]}>
@@ -1475,27 +2774,27 @@ export default function HomeScreen() {
                 </View>
               </View>
               
-              <View style={styles.payslipDivider} />
+              <View style={[styles.payslipDivider, { backgroundColor: isDark ? colors.border : '#E2E8F0', marginVertical: 12 }]} />
               
               <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 8 }}>
-                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: '#0F172A', marginBottom: 8 }}>DESCRIPTION</Text>
-                <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: '#475569', lineHeight: 22 }}>
+                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.text, marginBottom: 8 }}>DESCRIPTION</Text>
+                <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 15, color: colors.textMuted, lineHeight: 22 }}>
                   {selectedTicket?.description}
                 </Text>
               </ScrollView>
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* UPDATES MODAL */}
-        <Modal visible={updatesModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={updatesModalVisible}   onBackdropPress={() => setUpdatesModalVisible(false)} onBackButtonPress={() => setUpdatesModalVisible(false)} onSwipeComplete={() => setUpdatesModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
             <View style={[styles.profileSheet, { height: '85%' }]}>
               <View style={styles.sheetHandle} />
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>Company Updates</Text>
                 <TouchableOpacity onPress={() => setUpdatesModalVisible(false)}>
-                  <Feather name="x" size={24} color="#64748B" />
+                  <Feather name="x" size={24} color={colors.textSubtle} />
                 </TouchableOpacity>
               </View>
 
@@ -1511,131 +2810,99 @@ export default function HomeScreen() {
                   contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}
                   ListEmptyComponent={() => (
                     <View style={{ padding: 32, alignItems: 'center' }}>
-                      <Feather name="radio" size={48} color="#CBD5E1" style={{ marginBottom: 16 }} />
-                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: '#64748B', textAlign: 'center' }}>
+                      <Feather name="radio" size={48} color={isDark ? '#334155' : '#CBD5E1'} style={{ marginBottom: 16 }} />
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.textSubtle, textAlign: 'center' }}>
                         No new announcements right now.
                       </Text>
                     </View>
                   )}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity 
-                      style={styles.updateItem}
-                      activeOpacity={0.7}
-                      onPress={() => setSelectedUpdate(item)}
-                    >
-                      <View style={styles.updateIconWrap}>
-                        <Feather name="radio" size={20} color={BRAND.blue} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.updateTitle}>{item.title}</Text>
+                  renderItem={({ item }) => {
+                    const isExpanded = !!expandedUpdates[item.id];
+                    const isLongText = (item.content || '').length > 150;
+                    const combinedText = ((item.title || '') + ' ' + (item.content || '')).toLowerCase();
+                    const isUrgent = combinedText.includes('urgent') || 
+                                     combinedText.includes('critical') ||
+                                     combinedText.includes('required') ||
+                                     combinedText.includes('important');
 
-                        {/* Priority & Edit Badge Bar */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, marginBottom: 4 }}>
-                          <View style={{ 
-                            backgroundColor: item.priority === 'urgent' ? '#FEF2F2' : item.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
-                            paddingHorizontal: 8, 
-                            paddingVertical: 2, 
-                            borderRadius: 6,
-                            borderWidth: 1,
-                            borderColor: item.priority === 'urgent' ? '#FCA5A5' : item.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
-                          }}>
-                            <Text style={{ 
-                              fontFamily: 'DMSans-Bold', 
-                              fontSize: 10, 
-                              color: item.priority === 'urgent' ? '#DC2626' : item.priority === 'policy' ? '#2563EB' : '#059669' 
-                            }}>
-                              {item.priority === 'urgent' ? '🔴 URGENT ALERT' : item.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
-                            </Text>
-                          </View>
-                          {item.is_edited && (
-                            <View style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#E9D5FF' }}>
-                              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: '#7E22CE' }}>✏️ EDITED</Text>
+                    return (
+                      <View style={styles.updateModernCard}>
+                        {/* Header: Avatar, Name, Priority Badge */}
+                        <View style={styles.updateHeader}>
+                          <View style={styles.updateAuthorRow}>
+                            <View style={styles.updateAvatar}>
+                              <Feather name="shield" size={18} color={colors.brandBlue} />
                             </View>
-                          )}
+                            <View>
+                              <Text style={styles.updateAuthorName}>{item.profiles?.full_name || 'Operations HQ'}</Text>
+                              <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textSubtle }}>
+                                {formatRelativeTime(item.created_at)}
+                              </Text>
+                            </View>
+                          </View>
+                          
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={[styles.updatePriorityBadge, {
+                              backgroundColor: (item.priority === 'urgent' || isUrgent)
+                                ? (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2')
+                                : item.priority === 'policy'
+                                ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF')
+                                : (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5')
+                            }]}>
+                              <Text style={[styles.updatePriorityText, {
+                                color: (item.priority === 'urgent' || isUrgent) ? '#EF4444' : item.priority === 'policy' ? '#2563EB' : '#10B981'
+                              }]}>
+                                {(item.priority === 'urgent' || isUrgent) ? 'URGENT ALERT' : item.priority === 'policy' ? 'POLICY NOTICE' : 'GENERAL NOTICE'}
+                              </Text>
+                            </View>
+                            {item.is_edited && (
+                              <View style={[styles.updatePriorityBadge, { backgroundColor: isDark ? 'rgba(168, 85, 247, 0.2)' : '#F3E8FF' }]}>
+                                <Text style={[styles.updatePriorityText, { color: '#7E22CE' }]}>EDITED</Text>
+                              </View>
+                            )}
+                          </View>
                         </View>
 
-                        <Text style={styles.updateSub}>
-                          {item.author?.full_name || item.profiles?.full_name || 'Admin'} • {new Date(item.created_at).toLocaleDateString()}
+                        {/* Title */}
+                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.text, marginBottom: 8, lineHeight: 22 }}>
+                          {item.title}
                         </Text>
-                        <Text style={styles.updateContent} numberOfLines={2}>
+
+                        {/* Content Body */}
+                        <Text 
+                          style={{ fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted, lineHeight: 22 }}
+                          numberOfLines={isExpanded ? undefined : 3}
+                        >
                           {item.content}
                         </Text>
+
+                        {/* Expand / Collapse toggle */}
+                        {isLongText && (
+                          <TouchableOpacity 
+                            style={styles.updateExpandBtn}
+                            onPress={() => {
+                              setExpandedUpdates(prev => ({ ...prev, [item.id]: !prev[item.id] }));
+                            }}
+                          >
+                            <Text style={styles.updateExpandText}>
+                              {isExpanded ? 'Show less' : 'Read full update'}
+                            </Text>
+                            <Feather name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={colors.brandBlue} />
+                          </TouchableOpacity>
+                        )}
                       </View>
-                    </TouchableOpacity>
-                  )}
+                    );
+                  }}
                 />
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
-        {/* UPDATES DETAILS MODAL (SEPARATED FOR ANIMATION) */}
-        <Modal visible={!!selectedUpdate} transparent={true} animationType="slide">
-          <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>
-            {/* --- DETAILED VIEW: UPDATE --- */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
-              <TouchableOpacity onPress={() => setSelectedUpdate(null)} style={{ padding: 8, marginLeft: -8 }}>
-                <Feather name="arrow-left" size={24} color="#0F172A" />
-              </TouchableOpacity>
-              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginLeft: 8 }}>Announcement</Text>
-            </View>
-            
-            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#E2E8F0', flex: 1, marginBottom: 40 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <View style={[styles.updateIconWrap, { backgroundColor: '#EFF6FF', marginRight: 16 }]}>
-                  <Feather name="radio" size={24} color={BRAND.blue} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 4 }}>
-                    {selectedUpdate?.title}
-                  </Text>
-
-                  {/* Priority & Edit Badge Bar */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <View style={{ 
-                      backgroundColor: selectedUpdate?.priority === 'urgent' ? '#FEF2F2' : selectedUpdate?.priority === 'policy' ? '#EFF6FF' : '#ECFDF5', 
-                      paddingHorizontal: 8, 
-                      paddingVertical: 3, 
-                      borderRadius: 6,
-                      borderWidth: 1,
-                      borderColor: selectedUpdate?.priority === 'urgent' ? '#FCA5A5' : selectedUpdate?.priority === 'policy' ? '#BFDBFE' : '#A7F3D0'
-                    }}>
-                      <Text style={{ 
-                        fontFamily: 'DMSans-Bold', 
-                        fontSize: 10, 
-                        color: selectedUpdate?.priority === 'urgent' ? '#DC2626' : selectedUpdate?.priority === 'policy' ? '#2563EB' : '#059669' 
-                      }}>
-                        {selectedUpdate?.priority === 'urgent' ? '🔴 URGENT ALERT' : selectedUpdate?.priority === 'policy' ? '🔵 POLICY NOTICE' : '🟢 GENERAL NOTICE'}
-                      </Text>
-                    </View>
-                    {selectedUpdate?.is_edited && (
-                      <View style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#E9D5FF' }}>
-                        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: '#7E22CE' }}>
-                          ✏️ Edited by {selectedUpdate?.editor?.full_name || 'Admin'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#64748B' }}>
-                    {selectedUpdate?.author?.full_name || selectedUpdate?.profiles?.full_name || 'Admin'} • {selectedUpdate?.created_at ? new Date(selectedUpdate.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                  </Text>
-                </View>
-              </View>
-              
-              <View style={styles.payslipDivider} />
-              
-              <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 8 }}>
-                <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 16, color: '#334155', lineHeight: 24 }}>
-                  {selectedUpdate?.content}
-                </Text>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
+        
 
         {/* WORK ORDERS MODAL */}
-        <Modal visible={workOrdersModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={workOrdersModalVisible}   onBackdropPress={() => setWorkOrdersModalVisible(false)} onBackButtonPress={() => setWorkOrdersModalVisible(false)} onSwipeComplete={() => setWorkOrdersModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
             <View style={[styles.profileSheet, { height: '85%' }]}>
               <View style={styles.sheetHandle} />
@@ -1688,24 +2955,24 @@ export default function HomeScreen() {
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* SCHEDULES MODAL (LIST VIEW) */}
-        <Modal visible={schedulesModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={schedulesModalVisible}   onBackdropPress={() => setSchedulesModalVisible(false)} onBackButtonPress={() => setSchedulesModalVisible(false)} onSwipeComplete={() => setSchedulesModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
-            <View style={[styles.profileSheet, { height: '85%' }]}>
-              <View style={styles.sheetHandle} />
+            <View style={[styles.profileSheet, { height: '85%', backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
               
               <View style={styles.modalHeaderRow}>
-                <Text style={styles.modalTitle}>My Schedules</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>My Schedules</Text>
                 <TouchableOpacity onPress={() => setSchedulesModalVisible(false)}>
-                  <Feather name="x" size={24} color="#64748B" />
+                  <Feather name="x" size={24} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
               {schedulesLoading ? (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                  <ActivityIndicator size="large" color={BRAND.blue} />
+                  <ActivityIndicator size="large" color={colors.brandBlue} />
                 </View>
               ) : (
                 <FlatList
@@ -1715,8 +2982,8 @@ export default function HomeScreen() {
                   contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}
                   ListEmptyComponent={() => (
                     <View style={{ padding: 32, alignItems: 'center' }}>
-                      <Feather name="calendar" size={48} color="#CBD5E1" style={{ marginBottom: 16 }} />
-                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: '#64748B', textAlign: 'center' }}>
+                      <Feather name="calendar" size={48} color={isDark ? '#334155' : '#CBD5E1'} style={{ marginBottom: 16 }} />
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.textSubtle, textAlign: 'center' }}>
                         You have no upcoming schedules.
                       </Text>
                     </View>
@@ -1744,20 +3011,20 @@ export default function HomeScreen() {
                           </Text>
                           
                           <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                            <View style={{ backgroundColor: '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8, flexDirection: 'row', alignItems: 'center' }}>
-                              <Feather name="clock" size={12} color={BRAND.blue} style={{ marginRight: 4 }} />
-                              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: BRAND.blue }}>
+                            <View style={{ backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8, flexDirection: 'row', alignItems: 'center' }}>
+                              <Feather name="clock" size={12} color={colors.brandBlue} style={{ marginRight: 4 }} />
+                              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.brandBlue }}>
                                 {item.start_time ? new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}
                               </Text>
                             </View>
-                            <View style={{ backgroundColor: '#F8FAFC', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
-                              <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: '#64748B' }}>
+                            <View style={{ backgroundColor: isDark ? colors.subCard : '#F8FAFC', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
+                              <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textMuted }}>
                                 {item.start_time ? new Date(item.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '---'}
                               </Text>
                             </View>
                           </View>
                         </View>
-                        <Feather name="chevron-right" size={20} color="#CBD5E1" />
+                        <Feather name="chevron-right" size={20} color={isDark ? '#475569' : '#CBD5E1'} />
                       </View>
                     </TouchableOpacity>
                   )}
@@ -1765,118 +3032,245 @@ export default function HomeScreen() {
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* SCHEDULES DETAILS MODAL (SEPARATED FOR ANIMATION) */}
-        <Modal visible={!!selectedSchedule} transparent={true} animationType="slide">
-          <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>
+        <RNModal isVisible={!!selectedSchedule}   onBackdropPress={() => setSelectedSchedule(null)} onBackButtonPress={() => setSelectedSchedule(null)} onSwipeComplete={() => setSelectedSchedule(null)} swipeDirection={undefined} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
+          <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: 60, paddingHorizontal: 20 }}>
             {/* --- DETAILED VIEW: SCHEDULE --- */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
               <TouchableOpacity onPress={() => setSelectedSchedule(null)} style={{ padding: 8, marginLeft: -8 }}>
-                <Feather name="arrow-left" size={24} color="#0F172A" />
+                <Feather name="arrow-left" size={24} color={colors.text} />
               </TouchableOpacity>
-              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginLeft: 8 }}>Schedule Details</Text>
+              <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginLeft: 8 }}>Schedule Details</Text>
             </View>
             
-            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#E2E8F0' }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 4 }}>
-                    {selectedSchedule?.client_name}
-                  </Text>
-                  <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 14, color: '#64748B' }}>
-                    {selectedSchedule?.location}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+              <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: colors.cardBorder }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text, marginBottom: 4 }}>
+                      {selectedSchedule?.client_name}
+                    </Text>
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 14, color: colors.textMuted }}>
+                      {selectedSchedule?.location}
+                    </Text>
+                  </View>
+                  {selectedSchedule?.is_vip_hook && (
+                    <View style={{ backgroundColor: BRAND.yellow, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: '#fff' }}>VIP</Text>
+                    </View>
+                  )}
+                </View>
+                
+                <View style={styles.payslipDivider} />
+                
+                <View style={styles.payslipLine}>
+                  <Text style={styles.payslipLineLabel}>Start Time</Text>
+                  <Text style={styles.payslipLineValue}>
+                    {selectedSchedule?.start_time ? new Date(selectedSchedule.start_time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
                   </Text>
                 </View>
-                {selectedSchedule?.is_vip_hook && (
-                  <View style={{ backgroundColor: BRAND.yellow, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
-                    <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: '#fff' }}>VIP</Text>
+                
+                <View style={styles.payslipLine}>
+                  <Text style={styles.payslipLineLabel}>End Time</Text>
+                  <Text style={styles.payslipLineValue}>
+                    {selectedSchedule?.end_time ? new Date(selectedSchedule.end_time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
+                  </Text>
+                </View>
+                
+                <View style={styles.payslipDivider} />
+                
+                <View style={styles.payslipLine}>
+                  <Text style={styles.payslipLineLabel}>Attendance Mode</Text>
+                  <Text style={styles.payslipLineValue}>
+                    {selectedSchedule?.attendance_mode ? selectedSchedule.attendance_mode.toUpperCase() : 'STANDARD'}
+                  </Text>
+                </View>
+
+                {selectedSchedule?.attendance_tracking_mode && (
+                  <View style={styles.payslipLine}>
+                    <Text style={styles.payslipLineLabel}>Tracking</Text>
+                    <Text style={styles.payslipLineValue}>
+                      {selectedSchedule.attendance_tracking_mode.replace('_', ' ').toUpperCase()}
+                    </Text>
                   </View>
                 )}
-              </View>
-              
-              <View style={styles.payslipDivider} />
-              
-              <View style={styles.payslipLine}>
-                <Text style={styles.payslipLineLabel}>Start Time</Text>
-                <Text style={styles.payslipLineValue}>
-                  {selectedSchedule?.start_time ? new Date(selectedSchedule.start_time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
-                </Text>
-              </View>
-              
-              <View style={styles.payslipLine}>
-                <Text style={styles.payslipLineLabel}>End Time</Text>
-                <Text style={styles.payslipLineValue}>
-                  {selectedSchedule?.end_time ? new Date(selectedSchedule.end_time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
-                </Text>
-              </View>
-              
-              <View style={styles.payslipDivider} />
-              
-              <View style={styles.payslipLine}>
-                <Text style={styles.payslipLineLabel}>Attendance Mode</Text>
-                <Text style={styles.payslipLineValue}>
-                  {selectedSchedule?.attendance_mode ? selectedSchedule.attendance_mode.toUpperCase() : 'STANDARD'}
-                </Text>
-              </View>
 
-              {selectedSchedule?.attendance_tracking_mode && (
-                <View style={styles.payslipLine}>
-                  <Text style={styles.payslipLineLabel}>Tracking</Text>
-                  <Text style={styles.payslipLineValue}>
-                    {selectedSchedule.attendance_tracking_mode.replace('_', ' ').toUpperCase()}
-                  </Text>
+                {/* ASSIGNED FIELD CREW SECTION */}
+                <View style={{ marginTop: 12, paddingTop: 16, borderTopWidth: 1, borderTopColor: isDark ? colors.border : '#F1F5F9' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Feather name="users" size={16} color={colors.brandBlue} style={{ marginRight: 6 }} />
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.text }}>
+                        Assigned Field Crew
+                      </Text>
+                    </View>
+                    <View style={{ backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                      <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.brandBlue }}>
+                        {activeCrew.length} {activeCrew.length === 1 ? 'Worker' : 'Workers'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {loadingCrew ? (
+                    <ActivityIndicator size="small" color={colors.brandBlue} style={{ marginVertical: 12 }} />
+                  ) : activeCrew.length === 0 ? (
+                    <View style={{ padding: 12, borderRadius: 12, backgroundColor: isDark ? colors.subCard : '#F8FAFC', borderWidth: 1, borderColor: colors.cardBorder }}>
+                      <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted, textAlign: 'center' }}>
+                        Solo dispatch • No additional crew assigned
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 8 }}>
+                      {activeCrew.map((member) => (
+                        <View
+                          key={member.id + member.type}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 12,
+                            borderRadius: 12,
+                            backgroundColor: isDark ? colors.subCard : '#F8FAFC',
+                            borderWidth: 1,
+                            borderColor: colors.cardBorder,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                            <View
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                backgroundColor:
+                                  member.type === 'lead'
+                                    ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7')
+                                    : member.type === 'helper'
+                                    ? (isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF')
+                                    : (isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5'),
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: 10,
+                              }}
+                            >
+                              <Feather
+                                name={member.type === 'lead' ? 'award' : member.type === 'helper' ? 'user-check' : 'briefcase'}
+                                size={16}
+                                color={member.type === 'lead' ? BRAND.yellow : member.type === 'helper' ? BRAND.blue : BRAND.green}
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 13, color: colors.text }} numberOfLines={1}>
+                                  {member.name}
+                                </Text>
+                                <View
+                                  style={{
+                                    backgroundColor:
+                                      member.type === 'lead'
+                                        ? BRAND.yellow
+                                        : member.type === 'helper'
+                                        ? BRAND.blue
+                                        : BRAND.green,
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 1.5,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 9, color: '#fff' }}>
+                                    {member.type === 'lead' ? 'LEAD' : member.type === 'helper' ? 'HELPER' : 'CASUAL'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                                {member.phone || 'No phone registered'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {member.phone ? (
+                            <TouchableOpacity
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 18,
+                                backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                borderWidth: 1,
+                                borderColor: BRAND.green + '40',
+                                marginLeft: 8,
+                              }}
+                              onPress={() => Linking.openURL(`tel:${member.phone?.replace(/[^0-9+]/g, '')}`)}
+                              activeOpacity={0.7}
+                            >
+                              <Feather name="phone" size={16} color={BRAND.green} />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
-              )}
+                
+              </View>
               
-            </View>
-            
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: BRAND.blue, marginTop: 24, flexDirection: 'row', justifyContent: 'center' }]} onPress={() => safeAlert('Navigating', 'Opening Maps...')}>
-              <Feather name="navigation" size={20} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.submitBtnText}>Navigate to Site</Text>
-            </TouchableOpacity>
-            
+              <TouchableOpacity 
+                style={[styles.submitBtn, { backgroundColor: colors.brandBlue, marginTop: 20, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }]} 
+                onPress={() => {
+                  if (selectedSchedule?.location) {
+                    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedSchedule.location)}`);
+                  } else {
+                    safeAlert('Notice', 'No location specified for this schedule.');
+                  }
+                }}
+              >
+                <Feather name="navigation" size={20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.submitBtnText}>Navigate to Site</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* TIMESHEETS MODAL */}
-        <Modal visible={timesheetModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={timesheetModalVisible} onBackdropPress={() => { if(selectedTimeLog) setSelectedTimeLog(null); else setTimesheetModalVisible(false); }} onBackButtonPress={() => { if(selectedTimeLog) setSelectedTimeLog(null); else setTimesheetModalVisible(false); }} onSwipeComplete={() => { if(selectedTimeLog) setSelectedTimeLog(null); else setTimesheetModalVisible(false); }} swipeDirection={selectedTimeLog ? undefined : ['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           {selectedTimeLog ? (
-            <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>
+            <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: 60, paddingHorizontal: 24 }}>
               {/* --- DETAILED VIEW: TIMESHEET --- */}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
                 <TouchableOpacity onPress={() => setSelectedTimeLog(null)} style={{ padding: 8, marginLeft: -8 }}>
-                  <Feather name="arrow-left" size={24} color="#0F172A" />
+                  <Feather name="arrow-left" size={24} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginLeft: 8 }}>Time Log Details</Text>
+                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginLeft: 8 }}>Time Log Details</Text>
               </View>
               
-              <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, borderWidth: 1, borderColor: '#E2E8F0' }}>
-                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 4 }}>
-                  {new Date(selectedTimeLog.created_at).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()}
+              <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 24, borderWidth: 1, borderColor: colors.cardBorder }}>
+                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text, marginBottom: 4 }}>
+                  {new Date(selectedTimeLog.created_at || selectedTimeLog.app_time_in).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()}
                 </Text>
                 
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
-                  <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: selectedTimeLog.status === 'approved' || selectedTimeLog.status === 'verified' ? '#ECFDF5' : selectedTimeLog.status === 'pending_review' ? '#FFFBEB' : '#FEF2F2' }}>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: selectedTimeLog.status === 'approved' || selectedTimeLog.status === 'verified' ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5') : selectedTimeLog.status === 'pending_review' ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FFFBEB') : (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEF2F2') }}>
                     <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 10, color: selectedTimeLog.status === 'approved' || selectedTimeLog.status === 'verified' ? BRAND.green : selectedTimeLog.status === 'pending_review' ? BRAND.yellow : BRAND.red }}>
                       {selectedTimeLog.status ? selectedTimeLog.status.replace('_', ' ').toUpperCase() : 'UNKNOWN'}
                     </Text>
                   </View>
-                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: BRAND.blue, marginLeft: 12 }}>
+                  <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.brandBlue, marginLeft: 12 }}>
                     {selectedTimeLog.total_hours ? `${selectedTimeLog.total_hours} hrs` : '---'}
                   </Text>
                 </View>
                 
                 <View style={styles.payslipLine}>
                   <Text style={styles.payslipLineLabel}>Time In</Text>
-                  <Text style={styles.payslipLineValue}>
+                  <Text style={[styles.payslipLineValue, { color: colors.text }]}>
                     {selectedTimeLog.app_time_in ? new Date(selectedTimeLog.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}
                   </Text>
                 </View>
                 
                 <View style={styles.payslipLine}>
                   <Text style={styles.payslipLineLabel}>Time Out</Text>
-                  <Text style={styles.payslipLineValue}>
+                  <Text style={[styles.payslipLineValue, { color: colors.text }]}>
                     {selectedTimeLog.app_time_out ? new Date(selectedTimeLog.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Ongoing'}
                   </Text>
                 </View>
@@ -1885,35 +3279,48 @@ export default function HomeScreen() {
                 
                 <View style={styles.payslipLine}>
                   <Text style={styles.payslipLineLabel}>Geofence Status</Text>
-                  <Text style={[styles.payslipLineValue, { color: selectedTimeLog.geofence_status === 'passed' ? BRAND.green : BRAND.yellow }]}>
+                  <Text style={[styles.payslipLineValue, { color: selectedTimeLog.geofence_status === 'passed' || selectedTimeLog.geofence_status === 'inside' ? BRAND.green : BRAND.yellow }]}>
                     {selectedTimeLog.geofence_status ? selectedTimeLog.geofence_status.toUpperCase() : 'N/A'}
                   </Text>
                 </View>
                 
                 <View style={styles.payslipLine}>
                   <Text style={styles.payslipLineLabel}>Photo Status</Text>
-                  <Text style={styles.payslipLineValue}>
+                  <Text style={[styles.payslipLineValue, { color: colors.text }]}>
                     {selectedTimeLog.photo_status ? selectedTimeLog.photo_status.replace('_', ' ').toUpperCase() : 'N/A'}
                   </Text>
                 </View>
                 
                 <View style={styles.payslipLine}>
                   <Text style={styles.payslipLineLabel}>Manual Entry</Text>
-                  <Text style={styles.payslipLineValue}>
+                  <Text style={[styles.payslipLineValue, { color: colors.text }]}>
                     {selectedTimeLog.is_manual_entry ? 'YES' : 'NO'}
                   </Text>
                 </View>
                 
                 {selectedTimeLog.photo_url && (
                   <View style={{ marginTop: 24, alignItems: 'center' }}>
-                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B', marginBottom: 8 }}>Verification Photo</Text>
-                    <Image source={{ uri: selectedTimeLog.photo_url }} style={{ width: 120, height: 160, borderRadius: 12, backgroundColor: '#F1F5F9' }} resizeMode="cover" />
+                    <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted, marginBottom: 8 }}>Verification Photo</Text>
+                    <Image source={{ uri: selectedTimeLog.photo_url }} style={{ width: 120, height: 160, borderRadius: 12, backgroundColor: isDark ? colors.subCard : '#F1F5F9' }} resizeMode="cover" />
                   </View>
                 )}
                 
               </View>
               
-              <TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', marginTop: 24, flexDirection: 'row', justifyContent: 'center' }]} onPress={() => safeAlert('Dispute Logged', 'HR has been notified to review your timesheets.')}>
+              <TouchableOpacity 
+                style={[
+                  styles.submitBtn, 
+                  { 
+                    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2', 
+                    borderWidth: 1, 
+                    borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5', 
+                    marginTop: 24, 
+                    flexDirection: 'row', 
+                    justifyContent: 'center' 
+                  }
+                ]} 
+                onPress={() => handleDisputeTimeLog(selectedTimeLog)}
+              >
                 <Feather name="alert-circle" size={20} color={BRAND.red} style={{ marginRight: 8 }} />
                 <Text style={[styles.submitBtnText, { color: BRAND.red }]}>Dispute This Entry</Text>
               </TouchableOpacity>
@@ -1921,17 +3328,30 @@ export default function HomeScreen() {
             </View>
           ) : (
             <View style={styles.profileOverlay}>
-              <View style={[styles.profileSheet, { height: '85%' }]}>
-                <View style={styles.sheetHandle} />
+              <View style={[styles.profileSheet, { height: '85%', backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
+                <View style={[styles.sheetHandle, { backgroundColor: isDark ? '#334155' : '#CBD5E1' }]} />
                 
                 <View style={styles.modalHeaderRow}>
-                  <Text style={styles.modalTitle}>My Timesheets</Text>
+                  <Text style={[styles.modalTitle, { color: colors.text }]}>My Timesheets</Text>
                   <TouchableOpacity onPress={() => setTimesheetModalVisible(false)}>
-                    <Feather name="x" size={24} color="#64748B" />
+                    <Feather name="x" size={24} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 16, flexDirection: 'row', justifyContent: 'center' }]} onPress={() => safeAlert('Dispute Logged', 'HR has been notified to review your timesheets.')}>
+                <TouchableOpacity 
+                  style={[
+                    styles.submitBtn, 
+                    { 
+                      backgroundColor: isDark ? colors.subCard : '#FFFFFF', 
+                      borderWidth: 1, 
+                      borderColor: isDark ? colors.cardBorder : '#E2E8F0', 
+                      marginBottom: 16, 
+                      flexDirection: 'row', 
+                      justifyContent: 'center' 
+                    }
+                  ]} 
+                  onPress={() => handleDisputeTimeLog(null)}
+                >
                   <Feather name="alert-circle" size={20} color={BRAND.red} style={{ marginRight: 8 }} />
                   <Text style={[styles.submitBtnText, { color: BRAND.red }]}>Dispute Time Log</Text>
                 </TouchableOpacity>
@@ -1949,41 +3369,42 @@ export default function HomeScreen() {
                     ListEmptyComponent={() => (
                       <View style={{ padding: 32, alignItems: 'center' }}>
                         <Feather name="clock" size={48} color="#CBD5E1" style={{ marginBottom: 16 }} />
-                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: '#64748B', textAlign: 'center' }}>
+                        <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.textMuted, textAlign: 'center' }}>
                           No time logs found.
                         </Text>
                       </View>
                     )}
                     renderItem={({ item }) => (
                       <TouchableOpacity 
-                        style={styles.updateCard}
+                        style={[styles.updateCard, { borderBottomColor: colors.cardBorder }]}
                         activeOpacity={0.7}
                         onPress={() => setSelectedTimeLog(item)}
                       >
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.updateTitle}>
-                              {new Date(item.created_at).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()}
+                            <Text style={[styles.updateTitle, { color: colors.text }]}>
+                              {new Date(item.created_at || item.app_time_in).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()}
                             </Text>
-                            <Text style={[styles.updateSub, { marginTop: 4 }]}>
+                            <Text style={[styles.updateSub, { marginTop: 4, color: colors.textMuted }]}>
                               {item.app_time_in ? new Date(item.app_time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}
                               {' - '}
                               {item.app_time_out ? new Date(item.app_time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Ongoing'}
                             </Text>
                             
-                            <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                              <View style={{ backgroundColor: '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
-                                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: BRAND.blue }}>
+                            <View style={{ flexDirection: 'row', marginTop: 12, alignItems: 'center' }}>
+                              <View style={{ backgroundColor: isDark ? colors.subCard : '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8 }}>
+                                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.brandBlue }}>
                                   {item.total_hours ? `${item.total_hours} hrs` : '---'}
+                                </Text>
+                              </View>
+                              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: item.status === 'approved' || item.status === 'verified' ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5') : item.status === 'pending_review' ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FFFBEB') : (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEF2F2') }}>
+                                <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 10, color: item.status === 'approved' || item.status === 'verified' ? BRAND.green : item.status === 'pending_review' ? BRAND.yellow : BRAND.red }}>
+                                  {item.status ? item.status.replace('_', ' ').toUpperCase() : 'LOGGED'}
                                 </Text>
                               </View>
                             </View>
                           </View>
-                          <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: item.status === 'approved' || item.status === 'verified' ? '#ECFDF5' : item.status === 'pending_review' ? '#FFFBEB' : '#FEF2F2' }}>
-                            <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 10, color: item.status === 'approved' || item.status === 'verified' ? BRAND.green : item.status === 'pending_review' ? BRAND.yellow : BRAND.red }}>
-                              {item.status ? item.status.replace('_', ' ').toUpperCase() : 'UNKNOWN'}
-                            </Text>
-                          </View>
+                          <Feather name="chevron-right" size={20} color={colors.textMuted} />
                         </View>
                       </TouchableOpacity>
                     )}
@@ -1992,10 +3413,10 @@ export default function HomeScreen() {
               </View>
             </View>
           )}
-        </Modal>
+        </RNModal>
 
         {/* LEAVE MODAL */}
-        <Modal visible={leaveModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={leaveModalVisible}   onBackdropPress={() => setLeaveModalVisible(false)} onBackButtonPress={() => setLeaveModalVisible(false)} onSwipeComplete={() => setLeaveModalVisible(false)} swipeDirection={['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           <View style={styles.profileOverlay}>
             <View style={[styles.profileSheet, { height: '85%' }]}>
               <View style={styles.sheetHandle} />
@@ -2036,8 +3457,7 @@ export default function HomeScreen() {
                       </Text>
                     </TouchableOpacity>
                     {showStartDatePicker && (
-                      <DateTimePicker
-                        value={newLeaveStartDate ? new Date(newLeaveStartDate) : new Date()}
+                      <DateTimePicker value={newLeaveStartDate ? new Date(newLeaveStartDate) : new Date()} minimumDate={new Date()}
                         mode="date"
                         display="default"
                         onChange={(event, selectedDate) => {
@@ -2080,10 +3500,19 @@ export default function HomeScreen() {
                       placeholderTextColor="#94A3B8"
                       multiline
                       value={newLeaveReason}
-                      onChangeText={setNewLeaveReason}
-                    />
+                      onChangeText={setNewLeaveReason} />
 
-                    <TouchableOpacity style={[styles.submitBtn, { backgroundColor: BRAND.blue }]} onPress={submitLeaveRequest}>
+                      {newLeaveType === 'sick' && (
+                        <View style={{ marginBottom: 16 }}>
+                          <Text style={styles.inputLabel}>Medical Certificate (Max 5MB) *</Text>
+                          <TouchableOpacity style={[styles.textInput, { justifyContent: 'center', alignItems: 'center', flexDirection: 'row' }]} onPress={async () => { const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true }); if(!res.canceled) setLeaveFile(res.assets[0]); }}>
+                            <Feather name='upload-cloud' size={20} color='#94A3B8' style={{ marginRight: 8 }} />
+                            <Text style={{ fontFamily: 'DMSans-Medium', color: leaveFile ? '#0F172A' : '#94A3B8' }}>{leaveFile ? leaveFile.name : 'Tap to upload certificate'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      <TouchableOpacity style={[styles.submitBtn, { backgroundColor: BRAND.blue }]} onPress={submitLeaveRequest}>
                       <Text style={styles.submitBtnText}>Submit Leave Request</Text>
                     </TouchableOpacity>
                   </ScrollView>
@@ -2142,10 +3571,10 @@ export default function HomeScreen() {
               )}
             </View>
           </View>
-        </Modal>
+        </RNModal>
 
         {/* PAYSLIPS MODAL */}
-        <Modal visible={payslipsModalVisible} transparent={true} animationType="slide">
+        <RNModal isVisible={payslipsModalVisible} onBackdropPress={() => { if(selectedPayslip) setSelectedPayslip(null); else setPayslipsModalVisible(false); }} onBackButtonPress={() => { if(selectedPayslip) setSelectedPayslip(null); else setPayslipsModalVisible(false); }} onSwipeComplete={() => { if(selectedPayslip) setSelectedPayslip(null); else setPayslipsModalVisible(false); }} swipeDirection={selectedPayslip ? undefined : ['down']} propagateSwipe={true} swipeThreshold={50} style={{ margin: 0, justifyContent: 'flex-end' }}>
           {selectedPayslip ? (
             <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: 60, paddingHorizontal: 24 }}>              {/* --- DETAILED VIEW: MODERN BANKING RECEIPT --- */}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
@@ -2156,6 +3585,7 @@ export default function HomeScreen() {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
+                <ViewShot ref={payslipViewRef} options={{ format: 'jpg', quality: 0.9 }} style={{ backgroundColor: '#F8FAFC' }}>
                 
                 {/* Technocycle Branding */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
@@ -2250,15 +3680,26 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
+                </ViewShot>
+
                 {/* Footer */}
                 <View style={{ marginTop: 24, alignItems: 'center', paddingHorizontal: 24 }}>
                   <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 12, color: '#94A3B8', textAlign: 'center', lineHeight: 18 }}>
                     I acknowledge receiving the amount stated above and have no further claims for services rendered to TECHNOCYCLE CORPORATION.
                   </Text>
-                  
                   <TouchableOpacity 
-                    style={[styles.submitBtn, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', marginTop: 32, width: '100%' }]}
-                    onPress={() => safeAlert('Dispute Logged', 'HR has been notified of your payslip dispute.')}
+                    style={[styles.submitBtn, { backgroundColor: BRAND.blue, marginTop: 32, width: '100%' }]}
+                    onPress={downloadPayslip}
+                  >
+                    <Text style={[styles.submitBtnText, { color: '#FFF' }]}>Download Payslip</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[styles.submitBtn, { backgroundColor: '#fff', borderWidth: 1, borderColor: '#E2E8F0', marginTop: 16, width: '100%' }]}
+                    onPress={() => {
+                      setPayslipsModalVisible(false);
+                      setTimeout(() => setSupportModalVisible(true), 500);
+                    }}
                   >
                     <Text style={[styles.submitBtnText, { color: BRAND.red }]}>Dispute Payslip</Text>
                   </TouchableOpacity>
@@ -2269,7 +3710,8 @@ export default function HomeScreen() {
             <View style={styles.profileOverlay}>
               <View style={[styles.profileSheet, { height: '85%' }]}>
                 <View style={styles.sheetHandle} />
-                <>                  {/* --- LIST VIEW --- */}
+                <>
+                  {/* --- LIST VIEW --- */}
                   <View style={styles.modalHeaderRow}>
                     <Text style={styles.modalTitle}>My Payslips</Text>
                     <TouchableOpacity onPress={() => { setPayslipsModalVisible(false); setSelectedPayslip(null); }}>
@@ -2324,180 +3766,437 @@ export default function HomeScreen() {
               </View>
             </View>
           )}
-        </Modal>
+        </RNModal>
 
       </SafeAreaView>
     </View>
   );
 }
 
-const MenuGridItem = ({ icon, label, color, onPress, fontFamily }: { icon: any, label: string, color: string, onPress?: () => void, fontFamily?: string }) => (
-  <TouchableOpacity style={styles.gridItem} onPress={onPress}>
-    <View style={styles.gridIconCircle}>
-      <Feather name={icon} size={24} color={color} />
-    </View>
-    <Text style={[styles.gridItemText, fontFamily ? { fontFamily } : {}]}>{label}</Text>
-  </TouchableOpacity>
-);
+const MenuGridItem = ({ icon, label, color, onPress, fontFamily }: { icon: any, label: string, color: string, onPress?: () => void, fontFamily?: string }) => {
+  const { isDark, colors } = useAppTheme();
+  return (
+    <TouchableOpacity style={{ width: '33.33%', alignItems: 'center', marginBottom: 12, marginTop: 4 }} onPress={onPress}>
+      <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? colors.subCard : '#fff', justifyContent: 'center', alignItems: 'center', marginBottom: 12 }}>
+        <Feather name={icon} size={24} color={color} />
+      </View>
+      <Text style={[{ fontFamily: 'DMSans-Medium', fontSize: 13, color: '#fff', textAlign: 'center' }, fontFamily ? { fontFamily } : {}]}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
 
-const styles = StyleSheet.create({
-  masterContainer: { flex: 1, backgroundColor: BRAND.lightBg },
+const getStyles = (colors: AppThemeColors, isDark: boolean) => StyleSheet.create({
+  masterContainer: { flex: 1, backgroundColor: colors.bg },
   safeArea: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
-  headerBtnOutline: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
+  headerBtnOutline: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? colors.subCard : 'transparent' },
   headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerTitle: { fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', letterSpacing: -0.5 },
+  headerTitle: { fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text, letterSpacing: -0.5 },
   notificationDot: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND.red },
   mainContent: { paddingHorizontal: 24, flex: 1, paddingTop: 8 },
-  clockInCard: { backgroundColor: '#FFFFFF', borderRadius: 28, padding: 24, flexDirection: 'row', alignItems: 'center', shadowColor: BRAND.blue, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.1, shadowRadius: 24, elevation: 8, marginBottom: 40 },
-  clockInIconContainer: { width: 64, height: 64, borderRadius: 20, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  clockInCard: { backgroundColor: colors.card, borderRadius: 28, padding: 24, flexDirection: 'row', alignItems: 'center', shadowColor: isDark ? '#000' : BRAND.blue, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.1, shadowRadius: 24, elevation: 8, marginBottom: 40, borderWidth: isDark ? 1 : 0, borderColor: colors.cardBorder },
+  clockInIconContainer: { width: 64, height: 64, borderRadius: 20, backgroundColor: isDark ? colors.subCard : '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
   clockInTextContainer: { flex: 1 },
-  clockInTitle: { fontFamily: 'DMSans-Bold', fontSize: 22, color: '#0F172A', marginBottom: 4 },
-  clockInSub: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#64748B' },
+  clockInTitle: { fontFamily: 'DMSans-Bold', fontSize: 22, color: colors.text, marginBottom: 4 },
+  clockInSub: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted },
+  activeShiftCard: {
+    backgroundColor: isDark ? colors.card : '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 36,
+    borderWidth: 1.5,
+    borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : '#BBF7D0',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.3 : 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  activeShiftHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  activePulseBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  activePulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  activePulseText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 11,
+    color: '#10B981',
+    letterSpacing: 0.5,
+  },
+  activeShiftTime: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 12,
+    color: colors.textSubtle,
+  },
+  activeShiftBody: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  activeShiftTitle: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 18,
+    color: colors.text,
+  },
+  activeShiftElapsed: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 13,
+    color: colors.brandBlue,
+    marginTop: 2,
+  },
+  clockOutBtn: {
+    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
+    borderRadius: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  clockOutBtnText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 14,
+    color: '#EF4444',
+  },
+  completedShiftCard: {
+    backgroundColor: isDark ? colors.card : '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 36,
+    borderWidth: 1,
+    borderColor: isDark ? colors.cardBorder : '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: isDark ? 0.2 : 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   bubbleRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, marginBottom: 40 },
   bubbleBtn: { alignItems: 'center', gap: 12 },
-  bubbleCircle: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 10 },
-  bubbleText: { fontFamily: 'DMSans-Medium', fontSize: 14, color: '#1D2D44' },
-  infoCard: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 24, shadowColor: '#C0C2C9', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 5 },
-  dispatchWidget: { backgroundColor: '#FFFFFF', borderRadius: 24, borderWidth: 1, borderColor: '#DBEAFE', overflow: 'hidden', shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8, marginTop: 12 },
-  dispatchHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#EFF6FF', padding: 16, borderBottomWidth: 1, borderBottomColor: '#DBEAFE' },
-  dispatchIconContainer: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  dispatchWidgetTitle: { fontFamily: 'DMSans-Bold', fontSize: 13, color: '#1E3A8A', letterSpacing: 1 },
-  dispatchWidgetSub: { fontFamily: 'DMSans-Medium', fontSize: 11, color: '#3B82F6' },
+  bubbleCircle: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 10, shadowColor: isDark ? '#000' : undefined },
+  bubbleText: { fontFamily: 'DMSans-Medium', fontSize: 14, color: colors.text },
+  infoCard: { backgroundColor: colors.card, borderRadius: 24, padding: 24, shadowColor: isDark ? '#000' : '#C0C2C9', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 5, borderWidth: isDark ? 1 : 0, borderColor: colors.cardBorder },
+  dispatchWidget: { backgroundColor: colors.card, borderRadius: 24, borderWidth: 1, borderColor: isDark ? colors.cardBorder : '#DBEAFE', overflow: 'hidden', shadowColor: isDark ? '#000' : '#3B82F6', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8, marginTop: 12 },
+  dispatchHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? colors.subCard : '#EFF6FF', padding: 16, borderBottomWidth: 1, borderBottomColor: isDark ? colors.cardBorder : '#DBEAFE' },
+  dispatchIconContainer: { width: 32, height: 32, borderRadius: 16, backgroundColor: isDark ? '#1E293B' : '#DBEAFE', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  dispatchWidgetTitle: { fontFamily: 'DMSans-Bold', fontSize: 13, color: colors.brandBlue, letterSpacing: 1 },
+  dispatchWidgetSub: { fontFamily: 'DMSans-Medium', fontSize: 11, color: isDark ? colors.textMuted : '#3B82F6' },
   dispatchBody: { padding: 20 },
-  dispatchDestination: { fontFamily: 'DMSans-Bold', fontSize: 18, color: '#0F172A', marginBottom: 8 },
-  dispatchClient: { fontFamily: 'DMSans-Medium', fontSize: 14, color: '#64748B' },
-  dispatchAction: { backgroundColor: '#3B82F6', padding: 16, alignItems: 'center' },
+  dispatchDestination: { fontFamily: 'DMSans-Bold', fontSize: 18, color: colors.text, marginBottom: 8 },
+  dispatchClient: { fontFamily: 'DMSans-Medium', fontSize: 14, color: colors.textMuted },
+  dispatchAction: { backgroundColor: colors.brandBlue, padding: 16, alignItems: 'center' },
   dispatchActionText: { fontFamily: 'DMSans-Bold', fontSize: 14, color: '#FFFFFF' },
-  infoTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#0F172A', marginBottom: 6 },
-  infoSub: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#64748B', lineHeight: 20 },
+  infoTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.text, marginBottom: 6 },
+  infoSub: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted, lineHeight: 20 },
   floatingMenuContainer: { position: 'absolute', bottom: 32, left: 0, right: 0, alignItems: 'center' },
   menuPill: { backgroundColor: BRAND.blue, paddingVertical: 16, paddingHorizontal: 40, borderRadius: 32, shadowColor: BRAND.yellow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.6, shadowRadius: 16, elevation: 12 },
   menuPillText: { fontFamily: 'DMSans-Bold', fontSize: 16, color: BRAND.yellow },
-  menuOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.95)' },
+  menuOverlay: { flex: 1, backgroundColor: isDark ? 'rgba(11, 15, 23, 0.96)' : 'rgba(15, 23, 42, 0.95)' },
   menuContent: { flex: 1 },
   menuHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24 },
   menuHeaderText: { fontFamily: 'DMSans-Bold', fontSize: 20, color: '#fff' },
   closeBtnTop: { padding: 8 },
   menuScroll: { paddingHorizontal: 24 },
-  categoryTitle: { fontFamily: 'DMSans-Bold', fontSize: 22, color: '#fff', marginTop: 24, marginBottom: 20 },
+  categoryTitle: { fontFamily: 'DMSans-Bold', fontSize: 22, color: '#fff', marginTop: 12, marginBottom: 12 },
   menuGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', paddingTop: 8, paddingBottom: 8 },
-  gridItem: { width: '33.33%', alignItems: 'center', marginBottom: 24, marginTop: 8 },
-  gridIconCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  gridItem: { width: '33.33%', alignItems: 'center', marginBottom: 12, marginTop: 4 },
+  gridIconCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? colors.subCard : '#fff', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   gridItemText: { fontFamily: 'DMSans-Medium', fontSize: 13, color: '#fff', textAlign: 'center' },
   bottomCloseContainer: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center' },
   flowerCloseBtn: { alignItems: 'center', justifyContent: 'center' },
-  flowerRing1: { width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(251, 191, 36, 0.15)', justifyContent: 'center', alignItems: 'center' },
-  flowerRing2: { width: 100, height: 100, borderRadius: 50, backgroundColor: BRAND.blue, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: BRAND.yellow },
+  flowerRing1: { width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(251, 191, 36, 0.15)', justifyContent: 'center', alignItems: 'center' },
+  flowerRing2: { width: 76, height: 76, borderRadius: 38, backgroundColor: BRAND.blue, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: BRAND.yellow },
   flowerText: { fontFamily: 'DMSans-Bold', fontSize: 12, color: BRAND.yellow, textAlign: 'center', lineHeight: 16 },
-  verificationOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  verificationCard: { backgroundColor: '#fff', borderRadius: 24, width: '100%', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10 },
+  verificationOverlay: { flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  verificationCard: { backgroundColor: colors.card, borderRadius: 24, width: '100%', overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10, borderWidth: isDark ? 1 : 0, borderColor: colors.cardBorder },
   verifyingState: { padding: 48, alignItems: 'center' },
-  verifyingText: { fontFamily: 'DMSans-Medium', fontSize: 16, color: '#64748B', marginTop: 20 },
+  verifyingText: { fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.textMuted, marginTop: 20 },
   fallbackState: { padding: 24 },
   fallbackHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  fallbackTitle: { fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A' },
-  fallbackSub: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#64748B', marginBottom: 24 },
-  mapContainer: { height: 200, borderRadius: 16, overflow: 'hidden', backgroundColor: '#F1F5F9', marginBottom: 24 },
+  fallbackTitle: { fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text },
+  fallbackSub: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted, marginBottom: 24 },
+  mapContainer: { height: 200, borderRadius: 16, overflow: 'hidden', backgroundColor: isDark ? colors.subCard : '#F1F5F9', marginBottom: 24 },
   map: { width: '100%', height: '100%' },
-  fallbackBtn: { backgroundColor: BRAND.blue, paddingVertical: 16, borderRadius: 16, alignItems: 'center' },
+  fallbackBtn: { backgroundColor: colors.brandBlue, paddingVertical: 16, borderRadius: 16, alignItems: 'center' },
   fallbackBtnText: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#fff' },
-  profileOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  profileSheet: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 48, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20 },
-  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', alignSelf: 'center', marginBottom: 24 },
+  profileOverlay: { flex: 1, backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  profileSheet: { backgroundColor: colors.card, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 48, shadowColor: '#000', shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20, borderWidth: isDark ? 1 : 0, borderColor: colors.cardBorder },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: isDark ? '#334155' : '#CBD5E1', alignSelf: 'center', marginBottom: 24 },
   profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 32 },
-  profileAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  profileAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: isDark ? colors.subCard : '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
   profileInfo: { flex: 1 },
-  profileName: { fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A', marginBottom: 4 },
-  profileRole: { fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B', letterSpacing: 1 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ECFDF5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  profileName: { fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text, marginBottom: 4 },
+  profileRole: { fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted, letterSpacing: 1 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND.green, marginRight: 6 },
   statusText: { fontFamily: 'DMSans-Medium', fontSize: 12, color: BRAND.green },
   closeProfileBtn: { position: 'absolute', top: 24, right: 24, width: 32, height: 32, justifyContent: 'center', alignItems: 'flex-end' },
   profileMenu: { marginTop: 8 },
-  profileMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  profileMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9' },
   profileMenuIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-  profileMenuText: { flex: 1, fontFamily: 'DMSans-Medium', fontSize: 16, color: '#1E293B' },
+  profileMenuText: { flex: 1, fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.text },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  modalTitle: { fontFamily: 'DMSans-Bold', fontSize: 24, color: '#0F172A' },
-  dtrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  dtrDate: { fontFamily: 'DMSans-Medium', fontSize: 16, color: '#1E293B', marginBottom: 4 },
-  dtrTime: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#64748B' },
-  notifDrawer: { width: width * 0.85, height: '100%', backgroundColor: '#FFFFFF', alignSelf: 'flex-end', shadowColor: '#000', shadowOffset: { width: -10, height: 0 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20 },
-  notifHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: Platform.OS === 'web' ? 24 : 64, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  notifTitle: { fontFamily: 'DMSans-Bold', fontSize: 20, color: '#0F172A' },
-  notifMarkRead: { fontFamily: 'DMSans-Medium', fontSize: 14, color: BRAND.blue },
-  notifItem: { flexDirection: 'row', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', alignItems: 'flex-start' },
-  notifItemUnread: { backgroundColor: '#F8FAFC' },
+  modalTitle: { fontFamily: 'DMSans-Bold', fontSize: 24, color: colors.text },
+  dtrRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9' },
+  dtrDate: { fontFamily: 'DMSans-Medium', fontSize: 16, color: colors.text, marginBottom: 4 },
+  dtrTime: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted },
+  notifDrawer: { width: width * 0.85, height: '100%', backgroundColor: colors.card, alignSelf: 'flex-end', shadowColor: '#000', shadowOffset: { width: -10, height: 0 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20 },
+  notifHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: Platform.OS === 'web' ? 24 : 64, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9' },
+  notifTitle: { fontFamily: 'DMSans-Bold', fontSize: 20, color: colors.text },
+  notifMarkRead: { fontFamily: 'DMSans-Medium', fontSize: 14, color: colors.brandBlue },
+  notifItem: { flexDirection: 'row', padding: 20, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9', alignItems: 'flex-start' },
+  notifItemUnread: { backgroundColor: isDark ? colors.subCard : '#F8FAFC' },
   notifIconCircle: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-  notifItemTitle: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#0F172A', marginBottom: 4 },
-  notifItemDesc: { fontFamily: 'DMSans-Regular', fontSize: 13, color: '#64748B', marginBottom: 8, lineHeight: 18 },
-  notifItemTime: { fontFamily: 'DMSans-Medium', fontSize: 11, color: '#94A3B8' },
-  notifUnreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND.blue, marginTop: 6 },
-  equipItem: { flexDirection: 'row', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', alignItems: 'center' },
-  equipImagePlaceholder: { width: 64, height: 64, borderRadius: 12, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', marginRight: 16, overflow: 'hidden' },
+  notifItemTitle: { fontFamily: 'DMSans-Bold', fontSize: 15, color: colors.text, marginBottom: 4 },
+  notifItemDesc: { fontFamily: 'DMSans-Regular', fontSize: 13, color: colors.textMuted, marginBottom: 8, lineHeight: 18 },
+  notifItemTime: { fontFamily: 'DMSans-Medium', fontSize: 11, color: colors.textSubtle },
+  notifUnreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.brandBlue, marginTop: 6 },
+  notifModernCard: {
+    backgroundColor: isDark ? colors.card : '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: isDark ? colors.cardBorder : '#E2E8F0',
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: isDark ? 0.2 : 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  notifModernCardUnread: {
+    borderLeftWidth: 4,
+    borderColor: isDark ? colors.cardBorder : '#BFDBFE',
+    backgroundColor: isDark ? colors.card : '#F8FAFC',
+  },
+  notifHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  notifBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  notifPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  notifPillText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
+  notifStatusPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  notifStatusText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 10,
+    textTransform: 'uppercase',
+  },
+  notifTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  notifTimeText: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 11,
+    color: colors.textSubtle,
+  },
+  notifDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: colors.brandBlue,
+  },
+  notifActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: isDark ? colors.border : '#F1F5F9',
+  },
+  notifActionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isDark ? colors.subCard : '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  notifActionChipText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 11,
+    color: colors.brandBlue,
+  },
+  updateModernCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDark ? 0.25 : 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  updateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  updateAuthorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  updateAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  updateAuthorName: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 14,
+    color: colors.text,
+  },
+  updatePriorityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  updatePriorityText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 10,
+    letterSpacing: 0.5,
+  },
+  updateExpandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  updateExpandText: {
+    fontFamily: 'DMSans-Bold',
+    fontSize: 12,
+    color: colors.brandBlue,
+  },
+  equipItem: { flexDirection: 'row', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9', alignItems: 'center' },
+  equipImagePlaceholder: { width: 64, height: 64, borderRadius: 12, backgroundColor: isDark ? colors.subCard : '#F8FAFC', justifyContent: 'center', alignItems: 'center', marginRight: 16, overflow: 'hidden' },
   equipImg: { width: '100%', height: '100%', resizeMode: 'cover' },
-  equipTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#0F172A', marginBottom: 4 },
-  equipSub: { fontFamily: 'DMSans-Medium', fontSize: 13, color: '#64748B' },
+  equipTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.text, marginBottom: 4 },
+  equipSub: { fontFamily: 'DMSans-Medium', fontSize: 13, color: colors.textMuted },
   equipStatusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  statusActive: { backgroundColor: '#ECFDF5' },
-  statusOverdue: { backgroundColor: '#FEF2F2' },
+  statusActive: { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5' },
+  statusOverdue: { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEF2F2' },
   equipStatusText: { fontFamily: 'DMSans-Bold', fontSize: 10, letterSpacing: 1 },
   textActive: { color: BRAND.green },
   textOverdue: { color: BRAND.red },
-  newTicketBtn: { backgroundColor: BRAND.blue, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, marginBottom: 16, marginTop: 16 },
+  newTicketBtn: { backgroundColor: colors.brandBlue, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, marginBottom: 16, marginTop: 16 },
   newTicketBtnText: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#fff' },
-  ticketItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  ticketTitle: { fontFamily: 'DMSans-Bold', fontSize: 15, color: '#0F172A', marginBottom: 4 },
-  ticketSub: { fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B' },
+  ticketItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9' },
+  ticketTitle: { fontFamily: 'DMSans-Bold', fontSize: 15, color: colors.text, marginBottom: 4 },
+  ticketSub: { fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted },
   ticketBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  badgeOpen: { backgroundColor: '#FEF3C7' },
-  badgeResolved: { backgroundColor: '#ECFDF5' },
+  badgeOpen: { backgroundColor: isDark ? 'rgba(251, 191, 36, 0.2)' : '#FEF3C7' },
+  badgeResolved: { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5' },
   ticketBadgeText: { fontFamily: 'DMSans-Bold', fontSize: 10, letterSpacing: 1 },
   badgeTextOpen: { color: BRAND.yellow },
   badgeTextResolved: { color: BRAND.green },
-  inputLabel: { fontFamily: 'DMSans-Bold', fontSize: 14, color: '#1E293B', marginBottom: 8, marginTop: 16 },
-  inputField: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontFamily: 'DMSans-Medium', fontSize: 15, color: '#0F172A' },
-  textInput: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontFamily: 'DMSans-Medium', fontSize: 15, color: '#0F172A' },
-  updateCard: { flexDirection: 'row', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', alignItems: 'flex-start' },
+  inputLabel: { fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.text, marginBottom: 8, marginTop: 16 },
+  inputField: { backgroundColor: isDark ? colors.subCard : '#F8FAFC', borderWidth: 1, borderColor: isDark ? colors.cardBorder : '#E2E8F0', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontFamily: 'DMSans-Medium', fontSize: 15, color: colors.text },
+  textInput: { backgroundColor: isDark ? colors.subCard : '#F8FAFC', borderWidth: 1, borderColor: isDark ? colors.cardBorder : '#E2E8F0', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontFamily: 'DMSans-Medium', fontSize: 15, color: colors.text },
+  updateCard: { flexDirection: 'row', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9', alignItems: 'flex-start' },
   categoryPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  categoryPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: 'transparent' },
-  categoryPillActive: { backgroundColor: '#EFF6FF', borderColor: BRAND.blue },
-  categoryPillText: { fontFamily: 'DMSans-Medium', fontSize: 13, color: '#64748B' },
-  categoryPillTextActive: { color: BRAND.blue, fontFamily: 'DMSans-Bold' },
+  categoryPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: isDark ? colors.subCard : '#F1F5F9', borderWidth: 1, borderColor: 'transparent' },
+  categoryPillActive: { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF', borderColor: colors.brandBlue },
+  categoryPillText: { fontFamily: 'DMSans-Medium', fontSize: 13, color: colors.textMuted },
+  categoryPillTextActive: { color: colors.brandBlue, fontFamily: 'DMSans-Bold' },
   submitBtn: { backgroundColor: BRAND.green, paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 32 },
   submitBtnText: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#fff' },
-  updateItem: { flexDirection: 'row', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', alignItems: 'flex-start' },
-  updateIconWrap: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-  updateTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#0F172A', marginBottom: 6 },
-  updateSub: { fontFamily: 'DMSans-Medium', fontSize: 12, color: '#64748B', marginBottom: 12 },
-  updateContent: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#475569', lineHeight: 22 },
-  woItem: { flexDirection: 'row', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', alignItems: 'center' },
-  woTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: '#0F172A', marginBottom: 4 },
-  woDesc: { fontFamily: 'DMSans-Regular', fontSize: 14, color: '#475569', marginBottom: 8 },
+  updateItem: { flexDirection: 'row', paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9', alignItems: 'flex-start' },
+  updateIconWrap: { width: 44, height: 44, borderRadius: 22, backgroundColor: isDark ? colors.subCard : '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  updateTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.text, marginBottom: 6 },
+  updateSub: { fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.textMuted, marginBottom: 12 },
+  updateContent: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted, lineHeight: 22 },
+  woItem: { flexDirection: 'row', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: isDark ? colors.border : '#F1F5F9', alignItems: 'center' },
+  woTitle: { fontFamily: 'DMSans-Bold', fontSize: 16, color: colors.text, marginBottom: 4 },
+  woDesc: { fontFamily: 'DMSans-Regular', fontSize: 14, color: colors.textMuted, marginBottom: 8 },
   woDate: { fontFamily: 'DMSans-Medium', fontSize: 12, color: BRAND.yellow },
   woActionBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
-  woPending: { backgroundColor: '#fff', borderColor: '#E2E8F0' },
-  woCompleted: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
-  payslipCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  woPending: { backgroundColor: colors.card, borderColor: isDark ? colors.cardBorder : '#E2E8F0' },
+  woCompleted: { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5', borderColor: isDark ? '#065F46' : '#A7F3D0' },
+  payslipCard: { backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: isDark ? colors.cardBorder : '#F1F5F9', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   payslipHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  payslipPeriodTitle: { fontFamily: 'DMSans-Bold', fontSize: 10, color: '#94A3B8', letterSpacing: 1, marginBottom: 4 },
-  payslipPeriod: { fontFamily: 'DMSans-Bold', fontSize: 14, color: '#0F172A' },
-  payslipNetBox: { backgroundColor: '#ECFDF5', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'flex-end' },
+  payslipPeriodTitle: { fontFamily: 'DMSans-Bold', fontSize: 10, color: colors.textSubtle, letterSpacing: 1, marginBottom: 4 },
+  payslipPeriod: { fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.text },
+  payslipNetBox: { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'flex-end' },
   payslipNetLabel: { fontFamily: 'DMSans-Medium', fontSize: 10, color: BRAND.green, marginBottom: 2 },
   payslipNetValue: { fontFamily: 'DMSans-Bold', fontSize: 16, color: BRAND.green },
   payslipDetails: { marginTop: 16 },
-  payslipDivider: { height: 1, backgroundColor: '#F1F5F9', marginBottom: 16 },
+  payslipDivider: { height: 1, backgroundColor: isDark ? colors.border : '#F1F5F9', marginBottom: 16 },
   payslipRow: { flexDirection: 'row', justifyContent: 'space-between' },
   payslipCol: { flex: 1, paddingRight: 8 },
-  payslipSectionTitle: { fontFamily: 'DMSans-Bold', fontSize: 12, color: '#0F172A', marginBottom: 12 },
+  payslipSectionTitle: { fontFamily: 'DMSans-Bold', fontSize: 12, color: colors.text, marginBottom: 12 },
   payslipLineItem: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  payslipLineLabel: { fontFamily: 'DMSans-Regular', fontSize: 12, color: '#64748B' },
-  payslipLineValue: { fontFamily: 'DMSans-Medium', fontSize: 12, color: '#0F172A' },
+  payslipLineLabel: { fontFamily: 'DMSans-Regular', fontSize: 12, color: colors.textMuted },
+  payslipLineValue: { fontFamily: 'DMSans-Medium', fontSize: 12, color: colors.text },
   payslipFooter: { marginTop: 16, alignItems: 'center' },
-  payslipFooterText: { fontFamily: 'DMSans-Medium', fontSize: 10, color: '#CBD5E1' },
-  payslipSectionCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  payslipFooterText: { fontFamily: 'DMSans-Medium', fontSize: 10, color: colors.textSubtle },
+  payslipSectionCard: { backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2, borderWidth: isDark ? 1 : 0, borderColor: colors.cardBorder },
   payslipLine: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

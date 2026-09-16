@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "TechnoSys Mobile",
+    "name": "TechnoCycle",
     "slug": "technosys-app",
     "version": "0.5.0",
     "orientation": "portrait",
@@ -10,18 +10,22 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "config": {
-        "googleMapsApiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+        "googleMapsApiKey": "AIzaSyC3u_bUxVcLxnHfWrBsi0me2R3MKQ-WV1Y"
+      },
+      "bundleIdentifier": "com.technosys.hrismobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
+          "apiKey": "AIzaSyC3u_bUxVcLxnHfWrBsi0me2R3MKQ-WV1Y"
         }
       },
       "adaptiveIcon": {
-        "backgroundColor": "#0f172a",
+        "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -45,10 +49,10 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0f172a",
+          "backgroundColor": "#ffffff",
           "android": {
             "image": "./assets/images/splash-icon.png",
-            "imageWidth": 200
+            "imageWidth": 180
           }
         }
       ],
@@ -73,6 +77,12 @@
       "eas": {
         "projectId": "36119a6f-9feb-4d18-a676-6cfc6f20844d"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/36119a6f-9feb-4d18-a676-6cfc6f20844d"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     },
     "owner": "technosyss-team"
   }

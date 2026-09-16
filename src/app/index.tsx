@@ -1,40 +1,58 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter as useExpoRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as SplashScreen from 'expo-splash-screen';
+import { 
+  StyleSheet, 
+  Text, 
+  View, 
+  TouchableOpacity, 
+  SafeAreaView, 
+  TextInput, 
+  Alert, 
+  ActivityIndicator, 
+  Image 
+} from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { useAppTheme } from '../hooks/use-theme';
 
-// TECHONOSYS PRO BRAND COLORS
 const BRAND = {
-  blue: '#1E3A8A',    
-  yellow: '#FBBF24',  
-  green: '#10B981',   
-  red: '#EF4444',     
-  lightBg: '#F8FAFC',
+  blue: '#1E3A8A',
+  yellow: '#FBBF24',
+  green: '#10B981',
+  lightBg: '#F8FAFC'
 };
 
-export default function LoginScreen() {
+export default function RootLoginScreen() {
   const router = useExpoRouter();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => getStyles(colors, isDark), [colors, isDark]);
   const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
   const [phoneNumber, setPhoneNumber] = useState('+639');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        router.replace('/(tabs)' as any);
+        router.replace('/(tabs)');
+        // Allow tabs to mount before dismissing splash screen
+        setTimeout(() => {
+          SplashScreen.hideAsync().catch(() => {});
+        }, 120);
       } else {
         setLoading(false);
+        SplashScreen.hideAsync().catch(() => {});
       }
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        router.replace('/(tabs)' as any);
+        router.replace('/(tabs)');
+        SplashScreen.hideAsync().catch(() => {});
       }
     });
     
@@ -44,28 +62,25 @@ export default function LoginScreen() {
   }, []);
 
   const handlePhoneLogin = async () => {
+    setLoginError(null);
     if (!phoneNumber || phoneNumber.length < 10) {
-      Alert.alert('Error', 'Please enter a valid mobile number.');
+      setLoginError('Please enter a valid mobile number.');
       return;
     }
     setLoading(true);
     
-    // TEMPORARY MOCK FOR PHONE LOGIN:
-    // Because we need a real Supabase session for RLS to work, but we don't have SMS OTP yet,
-    // we use an RPC to find the email attached to this phone, then use a default password.
     try {
       const { data: emailAttached, error: rpcError } = await supabase.rpc('get_email_from_contact', { p_contact: phoneNumber });
       
       if (rpcError || !emailAttached) {
-         Alert.alert('Access Denied', 'Number not found in the database. Please contact HR.');
+         setLoginError('Number not found. Please contact HR.');
          setLoading(false);
          return;
       }
       
-      // Attempt login with a universal default password for testing phase
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: emailAttached,
-        password: 'password123', // Assumption for testing
+        password: 'password123',
       });
 
       if (authError) {
@@ -79,8 +94,9 @@ export default function LoginScreen() {
   };
 
   const handleEmailLogin = async () => {
+    setLoginError(null);
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password.');
+      setLoginError('Please enter both email and password.');
       return;
     }
     setLoading(true);
@@ -90,23 +106,19 @@ export default function LoginScreen() {
     });
 
     if (error) {
-      Alert.alert('Login Failed', error.message);
+      setLoginError(error.message);
       setLoading(false);
     }
   };
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={BRAND.blue} />
-      </View>
-    );
+    return null;
   }
 
   return (
     <View style={styles.masterContainer}>
       <LinearGradient
-        colors={['#FFFFFF', '#F8FAFC', '#E2E8F0']}
+        colors={isDark ? ['#0B0F17', '#131B26', '#0B0F17'] : ['#FFFFFF', '#F8FAFC', '#E2E8F0']}
         locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -116,20 +128,21 @@ export default function LoginScreen() {
             source={require('../../assets/logo.png')} 
             style={styles.logo}
           />
-          <Text style={styles.title}>TechnoSys Pro</Text>
-          <Text style={styles.subtitle}>Technician Action Kiosk</Text>
+          <Text style={styles.title}>TechnoCycle</Text>
+          <Text style={styles.subtitle}>Field Service Operations</Text>
 
           <View style={styles.inputCard}>
             
             {loginMethod === 'phone' ? (
               <>
                 <Text style={styles.methodTitle}>Mobile Access</Text>
+                {loginError && <Text style={{color: '#EF4444', marginBottom: 12, textAlign: 'center', fontFamily: 'DMSans-Medium'}}>{loginError}</Text>}
                 <View style={styles.inputWrapper}>
-                  <Feather name="phone" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Feather name="phone" size={20} color={colors.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="+639..."
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor={colors.textSubtle}
                     value={phoneNumber}
                     onChangeText={setPhoneNumber}
                     keyboardType="phone-pad"
@@ -147,12 +160,13 @@ export default function LoginScreen() {
             ) : (
               <>
                 <Text style={styles.methodTitle}>Email Access</Text>
+                {loginError && <Text style={{color: '#EF4444', marginBottom: 12, textAlign: 'center', fontFamily: 'DMSans-Medium'}}>{loginError}</Text>}
                 <View style={styles.inputWrapper}>
-                  <Feather name="mail" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Feather name="mail" size={20} color={colors.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="Work Email"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor={colors.textSubtle}
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"
@@ -161,11 +175,11 @@ export default function LoginScreen() {
                 </View>
 
                 <View style={styles.inputWrapper}>
-                  <Feather name="lock" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Feather name="lock" size={20} color={colors.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="Password"
-                    placeholderTextColor="#94A3B8"
+                    placeholderTextColor={colors.textSubtle}
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry
@@ -189,15 +203,16 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.bg,
   },
   masterContainer: {
     flex: 1,
+    backgroundColor: colors.bg,
   },
   safeArea: {
     flex: 1,
@@ -217,38 +232,42 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: 'DMSans-Bold',
     fontSize: 32,
-    color: '#0F172A',
+    color: colors.text,
     marginBottom: 8,
   },
   subtitle: {
     fontFamily: 'DMSans-Medium',
     fontSize: 16,
-    color: '#64748B',
+    color: colors.textMuted,
     marginBottom: 40,
   },
   inputCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     width: '100%',
     padding: 24,
     borderRadius: 24,
-    shadowColor: BRAND.blue,
+    borderWidth: isDark ? 1 : 0,
+    borderColor: colors.cardBorder,
+    shadowColor: isDark ? '#000' : BRAND.blue,
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.1,
+    shadowOpacity: isDark ? 0.3 : 0.1,
     shadowRadius: 24,
     elevation: 8,
   },
   methodTitle: {
     fontFamily: 'DMSans-Bold',
     fontSize: 18,
-    color: '#0F172A',
+    color: colors.text,
     marginBottom: 20,
     textAlign: 'center',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.inputBg,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.inputBorder,
     paddingHorizontal: 16,
     marginBottom: 16,
     height: 56,
@@ -260,7 +279,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: 'DMSans-Regular',
     fontSize: 16,
-    color: '#0F172A',
+    color: colors.text,
   },
   loginBtn: {
     backgroundColor: BRAND.blue,
@@ -288,7 +307,6 @@ const styles = StyleSheet.create({
   switchBtnText: {
     fontFamily: 'DMSans-Medium',
     fontSize: 14,
-    color: BRAND.blue,
+    color: isDark ? colors.brandBlue : BRAND.blue,
   }
 });
-

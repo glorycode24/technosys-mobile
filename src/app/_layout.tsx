@@ -3,11 +3,18 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CopilotProvider } from 'react-native-copilot';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { BackHandler, Alert, View } from 'react-native';
+import { BackHandler, Alert, LogBox } from 'react-native';
 import { useFonts, DMSans_400Regular, DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
 import * as SplashScreen from 'expo-splash-screen';
+import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 
 SplashScreen.preventAutoHideAsync();
+LogBox.ignoreLogs(['Accessing element.ref was removed']);
+
+function RootStatusBar() {
+  const { isDark } = useAppTheme();
+  return <StatusBar style={isDark ? 'light' : 'dark'} />;
+}
 
 export default function RootLayout() {
   const router = useRouter();
@@ -18,11 +25,13 @@ export default function RootLayout() {
     'DMSans-Bold': DMSans_700Bold,
   });
 
+  // Safety fallback timeout to ensure native splash never freezes
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+    const timer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const onBackPress = () => {
@@ -31,7 +40,7 @@ export default function RootLayout() {
         return true;
       } else {
         // At root (Home or Login)
-        Alert.alert('Exit App', 'Are you sure you want to exit TechnoSys Mobile?', [
+        Alert.alert('Exit App', 'Are you sure you want to exit TechnoCycle?', [
           {
             text: 'Cancel',
             onPress: () => null,
@@ -48,15 +57,17 @@ export default function RootLayout() {
   }, [router]);
 
   if (!fontsLoaded && !fontError) {
-    return null; // Return null to keep splash screen up until fonts are loaded
+    return null;
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="dark" />
-      <CopilotProvider tooltipStyle={{ backgroundColor: '#ffffff', borderRadius: 16 }} stepNumberComponent={() => null}>
-        <Slot />
-      </CopilotProvider>
-    </SafeAreaProvider>
+    <ThemeProvider>
+      <SafeAreaProvider>
+        <RootStatusBar />
+        <CopilotProvider tooltipStyle={{ backgroundColor: '#ffffff', borderRadius: 16 }} stepNumberComponent={() => null}>
+          <Slot />
+        </CopilotProvider>
+      </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
