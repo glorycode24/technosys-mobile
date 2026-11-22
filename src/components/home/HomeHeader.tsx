@@ -2,7 +2,7 @@
 // (Updates) with how many you haven't opened. Personal answers from HR stay in the Inbox tab.
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Href, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useT } from '../../lib/i18n';
 import { countUnreadUpdates, onInboxRead, watchInbox } from '../../lib/inbox';
@@ -21,7 +21,7 @@ export default function HomeHeader() {
   return (
     <View style={{ marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <Txt variant="title" accessibilityRole="header">{t('home.todayDate', { date })}</Txt>
-      <Pressable onPress={() => router.push('/updates')} hitSlop={10} accessibilityRole="button"
+      <Pressable onPress={() => router.push('/updates' as Href)} hitSlop={10} accessibilityRole="button"
         accessibilityLabel={unread ? t('home.bellUnread', { n: unread }) : t('home.bell')}
         style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: c.tint, opacity: pressed ? 0.7 : 1 })}>
         <Feather name="bell" size={21} color={c.brand} />
